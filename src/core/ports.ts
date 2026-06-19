@@ -11,6 +11,8 @@ export interface StoredItem {
   userId: string;
   name: string;
   inInventory: boolean;
+  /** A draft is a freshly-classified candidate awaiting review/confirm; excluded from the closet. */
+  draft: boolean;
   rawText?: string;
   classification: ItemClassification;
   createdAt: string;
@@ -29,6 +31,8 @@ export interface StoredTrip {
 export interface AddItemInput {
   name: string;
   inInventory: boolean;
+  /** Defaults to false (saved). The review-before-save flow adds with draft: true. */
+  draft?: boolean;
   rawText?: string;
   classification: ItemClassification;
 }
@@ -46,6 +50,8 @@ export interface GearRepository {
   addItem(userId: string, input: AddItemInput): Promise<StoredItem>;
   updateClassification(userId: string, id: string, classification: ItemClassification): Promise<StoredItem | null>;
   setInventory(userId: string, id: string, inInventory: boolean): Promise<StoredItem | null>;
+  /** Confirm/unconfirm a draft. Confirming (draft=false) promotes a candidate into the closet. */
+  setDraft(userId: string, id: string, draft: boolean): Promise<StoredItem | null>;
   deleteItem(userId: string, id: string): Promise<void>;
 
   listTrips(userId: string): Promise<StoredTrip[]>;

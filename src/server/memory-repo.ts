@@ -21,6 +21,7 @@ function ensureSeeded(userId: string) {
       userId,
       name: e.classification.name,
       inInventory: e.inInventory,
+      draft: false,
       rawText: e.input.text,
       classification: structuredClone(e.classification),
       createdAt: now,
@@ -51,6 +52,7 @@ export const memoryRepository: GearRepository = {
       userId,
       name: input.name,
       inInventory: input.inInventory,
+      draft: input.draft ?? false,
       rawText: input.rawText,
       classification: structuredClone(input.classification),
       createdAt: new Date().toISOString(),
@@ -69,6 +71,12 @@ export const memoryRepository: GearRepository = {
     const found = items(userId).find((i) => i.id === id);
     if (!found) return null;
     found.inInventory = inInventory;
+    return structuredClone(found);
+  },
+  async setDraft(userId, id, draft) {
+    const found = items(userId).find((i) => i.id === id);
+    if (!found) return null;
+    found.draft = draft;
     return structuredClone(found);
   },
   async deleteItem(userId, id) {

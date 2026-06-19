@@ -1,0 +1,1253 @@
+{
+  "id": "da113c3c-7326-4598-908e-af8fc2f13785",
+  "prevId": "d033bb37-b352-46f9-a236-86b56f3791ce",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.item_carry": {
+      "name": "item_carry",
+      "schema": "",
+      "columns": {
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "capacity_liters": {
+          "name": "capacity_liters",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "capacity_liters_src": {
+          "name": "capacity_liters_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "suspension": {
+          "name": "suspension",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "suspension_conf": {
+          "name": "suspension_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "suspension_src": {
+          "name": "suspension_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "max_comfortable_load_kg": {
+          "name": "max_comfortable_load_kg",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "max_comfortable_load_conf": {
+          "name": "max_comfortable_load_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "max_comfortable_load_src": {
+          "name": "max_comfortable_load_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "item_carry_item_id_items_id_fk": {
+          "name": "item_carry_item_id_items_id_fk",
+          "tableFrom": "item_carry",
+          "tableTo": "items",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.item_footwear": {
+      "name": "item_footwear",
+      "schema": "",
+      "columns": {
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "support_stiffness": {
+          "name": "support_stiffness",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "support_stiffness_conf": {
+          "name": "support_stiffness_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "support_stiffness_src": {
+          "name": "support_stiffness_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ankle_height": {
+          "name": "ankle_height",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ankle_height_conf": {
+          "name": "ankle_height_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ankle_height_src": {
+          "name": "ankle_height_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "crampon_compat": {
+          "name": "crampon_compat",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "crampon_compat_src": {
+          "name": "crampon_compat_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "water_management": {
+          "name": "water_management",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "water_management_conf": {
+          "name": "water_management_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "water_management_src": {
+          "name": "water_management_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "item_footwear_item_id_items_id_fk": {
+          "name": "item_footwear_item_id_items_id_fk",
+          "tableFrom": "item_footwear",
+          "tableTo": "items",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.item_insulation": {
+      "name": "item_insulation",
+      "schema": "",
+      "columns": {
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "fill_type": {
+          "name": "fill_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fill_type_src": {
+          "name": "fill_type_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fill_power": {
+          "name": "fill_power",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fill_power_src": {
+          "name": "fill_power_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fill_species": {
+          "name": "fill_species",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fill_species_src": {
+          "name": "fill_species_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fill_weight_g": {
+          "name": "fill_weight_g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fill_weight_src": {
+          "name": "fill_weight_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hydrophobic_treatment": {
+          "name": "hydrophobic_treatment",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hydrophobic_treatment_src": {
+          "name": "hydrophobic_treatment_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wet_performance": {
+          "name": "wet_performance",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wet_performance_conf": {
+          "name": "wet_performance_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wet_performance_src": {
+          "name": "wet_performance_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_for_weight": {
+          "name": "warmth_for_weight",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_for_weight_conf": {
+          "name": "warmth_for_weight_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_for_weight_src": {
+          "name": "warmth_for_weight_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "item_insulation_item_id_items_id_fk": {
+          "name": "item_insulation_item_id_items_id_fk",
+          "tableFrom": "item_insulation",
+          "tableTo": "items",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.item_shell": {
+      "name": "item_shell",
+      "schema": "",
+      "columns": {
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "protection_ceiling": {
+          "name": "protection_ceiling",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "protection_ceiling_conf": {
+          "name": "protection_ceiling_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "protection_ceiling_src": {
+          "name": "protection_ceiling_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "seam_sealing": {
+          "name": "seam_sealing",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "seam_sealing_src": {
+          "name": "seam_sealing_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hood": {
+          "name": "hood",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hood_src": {
+          "name": "hood_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pit_zips": {
+          "name": "pit_zips",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pit_zips_src": {
+          "name": "pit_zips_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "item_shell_item_id_items_id_fk": {
+          "name": "item_shell_item_id_items_id_fk",
+          "tableFrom": "item_shell",
+          "tableTo": "items",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.item_sleep": {
+      "name": "item_sleep",
+      "schema": "",
+      "columns": {
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "temp_rating_value": {
+          "name": "temp_rating_value",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "temp_rating_value_src": {
+          "name": "temp_rating_value_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "temp_rating_unit": {
+          "name": "temp_rating_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "temp_rating_unit_src": {
+          "name": "temp_rating_unit_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "temp_rating_standard": {
+          "name": "temp_rating_standard",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "temp_rating_standard_conf": {
+          "name": "temp_rating_standard_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "temp_rating_standard_src": {
+          "name": "temp_rating_standard_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shape": {
+          "name": "shape",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shape_conf": {
+          "name": "shape_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shape_src": {
+          "name": "shape_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pad_r_value_recommended": {
+          "name": "pad_r_value_recommended",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pad_r_value_conf": {
+          "name": "pad_r_value_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pad_r_value_src": {
+          "name": "pad_r_value_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "item_sleep_item_id_items_id_fk": {
+          "name": "item_sleep_item_id_items_id_fk",
+          "tableFrom": "item_sleep",
+          "tableTo": "items",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.item_treatments": {
+      "name": "item_treatments",
+      "schema": "",
+      "columns": {
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "treatment_id": {
+          "name": "treatment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "condition": {
+          "name": "condition",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "item_treatments_item_id_items_id_fk": {
+          "name": "item_treatments_item_id_items_id_fk",
+          "tableFrom": "item_treatments",
+          "tableTo": "items",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "item_treatments_treatment_id_treatments_id_fk": {
+          "name": "item_treatments_treatment_id_treatments_id_fk",
+          "tableFrom": "item_treatments",
+          "tableTo": "treatments",
+          "columnsFrom": [
+            "treatment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "item_treatments_item_id_treatment_id_pk": {
+          "name": "item_treatments_item_id_treatment_id_pk",
+          "columns": [
+            "item_id",
+            "treatment_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.items": {
+      "name": "items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "brand": {
+          "name": "brand",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_cents": {
+          "name": "price_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_src": {
+          "name": "price_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "weight_grams": {
+          "name": "weight_grams",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "weight_src": {
+          "name": "weight_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "upf": {
+          "name": "upf",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "upf_src": {
+          "name": "upf_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "waterproofness": {
+          "name": "waterproofness",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "waterproofness_conf": {
+          "name": "waterproofness_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "waterproofness_src": {
+          "name": "waterproofness_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wind_resistance": {
+          "name": "wind_resistance",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wind_resistance_conf": {
+          "name": "wind_resistance_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wind_resistance_src": {
+          "name": "wind_resistance_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "breathability": {
+          "name": "breathability",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "breathability_conf": {
+          "name": "breathability_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "breathability_src": {
+          "name": "breathability_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "moisture_management": {
+          "name": "moisture_management",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "moisture_management_conf": {
+          "name": "moisture_management_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "moisture_management_src": {
+          "name": "moisture_management_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dry_speed": {
+          "name": "dry_speed",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dry_speed_conf": {
+          "name": "dry_speed_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dry_speed_src": {
+          "name": "dry_speed_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_when_wet": {
+          "name": "warmth_when_wet",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_when_wet_conf": {
+          "name": "warmth_when_wet_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_when_wet_src": {
+          "name": "warmth_when_wet_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth": {
+          "name": "warmth",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_conf": {
+          "name": "warmth_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_src": {
+          "name": "warmth_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "packability": {
+          "name": "packability",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "packability_conf": {
+          "name": "packability_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "packability_src": {
+          "name": "packability_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "technical_vs_lifestyle": {
+          "name": "technical_vs_lifestyle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "technical_vs_lifestyle_conf": {
+          "name": "technical_vs_lifestyle_conf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "technical_vs_lifestyle_src": {
+          "name": "technical_vs_lifestyle_src",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "layering_role": {
+          "name": "layering_role",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "function_purpose": {
+          "name": "function_purpose",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "body_zone_covered": {
+          "name": "body_zone_covered",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activity_fit": {
+          "name": "activity_fit",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conditions_fit": {
+          "name": "conditions_fit",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "facets": {
+          "name": "facets",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'::jsonb"
+        },
+        "shell_material_id": {
+          "name": "shell_material_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "membrane_material_id": {
+          "name": "membrane_material_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "insulation_material_id": {
+          "name": "insulation_material_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lining_material_id": {
+          "name": "lining_material_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "classification": {
+          "name": "classification",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raw_text": {
+          "name": "raw_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "in_inventory": {
+          "name": "in_inventory",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "draft": {
+          "name": "draft",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "items_user_idx": {
+          "name": "items_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "items_layering_role_idx": {
+          "name": "items_layering_role_idx",
+          "columns": [
+            {
+              "expression": "layering_role",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "items_function_purpose_idx": {
+          "name": "items_function_purpose_idx",
+          "columns": [
+            {
+              "expression": "function_purpose",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "items_facets_idx": {
+          "name": "items_facets_idx",
+          "columns": [
+            {
+              "expression": "facets",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "items_shell_material_id_materials_id_fk": {
+          "name": "items_shell_material_id_materials_id_fk",
+          "tableFrom": "items",
+          "tableTo": "materials",
+          "columnsFrom": [
+            "shell_material_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "items_membrane_material_id_materials_id_fk": {
+          "name": "items_membrane_material_id_materials_id_fk",
+          "tableFrom": "items",
+          "tableTo": "materials",
+          "columnsFrom": [
+            "membrane_material_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "items_insulation_material_id_materials_id_fk": {
+          "name": "items_insulation_material_id_materials_id_fk",
+          "tableFrom": "items",
+          "tableTo": "materials",
+          "columnsFrom": [
+            "insulation_material_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "items_lining_material_id_materials_id_fk": {
+          "name": "items_lining_material_id_materials_id_fk",
+          "tableFrom": "items",
+          "tableTo": "materials",
+          "columnsFrom": [
+            "lining_material_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.materials": {
+      "name": "materials",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fiber_components": {
+          "name": "fiber_components",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "construction_type": {
+          "name": "construction_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "behavior": {
+          "name": "behavior",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.pending_facets": {
+      "name": "pending_facets",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_key": {
+          "name": "raw_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raw_value": {
+          "name": "raw_value",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "evidence": {
+          "name": "evidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "pending_facets_item_id_items_id_fk": {
+          "name": "pending_facets_item_id_items_id_fk",
+          "tableFrom": "pending_facets",
+          "tableTo": "items",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.treatments": {
+      "name": "treatments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.trips": {
+      "name": "trips",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raw_description": {
+          "name": "raw_description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conditions": {
+          "name": "conditions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "result_snapshot": {
+          "name": "result_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

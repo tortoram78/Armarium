@@ -8,6 +8,7 @@
 //   treatments libraries are intentionally shared/global (no user_id).
 
 import { pgTable, uuid, text, integer, real, boolean, jsonb, timestamp, index, primaryKey } from "drizzle-orm/pg-core";
+import type { ItemClassification } from "@/core/classification";
 
 // ---- shared libraries (global, no user_id) ----
 export const materials = pgTable("materials", {
@@ -70,9 +71,13 @@ export const items = pgTable(
     insulationMaterialId: uuid("insulation_material_id").references(() => materials.id),
     liningMaterialId: uuid("lining_material_id").references(() => materials.id),
 
+    // lossless classification source-of-truth (reads reconstruct StoredItem from this, not typed columns)
+    classification: jsonb("classification").$type<ItemClassification>().notNull(),
+
     // provenance + ownership
     rawText: text("raw_text"),
     inInventory: boolean("in_inventory").notNull().default(false),
+    draft: boolean("draft").notNull().default(false),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => ({
