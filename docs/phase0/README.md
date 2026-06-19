@@ -49,8 +49,16 @@ missing-data behavior, and a Marcy-style gap query.
 |-------|---------|----------|
 | A — `audit-a-typed-relational.md` | SOUND-WITH-FIXES | Single-domain union fights multi-domain gear → `itemDomains[]`; close the `z.string()` enums; harvest `Evidence<T>`/`HardFact<T>` |
 | B — `audit-b-facet-graph.md` | SOUND-WITH-FIXES | Type-safety is aspirational → codegen + CI lint of facet keys; don't silently discard novel facets → `pending_facets`; "no migration" overstated |
-| C — `audit-c-capability-hybrid.md` | ⏳ running | — |
+| C — `audit-c-capability-hybrid.md` | SOUND-WITH-FIXES | Cache can go silently stale on predicate change → add `capability_version`; capability gates must be hot; `item_kind` not authoritative (derive from facets) |
 
-### Synthesis (serial, lead)
-Reconcile into ONE recommended design → `../../DESIGN.md` + proposed Drizzle schema + classification
-rubric. Surface divergences to the user. *(pending Waves 1–3)*
+### Synthesis (serial, lead) — ✅ complete
+Reconciled into ONE recommended design: [`../../DESIGN.md`](../../DESIGN.md) (facet ontology + data
+model + classification approach + rationale + rejected alternatives + edge cases), the proposed Drizzle
+schema (DESIGN.md §6), and the [classification rubric/prompt](classification-rubric.md). Decisions
+captured as [ADR-0003](../decisions/0003-facet-ontology-and-data-model.md) and
+[ADR-0004](../decisions/0004-llm-classification-contract.md).
+
+**Recommended architecture:** capability-first **hybrid** backbone (Architecture C) governed by a facet
+registry (B) and wearing A's null-first evidence shapes + composable domain groups; every audit's top
+fix folded in. **Phase 0 ends here — STOP for approval.** The one load-bearing fork (storage
+architecture) is surfaced to the user in [DESIGN.md §11](../../DESIGN.md).

@@ -13,5 +13,5 @@ question — the facet ontology, schema shape, the classification contract, auth
 ## Index
 - [0001 — Faceted, non-category data model](0001-faceted-data-model.md) — Accepted
 - [0002 — Repository as a living knowledge base](0002-repository-as-knowledge-base.md) — Accepted
-- 0003 — Facet ontology + data model — *pending Phase 0 synthesis*
-- 0004 — LLM classification contract (evidence shape + confidence/unknown) — *pending Phase 0 synthesis*
+- [0003 — Facet ontology + data model (storage architecture)](0003-facet-ontology-and-data-model.md) — **Proposed (awaiting approval)**
+- [0004 — LLM classification contract (evidence shape + confidence/unknown)](0004-llm-classification-contract.md) — **Proposed (awaiting approval)**

@@ -3,6 +3,31 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-19 (synthesis) — Phase 0 coherence gate: DESIGN.md + STOP for approval
+
+- **Audit C → SOUND-WITH-FIXES.** Strength: the `item_capabilities` 3-state status
+  (`satisfies|fails|blocked_unknown`). Critical fix: cache can go silently stale when a *capability
+  predicate* changes → add `capability_version` (checked with `facet_hash`); make capability gates
+  hot-only; `item_kind` must not be authoritative.
+- **All three audits in → coherence gate passed.** Wrote the single integrated artifact
+  [`DESIGN.md`](../../DESIGN.md) + the [classification rubric/prompt](../phase0/classification-rubric.md)
+  + [ADR-0003](../decisions/0003-facet-ontology-and-data-model.md) (storage architecture) and
+  [ADR-0004](../decisions/0004-llm-classification-contract.md) (classification contract).
+- **Recommended design:** capability-first **hybrid** backbone (Architecture C) — typed hot facets +
+  composable optional domain groups (`item_insulation/sleep/shell/carry/footwear`) + Zod-validated JSONB
+  tail — **governed by a facet registry** (Architecture B's best idea) that generates the Zod validators
+  and a CI facet-key lint, **wearing** A's null-first `Evidence<T>`/`HardFact<T>` shapes. Capabilities
+  are first-class 3-state predicates; unknown safety inputs ⇒ `blocked_unknown` ("verify"), never a
+  silent pass. No authoritative category. Every auditor's top fix folded in (DESIGN.md §10).
+- **Verified by design walkthrough:** Marcy query against the 3 owned items → Terre Planing usable as a
+  caveated approach layer, and **exactly the 3 intended gaps** (waterproof/windproof shell, packable
+  wearable insulation, adequate wicking base). Terre Planing can never count as rain protection
+  (`waterproofness=dwr`); Kelty "30" stored with `standard=null, confidence=low` (never upgraded).
+- **STOP — awaiting approval.** One load-bearing fork surfaced to the user: storage architecture
+  (approve hybrid vs prefer pure-A / pure-B). No migrations or feature code until approved.
+- Phase 0 has no code yet, so its gate is the **coherence gate** (one integrated DESIGN.md, no silent
+  contradictions) — `pnpm typecheck/lint/build/test` become live in Phase 1.
+
 ## 2026-06-19 (later) — Phase 0 Waves 2–3: competing architectures + adversarial audits
 
 - **Wave 2 — three blind competing architectures** written to `docs/phase0/architectures/` (Opus):
