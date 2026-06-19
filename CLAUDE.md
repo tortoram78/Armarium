@@ -128,3 +128,10 @@ Run **`/retro`** at the end of every iteration. Promote only durable, broadly-ap
   demotion guard) and test it with failing fixtures — not by prompt wording alone.
 - **Commit research/decisions as markdown as you go** (ADRs, progress, design); the remote container is
   ephemeral and uncommitted work is lost.
+- **`pnpm build` passing is necessary, not sufficient for RSC routes.** Event-handler props on Server
+  Components compile and build cleanly but crash at render (HTTP 500). For any new or changed App Router
+  route, probe it live (`next start` + assert HTTP 200 + spot-check content). Interactive behaviour
+  (onClick, onSubmit, confirm dialogs) always belongs in a `"use client"` component.
+- **Scope `git add` to your own files; never use `-A` while a delegated writer is active.** Stage by
+  explicit path, or commit before dispatching writer agents and re-stage only after they settle. An
+  opportunistic sweep captures in-flight partial writes from concurrent agents.

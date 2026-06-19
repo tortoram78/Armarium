@@ -75,3 +75,63 @@ as we adopt the Operating Kit. The keystone learnings are promoted to `CLAUDE.md
 - **Lesson:** when the regime changes, retrofit the constitution (CLAUDE.md), the agents, the gauntlet,
   and this log *before* resuming feature work.
 - **Promoted:** no (this entry is the record; the adoption commit will be analyzed by the next retro).
+
+---
+
+## 2026-06-19 — Phase 2 full web app: Postgres repo, NL parser, draft lifecycle, and RSC boundary fix (analyzed through `edac40f`)
+
+Covers commits `0b723e3` (Phase 2 core: web app + Postgres repo + NL parser + draft lifecycle),
+`137cfc6` (fix: item-detail 500 — onSubmit across the server/client boundary), and
+`edac40f` (docs: PROGRESS + ADR-0006 + deploy.md). Baseline: `32eb66d` (previous retro entry).
+
+### Phase 2 shipped: full web app, Postgres repo, NL trip parser, and review/save draft lifecycle
+- **Delta:** complete Phase 2 web app across closet, add-by-name → classify → review/save, plan-a-trip
+  (NL + structured conditions → picks + capability gaps + "verify"), and saved trips. Postgres repository
+  impl (lossless `classification` jsonb as read source-of-truth + projected hot columns). NL parser with
+  offline heuristic fallback (ADR-0006). All four gauntlet gates green; live HTTP 200s and LLM-confirmed
+  classification verified. ADR-0006 and deploy.md committed.
+- **Why:** the Phase 0/1 foundation (facet model, capabilities engine, in-memory repo) was complete and
+  approved; Phase 2 is the first deliverable the user can actually run and deploy.
+- **Lesson:** ship end-to-end verticals on a proven foundation rather than layering depth incrementally —
+  the in-memory repo let the web app, classification, and Postgres impl develop and gate independently.
+- **Promoted:** no (confirms existing architecture and workflow; no new rule warranted).
+
+### MISS → FIX: Server Component passed `onSubmit` to `<form>` — HTTP 500 at render despite clean build
+- **Delta:** `/items/[id]` passed `onSubmit={() => confirm("Delete this item?")}` directly on a `<form>`
+  inside a Server Component. `pnpm build` passed; `pnpm typecheck` passed. The route returned HTTP 500 at
+  render. Fixed by extracting a small `"use client"` `ConfirmButton` that keeps the handler on the client
+  side of the boundary. Verified live: GET returns 200, renders correctly, zero boundary errors.
+- **Why:** Next.js App Router's RSC boundary constraint — event handler props cannot cross
+  server→client — is a runtime invariant, not a compile-time one. TypeScript and the Next.js compiler
+  accept the code; the violation only manifests as a render-time crash. `pnpm build` is a build-artifact
+  gate, not a runtime-correctness gate.
+- **Lesson:** **`pnpm build` passing is necessary, not sufficient.** For any new or changed RSC route,
+  probe it live (`next start` + assert HTTP 200 + spot-check rendered content). The specific trap:
+  event-handler props (`onClick`, `onSubmit`, etc.) silently compile in Server Components but crash at
+  render — any interactive behaviour needs a `"use client"` component wrapper.
+- **Promoted:** **yes** — sharpens the existing Workflow gauntlet to make live-probe a named requirement
+  for RSC route changes, not just a visual screenshot check.
+
+### Partial file swept into an unrelated fix commit via `git add -A`
+- **Delta:** `137cfc6` (the boundary fix) inadvertently included a partial draft of `PROGRESS.md` because
+  `git add -A` was run while the docs-owner agent was still writing. The docs commit `edac40f` then
+  completed and overwrote it cleanly, so no data was lost — but the fix commit's diff is polluted with
+  90 lines of unrelated progress notes.
+- **Why:** `git add -A` is a sweep that captures the entire working tree at that instant, including files
+  owned by a concurrently-running writer agent. The fix author and the docs agent were both active on the
+  same working tree.
+- **Lesson:** **scope `git add` to your own files; never use `-A` while a delegated writer agent is
+  active.** Stage by explicit path (e.g., `git add src/app/... src/components/...`), or commit before
+  dispatching writers and only re-stage after they settle.
+- **Promoted:** **yes** — new rule; broadly applicable whenever parallel agents share a working tree.
+
+### In-memory repository is per-process — stateful flow verification needs a shared store
+- **Delta:** verifying stateful multi-step flows (classify → review → save → trip result) required
+  driving the real UI or connecting to Postgres, because a helper script that seeds the in-memory repo
+  can't see a separate `next start` server's store.
+- **Why:** the in-memory impl is a correct single-process singleton. The constraint is fundamental to
+  the architecture, not a bug.
+- **Lesson:** for stateful end-to-end flows, either drive via the real UI (form submits) or use Postgres.
+  Scripted seeding only works against the test harness (same process).
+- **Promoted:** no (narrow verification-tooling note; doesn't generalise beyond this architecture's
+  in-memory/Postgres split).
