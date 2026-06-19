@@ -1,15 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { INVENTORY_SEED } from "@/core/seed-corpus";
 import { resolveFromClassification } from "@/core/resolved";
-import { recommend } from "@/core/recommend";
+import { planTrip } from "@/core/recommend/plan";
 import { evaluateCapability } from "@/core/capabilities";
-import { MARCY_ENVELOPE } from "@/core/trips";
+import { MARCY_CONDITIONS } from "@/core/trips";
 
-// The canonical end-to-end proof: the 3 pre-seeded items against the Mount Marcy plan must surface
-// exactly the three intended gaps and nothing spurious.
-describe("Mount Marcy recommendation over the 3 owned items", () => {
+// The canonical end-to-end proof: the 3 pre-seeded items against the Mount Marcy plan, run through the
+// GENERAL engine (conditions -> derived requirements -> recommend), must surface exactly the three
+// intended gaps and nothing spurious.
+describe("Mount Marcy recommendation over the 3 owned items (via the general engine)", () => {
   const items = INVENTORY_SEED.map((e) => resolveFromClassification(e.slug, e.classification));
-  const result = recommend(items, MARCY_ENVELOPE);
+  const result = planTrip(items, "Mount Marcy", MARCY_CONDITIONS);
 
   it("surfaces exactly the 3 intended gaps", () => {
     const gaps = result.gaps.map((g) => g.capability).sort();
@@ -18,8 +19,7 @@ describe("Mount Marcy recommendation over the 3 owned items", () => {
   });
 
   it("flags the missing weather shell as CRITICAL", () => {
-    const shell = result.gaps.find((g) => g.capability === "weather_shell");
-    expect(shell?.severity).toBe("critical");
+    expect(result.gaps.find((g) => g.capability === "weather_shell")?.severity).toBe("critical");
   });
 
   it("does NOT count the Terre Planing's DWR as a weather shell (fails, not blocked)", () => {

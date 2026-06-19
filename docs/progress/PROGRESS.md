@@ -3,6 +3,29 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-19 (Phase 1) — Foundation + general recommendation engine (gates green)
+
+Approved (hybrid backbone + all five group stubs) → built Phase 1 foundation.
+
+- **Scaffold:** Next 14 App Router + TS + Tailwind + Drizzle + Zod + Anthropic SDK + vitest/tsx; all
+  four gates (`typecheck`/`lint`/`build`/`test`) green and kept green. DB/API-key never needed at
+  build/test (clients lazy/injected).
+- **Core (`src/core`, framework-agnostic):** facet registry + canonical vocab (ordinal ordering in
+  code); `Evidence<T>`/`HardFact<T>` with the mechanical demotion guard; the Zod `ItemClassification`
+  contract; 3-state capabilities (`satisfies|fails|blocked_unknown`); the recommender.
+- **General trip engine (ADR-0005):** structured `TripConditions` → `deriveRequirements` → `planTrip`.
+  The recommender is **no longer Marcy-specific** — desert/rain/casual/alpine each derive different
+  requirements; the seed gear is prototype data only. (Product is general-purpose; see CLAUDE.md.)
+- **Drizzle schema** (hybrid: hot columns + arrays + JSONB + composable group tables) + generated
+  migration `0000`. Lazy injected DB client.
+- **Tests: 35 green** — evidence demotion, capability 3-state, registry invariant, classification
+  contract, the cross-archetype derive tests, and the end-to-end Marcy (exactly 3 gaps).
+
+**Next (building the usable app):** repository abstraction (in-memory + Postgres) so it runs with or
+without Supabase; the real add-by-name classification pipeline (prompt + Anthropic call) + NL trip
+parser with graceful fallbacks; the web UI (closet with emergent facet grouping, add/review, plan, saved
+trips) + one-password gate; route handlers/server actions calling core.
+
 ## 2026-06-19 (synthesis) — Phase 0 coherence gate: DESIGN.md + STOP for approval
 
 - **Audit C → SOUND-WITH-FIXES.** Strength: the `item_capabilities` 3-state status

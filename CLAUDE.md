@@ -8,6 +8,11 @@
 pack for a trip. The hard part is **not** the CRUD or the UI — it is modeling gear richly enough
 that packing recommendations *emerge* from reasoning over the model, instead of being hardcoded.
 
+It is a **general-purpose** product: it must work for **any user, any gear domain, and any trip** —
+not one person's closet or one canonical hike. The specific seed gear/items and trip presets in this
+repo are **prototype data and test fixtures**, never the scope. Recommendation logic is derived from
+structured trip conditions (see ADR-0005), never hardcoded per trip.
+
 Built **bottom-up** in three layers. The foundation is the priority; the recommendation layer sits
 on top last.
 

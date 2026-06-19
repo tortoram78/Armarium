@@ -15,3 +15,4 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0002 — Repository as a living knowledge base](0002-repository-as-knowledge-base.md) — Accepted
 - [0003 — Facet ontology + data model (storage architecture)](0003-facet-ontology-and-data-model.md) — **Proposed (awaiting approval)**
 - [0004 — LLM classification contract (evidence shape + confidence/unknown)](0004-llm-classification-contract.md) — **Proposed (awaiting approval)**
+- [0005 — Conditions → capabilities recommendation engine (general, not per-trip)](0005-conditions-to-capabilities-engine.md) — Accepted
