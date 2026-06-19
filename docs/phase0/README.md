@@ -33,12 +33,23 @@ structured construction roles; multi-label facets (`function_purpose`, `body_zon
 standard + confidence; and a derived **capability layer** as the unit recommendations reason over.
 
 ### Wave 2 — Competing architectures (parallel, blind) → [`architectures/`](architectures/)
-Three independent proposals, each a COMPLETE faceted data model + tagging ontology + how grouping
-emerges as queries. No fixed category enum. *(pending Wave 1)*
+Three independent proposals, each a COMPLETE faceted data model + how grouping emerges as queries.
+**Complete.** All three converge on the safety behaviors (DWR ≠ rain protection; Marcy → exactly the
+3 expected gaps); they diverge on the load-bearing **storage architecture**, which synthesis resolves.
+| Proposal | Thesis | Status |
+|----------|--------|--------|
+| A — `architecture-a-typed-relational.md` | Typed columns + per-domain extension tables; capabilities as `src/core` functions | ✅ |
+| B — `architecture-b-facet-graph.md` | EAV facet rows against a `facet_definitions` ontology; capabilities as SQL views; no migrations to add facets | ✅ |
+| C — `architecture-c-capability-hybrid.md` | Hybrid: typed hot facets + Zod-validated JSONB cold bag; first-class capabilities w/ `blocked_unknown` | ✅ |
 
 ### Wave 3 — Adversarial audits (parallel) → [`audits/`](audits/)
-One auditor per proposal. Stress-test against multi-purpose items (Terre Planing), missing-data
-behavior, and a Marcy-style gap query. *(pending Wave 2)*
+One auditor per proposal. Stress-test against multi-purpose items (Terre Planing, buff, R1 Air),
+missing-data behavior, and a Marcy-style gap query.
+| Audit | Verdict | Headline |
+|-------|---------|----------|
+| A — `audit-a-typed-relational.md` | SOUND-WITH-FIXES | Single-domain union fights multi-domain gear → `itemDomains[]`; close the `z.string()` enums; harvest `Evidence<T>`/`HardFact<T>` |
+| B — `audit-b-facet-graph.md` | SOUND-WITH-FIXES | Type-safety is aspirational → codegen + CI lint of facet keys; don't silently discard novel facets → `pending_facets`; "no migration" overstated |
+| C — `audit-c-capability-hybrid.md` | ⏳ running | — |
 
 ### Synthesis (serial, lead)
 Reconcile into ONE recommended design → `../../DESIGN.md` + proposed Drizzle schema + classification

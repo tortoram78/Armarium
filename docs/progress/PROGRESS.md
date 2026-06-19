@@ -3,6 +3,37 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-19 (later) — Phase 0 Waves 2–3: competing architectures + adversarial audits
+
+- **Wave 2 — three blind competing architectures** written to `docs/phase0/architectures/` (Opus):
+  - **A — typed relational:** universal typed columns + per-domain extension tables; capabilities as
+    pure `src/core` functions computed at query time.
+  - **B — facet-graph / EAV:** every fact is a row in `item_facets` validated against a
+    `facet_definitions` ontology; "domains" are emergent queries; adding a facet = INSERT, no migration.
+  - **C — capability-first hybrid:** ~14 load-bearing facets as typed columns + a Zod-validated JSONB
+    "cold bag"; first-class capabilities with a 3-state `satisfies | fails | blocked_unknown`.
+  - **Convergence (strong signal):** all three make DWR/water-resistant *structurally* unable to count
+    as rain protection, and all three surface exactly the 3 canonical Marcy gaps. They diverge on the
+    **storage architecture** (the load-bearing decision synthesis must resolve).
+- **Wave 3 — adversarial audits** (`docs/phase0/audits/`, one per proposal):
+  - **A → SOUND-WITH-FIXES:** single-domain discriminated union loses safety columns on multi-domain
+    gear (insulated waterproof boot) → make `itemDomains` an array; close `z.string()` multi-label
+    enums; keep ordered-enum levels in `src/core`, not Postgres declaration order. **Harvest:**
+    null-first `Evidence<T>`/`HardFact<T>` wrappers (cleanest unknown-handling seen).
+  - **B → SOUND-WITH-FIXES:** type-safety is aspirational (JSONB is `unknown` to TS) → needs
+    registry-driven codegen + a CI lint asserting every facet-key literal exists in the ontology;
+    don't *silently discard* novel LLM-extracted facets → a `pending_facets` review queue; the
+    "no migration" claim is really "no column-schema migration" (enum-level changes still need data
+    migration). **Harvest:** the `isUnknown` 3-state row + the hard-fact-source guard (can't be
+    bypassed by prompt wording).
+  - **C → audit running.**
+- **Emerging synthesis direction (to be finalized after audit C):** a **hybrid backbone (C)** —
+  capability-first, typed hot facets + governed JSONB long tail — that **harvests** A's null-first
+  evidence shapes and B's facet-registry/ontology governance (the registry de-risks C's typed/JSONB
+  promotion boundary: promotion changes only physical storage, never a facet's definition).
+- **Next:** audit C → synthesize `DESIGN.md` + proposed Drizzle schema + classification rubric →
+  surface the storage-architecture decision to the user → **STOP for approval.**
+
 ## 2026-06-19 — Phase 0 kickoff: knowledge base + design swarm
 
 - Wrote [`CLAUDE.md`](../../CLAUDE.md): stack, three-layer architecture, guiding principle (facets,
