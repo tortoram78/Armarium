@@ -20,8 +20,9 @@ HTTP 200; live LLM classification confirmed end-to-end.
 - A facet-correction editor (`FacetEditor` client component) lets the user override any universal
   or multi-label facet; corrections carry `source: "user"`. The updated object is re-validated
   by `safeParseClassification` before persisting — invalid payloads are rejected and shown inline.
-  Server Components cannot pass event handlers to server-action forms, so interactive confirm/discard
-  buttons required a client `ConfirmButton` wrapper.
+  Server Components cannot pass event handlers to server-action forms, so the delete-confirm
+  button on the item detail page required a client `ConfirmButton` wrapper
+  (`src/components/ConfirmButton.tsx`).
 - New port method `setDraft(userId, id, draft)` added to `GearRepository`; `StoredItem.draft: boolean`
   is new in the port contract (see `src/core/ports.ts`).
 
