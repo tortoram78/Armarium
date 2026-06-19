@@ -3,6 +3,95 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-19 (Phase 2) — Usable web app + durable Postgres + NL parser (gates green)
+
+Branch `claude/charming-franklin-441bvj`. All four gates green: `typecheck` / `lint` / `test` (51
+passing) / `build`. Live verification: closet, plan, trips, /items/new, /login, item detail all
+HTTP 200; live LLM classification confirmed end-to-end.
+
+### What was built
+
+**Review-before-save add flow** (`src/app/items/new`, `/items/[id]/review`, `src/app/actions.ts`):
+- Adding an item by name classifies it → stores it as a DRAFT (`StoredItem.draft = true`, excluded
+  from the closet) → redirects to `/items/[id]/review`.
+- The review page shows the full evidence tree (identity, universal facets, multi-label, domain
+  groups, materials, treatments, capability preview). The user confirms (promotes into closet via
+  `setDraft(…, false)`) or discards (deletes the draft row).
+- A facet-correction editor (`FacetEditor` client component) lets the user override any universal
+  or multi-label facet; corrections carry `source: "user"`. The updated object is re-validated
+  by `safeParseClassification` before persisting — invalid payloads are rejected and shown inline.
+  Server Components cannot pass event handlers to server-action forms, so interactive confirm/discard
+  buttons required a client `ConfirmButton` wrapper.
+- New port method `setDraft(userId, id, draft)` added to `GearRepository`; `StoredItem.draft: boolean`
+  is new in the port contract (see `src/core/ports.ts`).
+
+**NL trip parsing** (`src/core/recommend/parse-conditions.ts`):
+- Live path: Anthropic call (injected client, `MODEL_ID` constant) → model emits a partial
+  `TripConditions` JSON → `PartialConditionsSchema` (Zod, closed enum literals) validates it →
+  merged onto `defaultConditions`. The model is instructed to omit fields it cannot determine
+  (no guess); unresolved fields fall back to the default, never to a fabricated value.
+- Offline / no-key path: `parseConditionsHeuristic` — deterministic keyword→enum mapping with
+  explicit-temperature extraction (Fahrenheit converted to Celsius). Conservative: unrecognised
+  text falls to mild defaults, so the user can correct via the structured form.
+- Either path emits the same `TripConditions` envelope `deriveRequirements` reasons over — NL input
+  never bypasses the structured contract.
+- Cross-archetype test suite (`test/parse-conditions.test.ts`, 5 cases across alpine / desert /
+  sustained-rain / casual / Fahrenheit conversion). Per the engineering lesson, ≥3 distinct
+  archetypes are required so the parser cannot secretly collapse onto one.
+- Composition root (`src/server/services.ts`) selects live vs offline based on `ANTHROPIC_API_KEY`.
+
+**Web surface** (`src/app/**`):
+- Closet (`/`) with emergent facet grouping (no hardcoded categories).
+- Item detail (`/items/[id]`) with inventory toggle, facet editor, delete confirm.
+- Plan a trip (`/plan`): NL description form + structured conditions form + trip presets
+  (`TRIP_PRESETS` are prototype data; no trip is hard-coded into the engine).
+- Saved trips (`/trips`) and trip result (`/trips/[id]`): picks, severity-ranked capability gaps,
+  `blocked_unknown` capabilities shown as "verify" (never silently passes).
+- One-password gate (`APP_PASSWORD` env var, `/login`, `SESSION_COOKIE`).
+
+**Durable Postgres** (`src/server/postgres-repo.ts`, migration `drizzle/0001_*`):
+- Full `GearRepository` implementation behind the existing port interface.
+- Lazy singleton: `getDb()` throws only on first query — importing the module has zero connection
+  side effects; build and test need no `DATABASE_URL`.
+- Write path: projects typed/hot columns from `classification` at insert/update for indexability
+  (`projectIdentity`, `projectUniversal`, `projectMultilabel`). Group tables are upserted after
+  the items row (`upsertGroups`). FK `onDelete: "cascade"` cleans group rows on item delete.
+- Read path: reconstructs `StoredItem` entirely from the `classification` jsonb column (lossless
+  source of truth) + the row's own scalars (`id`, `userId`, `name`, `inInventory`, `draft`,
+  `rawText`, `createdAt`). Typed columns are not consulted on reads.
+- Every query is `WHERE user_id = $userId` (architecture rule #4).
+- `getRepository()` (in `src/server/services.ts`) selects `postgresRepository` when `DATABASE_URL`
+  is set, `memoryRepository` otherwise.
+- Migration `drizzle/0001_clammy_gertrude_yorkes.sql` adds `items.classification` (jsonb NOT NULL)
+  and `items.draft` (boolean NOT NULL DEFAULT false) to the Phase 1 schema.
+
+**Known latent note for future hardening:** `updateClassification` upserts group rows that are
+present in the new classification but does not delete a group row that was removed (e.g. an item
+re-classified away from the insulation group). Harmless in v0 because reads use the jsonb
+source-of-truth column, not the group tables. Document and fix before group-table reads are relied
+upon.
+
+### Verification evidence
+- `pnpm typecheck` — 0 errors
+- `pnpm lint` — 0 warnings/errors
+- `pnpm test` — 51 tests passed
+- `pnpm build` — compiled successfully (hard gate)
+- Live server: closet `/`, `/items/new`, `/login`, `/items/[id]`, `/plan`, `/trips`, `/trips/[id]`
+  all HTTP 200
+- Live LLM classification: item added by name → classified by `claude-sonnet-4-6` → draft stored →
+  review page rendered → confirmed into closet — end-to-end confirmed
+
+### Deferred (designed-for, not built)
+Multi-user auth, weather API, barcode/photo/URL enrichment, image upload, catalog gap-fill, native
+app, military/NSN domain — all remain out of scope per CLAUDE.md.
+
+### ADR recorded
+[ADR-0006](../decisions/0006-phase2-nl-parser-draft-lifecycle-postgres.md) captures the three
+load-bearing Phase 2 decisions: NL parsing with offline fallback, review-before-save draft
+lifecycle, and Postgres persistence shape.
+
+---
+
 ## 2026-06-19 (Phase 1) — Foundation + general recommendation engine (gates green)
 
 Approved (hybrid backbone + all five group stubs) → built Phase 1 foundation.

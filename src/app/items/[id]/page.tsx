@@ -3,6 +3,7 @@ import { getItem, resolveItem } from "@/server/app-service";
 import { evaluateCapability, CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/core/capabilities";
 import { setInventoryAction, deleteItemAction, updateFacetsAction } from "@/app/actions";
 import { FacetEditor } from "@/components/FacetEditor";
+import { ConfirmButton } from "@/components/ConfirmButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -93,11 +94,11 @@ export default async function ItemDetailPage({
               {item.inInventory ? "Remove from inventory" : "Add to inventory"}
             </Button>
           </form>
-          <form action={deleteItemAction} onSubmit={() => confirm("Delete this item?")}>
+          <form action={deleteItemAction}>
             <input type="hidden" name="id" value={item.id} />
-            <Button type="submit" variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+            <ConfirmButton message="Delete this item?" type="submit" variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
               Delete
-            </Button>
+            </ConfirmButton>
           </form>
         </div>
       </div>
