@@ -1,152 +1,130 @@
-# CLAUDE.md — Armarium
+# Armarium
 
-> Working memory for any agent (human or AI) touching this repo. Read this before writing code.
+**Armarium** is a deployable web app that stores a person's outdoor gear and recommends what to pack
+for a trip. It is **general-purpose** — any user, any gear domain, any trip; the seed gear/trip presets
+are prototype data, never the scope. The hard part is modeling gear richly enough that packing advice
+*emerges* from reasoning over facets, instead of being hardcoded.
+**Read [`DESIGN.md`](DESIGN.md) before planning any feature** — it holds the facet ontology, data model,
+classification contract, and the phase boundaries.
 
-## What this is
+## Operating model — the ONLY way we work (read first)
 
-**Armarium** is a deployable web app that stores a person's outdoor gear and recommends what to
-pack for a trip. The hard part is **not** the CRUD or the UI — it is modeling gear richly enough
-that packing recommendations *emerge* from reasoning over the model, instead of being hardcoded.
+This repo runs under **the Operating Kit in [`docs/operating-model/`](docs/operating-model/README.md).
+It is the single, non-negotiable operating model — do not substitute another.** In one screen:
 
-It is a **general-purpose** product: it must work for **any user, any gear domain, and any trip** —
-not one person's closet or one canonical hike. The specific seed gear/items and trip presets in this
-repo are **prototype data and test fixtures**, never the scope. Recommendation logic is derived from
-structured trip conditions (see ADR-0005), never hardcoded per trip.
+- **You are the nexus.** One orchestrator that codes *and* reviews, **delegates** matching work to the
+  specialized sub-agents, validates every input/output, **self-checks many times**, and brings the
+  human **only verified results + the evidence** (command output / screenshot) — never raw, unverified
+  output or step-by-step narration. ([`01`](docs/operating-model/01-operating-model.md))
+- **Delegate to persistent specialists** in `.claude/agents/` — read-write **owners** (one file-domain
+  each) and read-only **auditors** (report, never edit). Run independent slices **in parallel**, but
+  **fix shared contracts/schemas/naming before any parallel write**; then integrate and run the
+  cross-reference check. ([`03`](docs/operating-model/03-subagent-kit.md))
+- **Verify with evidence, always** — the gauntlet gates every "done" (Workflow below). Fix **root
+  causes, never suppress** a check. ([`04`](docs/operating-model/04-verification-and-validators.md))
+- **Close every iteration with `/retro`** → append the diagnosis to `docs/engineering-log.md` → promote
+  only durable rules into *Engineering lessons* below. This is how each iteration starts smarter.
+  ([`05`](docs/operating-model/05-self-improvement-loop.md))
 
-Built **bottom-up** in three layers. The foundation is the priority; the recommendation layer sits
-on top last.
+## Scope discipline — read this second
 
-- **Layer 0 — Data foundation.** A faceted, multi-dimensional model of gear + materials.
-- **Layer 1 — Analysis layer (THE CORE, most of the value).** An LLM-driven classification pipeline
-  that places any garment onto the dimensions/facets. Runs at ingest, validated to a schema, stored.
-- **Layer 2 — Recommendation layer.** Trip planning + kit recommendation + gap analysis, expressed
-  as queries/reasoning **over** Layers 0–1.
-
-## Guiding principle (load-bearing — do not violate)
-
-**Do NOT hardcode category buckets.** Model **DIMENSIONS / FACETS** (function/purpose,
-conditions-fit, material behavior, layering role, active-vs-static, technical-vs-lifestyle,
-packability, etc.). Items occupy **many facets at once**. Grouping and recommendations are
-**emergent queries / reasoning over the facet space**, not fixed enums. The classification that maps
-a garment onto facets is done by **LLM analysis at ingest**, validated to a schema, then stored.
-
-If you find yourself writing `enum Category { BaseLayer, MidLayer, ... }` and routing logic off it,
-stop — that is the anti-pattern this project exists to avoid.
-
-## Repository as a living knowledge base (load-bearing)
-
-This repo is **its own knowledge source**, not just code. Armarium is developed with heavy
-multi-agent research and design swarms; that work produces a lot of valuable reasoning. Research,
-agent outputs, design rationale, and progress are **durable artifacts committed to the repo**, never
-left to evaporate with a session. A future contributor (human or AI) should be able to reconstruct
-**what** we built and **why** by reading the repo alone.
-
-- **Capture, don't discard.** Every investigation, swarm output, search finding, or design decision
-  becomes a committed markdown doc under `docs/`. When an agent produces a structured artifact, it
-  lands in the repo and is committed and pushed (the remote container is ephemeral — uncommitted work
-  is lost).
-- **Map of the knowledge base:** see `docs/README.md`.
-  - `docs/decisions/` — Architecture Decision Records (ADRs): one file per load-bearing decision.
-  - `docs/phase0/` — design/discovery swarm artifacts (`investigation/`, `architectures/`, `audits/`).
-  - `docs/progress/` — dated progress reports / session logs (the project's narrative history).
-  - `docs/knowledge-base/` — curated, durable domain knowledge distilled from the above.
-  - `DESIGN.md` (root) — the integrated Phase 0 design.
-- **Curate, don't dump.** Supersede artifacts (mark + link forward), don't silently delete; keep
-  indexes and ADRs current so the trail stays coherent.
+- We are building **Phase 2 only**: the usable web app — closet (emergent facet grouping), add-by-name
+  → classify → review/save, plan-a-trip (NL + structured conditions → picks + capability gaps + "verify"),
+  and saved trips — on the approved Phase 0/1 foundation. Nothing else.
+- **YOU MUST NOT build** v0-out-of-scope work: real multi-user auth/sharing, a weather API,
+  barcode/photo/URL enrichment, an image-upload pipeline, military/NSN domain, a native app, or
+  catalog "suggest items to fill gaps." If a request drifts toward these, **stop and flag it.**
+- Anything that would **expand scope, add a dependency, or introduce new infrastructure: ask first.**
+  Default to a 20-second question over a heroic guess.
 
 ## Stack (DECIDED — do not substitute without asking)
 
-- **Next.js (App Router) + TypeScript**
-- **Tailwind + shadcn/ui**
-- **Postgres on Supabase** via **Drizzle ORM** (+ `drizzle-kit`)
-- **Zod** for all I/O and **LLM-output validation**
-- **`@anthropic-ai/sdk`** — server code only, never shipped to the client
-- **pnpm**
-- Deploy on **Vercel**
+- **Next.js (App Router) + TypeScript**, **Tailwind + shadcn/ui**, **pnpm**, deploy on **Vercel**.
+- **Postgres on Supabase** via **Drizzle ORM** (+ `drizzle-kit`); **Zod** for all I/O and LLM-output
+  validation; **`@anthropic-ai/sdk`** in server code only.
+- **Deliberate non-choices:** v0 persistence runs through a **repository port** with an **in-memory
+  impl** (no DB needed to run) and a Postgres impl when `DATABASE_URL` is set. **Do NOT add real auth**
+  (a one-password gate only), a weather API, or any enrichment service — those are gated/out-of-scope.
 
-## Load-bearing rules (violating any of these is a bug)
+## Architecture rules (violating any is a bug)
 
-1. **Validated evidence only.** LLM calls return **EVIDENCE-shaped structured data** validated against
-   a Zod schema **before any use**. Unvalidated model text **never** reaches the DB or the UI.
-2. **Never fabricate specs.** Unknown fields are `null` **with a confidence/source marker**, never
-   guessed. A wrong spec is worse than a missing one.
-3. **Framework-agnostic core.** All enrichment / classification / reasoning logic lives in `src/core/`
-   — **pure, no Next.js imports** — so the same core can later back an MCP server. The web API is just
-   one caller. (Tip: `src/core/` may import `zod` and the Anthropic SDK, but **must not** import
-   `next/*`, `react`, server actions, or DB-connection singletons; it receives its dependencies.)
-4. **`user_id` from day one.** Every user-owned table has `user_id`. v0 = a single fixed user + a
-   one-password gate. **Do not build real auth; do not block it either.**
-5. **One model-id constant.** The Anthropic model id lives in **one config constant**
-   (default `"claude-sonnet-4-6"`), swappable. No model strings scattered through the code.
-6. **Persist knowledge to the repo.** Capture research/agent output/decisions as committed markdown;
-   don't let it evaporate with the session (see *Repository as a living knowledge base*).
+1. **No hardcoded buckets or hardcoded trips — the defining invariant.** Model DIMENSIONS/FACETS; items
+   occupy many facets at once. Grouping *and* trip-requirements are **emergent queries** over the facet
+   space (closet grouping = facet queries; recommendations = `conditions → capabilities`). If you write
+   `enum Category {…}` and route off it, or special-case one trip, **stop** — that is the anti-pattern
+   this project exists to avoid.
+2. **Validated evidence only.** LLM calls return EVIDENCE-shaped data validated by Zod **before any
+   use**; unvalidated model text never reaches the DB or UI. **Never fabricate specs** — unknown = `null`
+   with a confidence/source marker; an inferred hard fact is mechanically demoted to `null`. A wrong spec
+   is worse than a missing one. (Authoritative/manufacturer data beats inference.)
+3. **Framework-agnostic core.** All enrichment/classification/reasoning lives in `src/core/` — pure, no
+   `next/*`/React/DB-singletons; it receives its dependencies (may import `zod` + the Anthropic SDK) so
+   the same core can later back an MCP server.
+4. **`user_id` from day one** on every user-owned table/row. v0 = one fixed user + a one-password gate.
+5. **One model-id constant** (`MODEL_ID`, default `"claude-sonnet-4-6"`), swappable; no model strings
+   scattered.
+6. **Repo as a living knowledge base.** Research/agent output/decisions are committed markdown under
+   `docs/` (ADRs, progress, design); never let work evaporate with a session. Keep dependencies minimal.
 
-## Multi-agent orchestration rules
+## Code style
 
-- **Parallelize investigation; serialize integration.** Spawn parallel subagents for any work with
-  independent, separable facets. Each subagent returns a **structured markdown artifact** (write it to
-  a file under `docs/phase0/` or the relevant dir); a **lead agent integrates**.
-- **Be exhaustive in discovery.** Run as many parallel investigation agents as the problem has
-  independent facets. Convergence is enforced by a **synthesis + coherence gate**, not by limiting
-  agent count.
-- **Gates, not vibes.** No phase ends except at a **coherence gate** (one integrated artifact, no
-  silent contradictions) followed by the **verification gate** (below). If independent agents diverge
-  on something load-bearing, **surface the decision to the user** rather than silently picking.
+- TypeScript strict; Zod schemas are the single source of truth for shapes (`z.infer` the types).
+- ES modules, named exports, functional components. Small composable units over clever abstractions.
+- Otherwise standard Next/TS conventions — these are the only deviations worth stating.
 
-## Phasing
+## Workflow (the gauntlet — non-negotiable)
 
-- **Phase 0 — Design / Discovery (current).** Determine the best faceted data model + material model +
-  classification approach via a swarm. Deliverables: `DESIGN.md`, a **proposed** Drizzle schema (in the
-  doc, not migrated), and the classification rubric/prompt. **STOP for approval. No migrations or
-  feature code.**
-- **Phase 1 — Foundation + analysis pipeline.** Approved schema + migrations + seed script; the
-  analysis/classification pipeline in `src/core/`; seed the canonical catalog + materials and classify
-  through the real pipeline.
-- **Phase 2 — Recommendation / trip layer.** Closet UI (emergent facet grouping), Plan UI (NL + structured
-  conditions → reasoning → picks + gaps), saved trips.
-
-## Out of scope for v0 (STOP and ask if a task seems to need one)
-
-Barcode/photo/URL enrichment; weather API; real multi-user auth/sharing; military/NSN domain; native
-app; image upload pipeline; catalog suggestions to fill gaps.
+- **Plan before multi-file changes.** Propose a plan, get approval, then edit. One-liners: just do it.
+- **Verify before "done," and SHOW the evidence** (paste output / screenshot — never assert green). Run,
+  cheapest-first: `pnpm typecheck` → `pnpm lint` → `pnpm test` (prefer one relevant test in-loop) →
+  `pnpm build` (**hard gate**). After multi-agent/multi-file integration, run the **cross-reference
+  check** (`pnpm test` covers the registry↔classification + capability-gate invariants). For any UI
+  change, render it and **check the screenshot against intent**.
+- **Fix root causes, not symptoms.** Never edit a validator/schema or `@ts-ignore` to go green.
+- **Never push un-built to the shared branch.** Every pushed commit passes the production build locally
+  first (docs/config-only commits exempt). Commit with scoped messages that record the evidence; develop
+  on the designated branch.
 
 ## Commands
 
-> The project is not scaffolded yet (Phase 0 is design-only). These are the intended commands; they
-> become live in Phase 1.
-
 ```bash
-pnpm install           # install deps
-pnpm dev               # run Next.js dev server
-pnpm typecheck         # tsc --noEmit
-pnpm lint              # eslint / next lint
-pnpm build             # next build
-pnpm test              # unit tests (vitest)
-pnpm db:generate       # drizzle-kit generate (migrations)
-pnpm db:migrate        # apply migrations
-pnpm db:seed           # seed canonical catalog + materials + inventory
+pnpm install      # deps
+pnpm dev          # dev server
+pnpm typecheck    # tsc --noEmit
+pnpm lint         # next lint
+pnpm test         # vitest run  (unit + validators + cross-reference checks)
+pnpm build        # next build  — HARD GATE: must pass before any task is done
+pnpm db:generate  # drizzle-kit generate (migrations)
+pnpm db:migrate   # apply migrations        (needs DATABASE_URL)
+pnpm db:seed      # seed catalog + materials + inventory (needs DATABASE_URL [+ ANTHROPIC_API_KEY])
 ```
 
-## Verify-before-done workflow (every phase that produces code)
+## Specialized agents (delegate to these; index — full prompts in `.claude/agents/`)
 
-A task is **not done** until all of these are green **and the output is pasted into the reply**:
+Each carries `memory: project`, minimal tools, and restates these guardrails. Delegate the matching
+slice rather than doing it ad hoc.
 
-```bash
-pnpm typecheck && pnpm lint && pnpm build && pnpm test
-```
+- **core-reasoning-owner** — owns `src/core/**` (facets, evidence, classification, capabilities,
+  recommend, closet). Verifies with `pnpm typecheck && pnpm test`.
+- **schema-db-owner** — owns `src/db/**` + `drizzle/**` + the repository impls. Verifies with
+  `pnpm typecheck && pnpm db:generate`.
+- **web-ui-owner** — owns `src/app/**` + `src/components/**`. Verifies with `pnpm build` + a screenshot.
+- **docs-owner** — owns `docs/**` (ADRs, DESIGN.md, progress, knowledge-base). No code.
+- **facet-integrity-auditor** *(read-only)* — audits the load-bearing invariants (unknown=null, hard-fact
+  demotion, capability-gates-hot, registry↔classification coverage, no hardcoded category/trip). Reports.
+- **retrospective** — edits **only** `docs/engineering-log.md` + this file's *Engineering lessons*.
 
-Never declare something done without pasted green verification output. Phase 0 produces design docs,
-not code, so its gate is the **coherence gate** (one integrated `DESIGN.md`, no silent contradictions)
-— there is nothing to typecheck/build yet.
+## Engineering lessons (self-improving — curated, pruned; full detail in `docs/engineering-log.md`)
 
-**Phase 2 end-to-end check:** seed; add a new item by name and confirm analysis fills facets with
-unknowns `null`; plan *"Mount Marcy, mid-June, alpine summit, cold and windy, long day hike"* and
-confirm it recommends from the 3 owned items **and** flags the missing waterproof shell + packable
-insulation as gaps.
+Run **`/retro`** at the end of every iteration. Promote only durable, broadly-applicable rules here.
 
-## Conventions
-
-- TypeScript strict. Zod schemas are the single source of truth for shapes; derive TS types with
-  `z.infer`.
-- Core stays pure; side effects (DB, network, Anthropic calls) are injected or live at the edge.
-- Prefer small, composable facet queries over monolithic recommendation functions.
+- **A passing canonical test is not proof of generality.** We let recommendations collapse onto one
+  trip (Marcy); fixed by deriving requirements from structured conditions. For any "reasoning" feature,
+  add cross-archetype tests (≥3 distinct cases) so the engine can't be secretly hardcoded.
+- **Keep secrets/infra out of the gates.** DB + Anthropic clients are lazy/injected so
+  `typecheck/lint/build/test` are green with no `DATABASE_URL`/`ANTHROPIC_API_KEY`; tests use a mock
+  client + an offline classifier. Never make a gate depend on a secret.
+- **Unknown is first-class; specs are never fabricated.** Enforce it mechanically (the `hardFact`
+  demotion guard) and test it with failing fixtures — not by prompt wording alone.
+- **Commit research/decisions as markdown as you go** (ADRs, progress, design); the remote container is
+  ephemeral and uncommitted work is lost.

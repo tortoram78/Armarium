@@ -14,6 +14,8 @@ See [`CLAUDE.md`](../CLAUDE.md) (repo root) for the project's operating rules an
 |------|-----------------|
 | [`decisions/`](decisions/) | **ADRs** — one file per load-bearing decision: context, decision, alternatives rejected, consequences. Start here to understand *why*. |
 | [`phase0/`](phase0/) | **Design / discovery** artifacts from the Phase 0 swarm: `investigation/` (domain + cross-cutting research), `architectures/` (competing model proposals), `audits/` (adversarial stress-tests). |
+| [`operating-model/`](operating-model/README.md) | **The Operating Kit** — the single operating model this repo runs under (nexus + sub-agents + gauntlet + retro loop). Read its README. |
+| [`engineering-log.md`](engineering-log.md) | **Append-only retrospective log** — the self-improvement memory; `CLAUDE.md` holds the distilled rules. Written by `/retro`. |
 | [`progress/`](progress/) | **Dated progress reports / session logs.** The project's narrative spine — skim to catch up fast. |
 | `knowledge-base/` | **Curated, durable domain knowledge** distilled from the above (gear/material reference that outlives any one phase). Populated as the design stabilizes. |
 | `../DESIGN.md` | The **synthesized** Phase 0 design: chosen facet ontology, data model, classification approach, rationale, rejected alternatives, edge cases. The single integrated artifact. |

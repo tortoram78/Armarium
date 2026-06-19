@@ -76,7 +76,7 @@ const sleepGroup = z.object({
   temp_rating_value: hardFact(z.number().int()),
   temp_rating_unit: hardFact(z.enum(["F", "C"])),
   temp_rating_standard: evidence(z.enum(L.TEMP_STANDARD)),
-  shape: evidence(z.enum(L.SLEEP_SHAPE)),
+  sleep_shape: evidence(z.enum(L.SLEEP_SHAPE)),
   pad_r_value_recommended: evidence(z.number().nonnegative()),
 });
 

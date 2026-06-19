@@ -103,7 +103,7 @@ const keltyGalactic30: ItemClassification = {
       temp_rating_unit: h("F", "manufacturer", "Fahrenheit"),
       // The '30' is a marketing-style number; the EN/ISO standard is NOT certified -> never upgraded.
       temp_rating_standard: s("marketing_unknown", "low", "inferred", "'30' is a marketing number; no EN/ISO certification stated"),
-      shape: s("rectangular", "low", "inferred", "Galactic line is rectangular-leaning"),
+      sleep_shape: s("rectangular", "low", "inferred", "Galactic line is rectangular-leaning"),
       pad_r_value_recommended: us,
     },
   },
