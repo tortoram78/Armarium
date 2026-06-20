@@ -17,3 +17,4 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0004 — LLM classification contract (evidence shape + confidence/unknown)](0004-llm-classification-contract.md) — **Proposed (awaiting approval)**
 - [0005 — Conditions → capabilities recommendation engine (general, not per-trip)](0005-conditions-to-capabilities-engine.md) — Accepted
 - [0006 — Phase 2: NL parser + offline fallback, review-before-save draft lifecycle, Postgres lossless jsonb](0006-phase2-nl-parser-draft-lifecycle-postgres.md) — Accepted
+- [0007 — Classification cache: self-building knowledge base](0007-classification-cache.md) — Accepted

@@ -33,12 +33,15 @@ export function getRepository(): GearRepository {
 let cacheRepo: ClassificationCacheRepository | null = null;
 
 /** The classification knowledge base. Postgres when DATABASE_URL is set, in-memory (seeded) otherwise.
- *  Lazy require keeps the no-DB build/test paths green. */
+ *  Static import of postgres-cache is safe — the DB client is created lazily (only on first query,
+ *  never at module evaluation time). No DATABASE_URL required at build/test. */
 export function getCacheRepository(): ClassificationCacheRepository {
   if (cacheRepo) return cacheRepo;
-  // NOTE: schema-db-owner wires the Postgres branch here (mirrors getRepository) once
-  // postgres-cache.ts + the classification_cache table land. Memory-only keeps gates green today.
-  cacheRepo = memoryCache;
+  if (process.env.DATABASE_URL) {
+    cacheRepo = (require("./postgres-cache") as { postgresCache: ClassificationCacheRepository }).postgresCache;
+  } else {
+    cacheRepo = memoryCache;
+  }
   return cacheRepo;
 }
 

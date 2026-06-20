@@ -23,6 +23,8 @@ import { items as itemsTable } from "../src/db/schema";
 import { SEED_CORPUS } from "../src/core/seed-corpus";
 import type { SeedEntry } from "../src/core/seed-corpus";
 import { postgresRepository } from "../src/server/postgres-repo";
+import { postgresCache } from "../src/server/postgres-cache";
+import { normalizeCacheKey } from "../src/core/cache";
 
 const USER_ID = process.env.ARMARIUM_USER_ID ?? "00000000-0000-0000-0000-000000000001";
 const db = createDb(process.env.DATABASE_URL!);
@@ -80,7 +82,29 @@ async function main() {
   }
 
   console.log(`\nDone: ${success} seeded, ${failures} failed.`);
-  if (failures > 0) process.exit(1);
+
+  // Populate the classification cache from the seed corpus so repeat adds skip the LLM immediately.
+  console.log("\nPopulating classification cache …");
+  let cacheSuccess = 0;
+  let cacheFailures = 0;
+  for (const entry of SEED_CORPUS) {
+    try {
+      await postgresCache.putCached({
+        key: normalizeCacheKey(entry.classification.name),
+        name: entry.classification.name,
+        classification: entry.classification,
+        source: "seed",
+        modelId: null,
+      });
+      cacheSuccess++;
+    } catch (err) {
+      console.error(`  ERROR caching "${entry.classification.name}":`, err);
+      cacheFailures++;
+    }
+  }
+  console.log(`Cache: ${cacheSuccess} upserted, ${cacheFailures} failed.`);
+
+  if (failures > 0 || cacheFailures > 0) process.exit(1);
 }
 
 main().catch((err) => {

@@ -12,7 +12,8 @@
 
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { createDb, type Db } from "@/db/client";
+import type { Db } from "@/db/client";
+import { getDb } from "./db";
 import {
   items,
   itemInsulation,
@@ -32,23 +33,6 @@ import type { ItemClassification } from "@/core/classification";
 import type { TripConditions } from "@/core/conditions";
 import type { RecommendationResult } from "@/core/recommend";
 import { trips } from "@/db/schema";
-
-// ---- lazy singleton DB client ----
-
-let _db: Db | null = null;
-
-function getDb(): Db {
-  if (_db) return _db;
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error(
-      "DATABASE_URL is not set — cannot use the Postgres repository. " +
-        "Set DATABASE_URL in your environment or use the in-memory repository."
-    );
-  }
-  _db = createDb(url);
-  return _db;
-}
 
 // ---- projection helpers (typed columns ← classification; best-effort, not the read path) ----
 

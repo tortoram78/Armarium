@@ -49,7 +49,8 @@ defined in `src/core/config.ts`). `getTripParser()` wires the live NL trip parse
 
 When absent:
 - Classification falls back to `classifyOffline` — the pre-validated seed corpus recognises
-  only prototype items; any unknown item receives a minimal default classification.
+  only prototype items; any unknown item causes `classifyOffline` to throw an error directing
+  the user to set `ANTHROPIC_API_KEY`. No default or fabricated classification is returned.
 - NL trip parsing falls back to `parseConditionsHeuristic` — a deterministic keyword-to-enum
   map. Conservative: unrecognised text yields mild defaults; the user can always use the
   structured conditions form.
@@ -81,7 +82,7 @@ to target a specific user when populating the database.
 pnpm install
 pnpm typecheck   # zero errors required
 pnpm lint        # zero warnings/errors required
-pnpm test        # 51 tests (vitest, offline, no DB/API key)
+pnpm test        # 64 tests (vitest, offline, no DB/API key)
 pnpm build       # hard gate — must pass before any deploy
 ```
 

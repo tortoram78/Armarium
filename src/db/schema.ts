@@ -164,5 +164,19 @@ export const trips = pgTable("trips", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ---- classification cache (shared reference data — no user_id) ----
+// This is the self-building knowledge base: a normalized item name maps to a validated classification
+// so repeat adds skip the LLM. Like `materials` and `treatments`, it is intentionally global (not
+// user-owned) — a correction by any user improves the cache for all users (source:"user" entries).
+export const classificationCache = pgTable("classification_cache", {
+  key: text("key").primaryKey(),
+  name: text("name").notNull(),
+  classification: jsonb("classification").$type<ItemClassification>().notNull(),
+  source: text("source").notNull(), // "llm" | "user" | "seed"
+  modelId: text("model_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;

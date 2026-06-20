@@ -3,6 +3,86 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-20 (Phase 2) — Verify→correct→re-plan loop + self-building classification cache (gates green)
+
+Branch `claude/charming-franklin-441bvj`. All four gates green: `typecheck` / `lint` / `test` (64
+passing) / `build`. Live verification: all routes HTTP 200; live LLM classification confirmed
+end-to-end.
+
+### What was built
+
+**Verify → correct → re-plan loop** (`src/core/corrections.ts`, server action + `replanTrip` in
+`src/server/app-service.ts`, `updateTripResult` in the Postgres + memory repos):
+
+- `applyUserCorrections` takes a flat map of form field values (path → raw string or string[]) and
+  builds `source:"user"` `Evidence<T>`/`HardFact<T>` envelopes onto a clone of the
+  `ItemClassification`. Missing paths are left untouched; group fields are skipped if the item
+  lacks that group.
+- `EDITABLE_UNIVERSAL`, `EDITABLE_GROUPS`, and `EDITABLE_MULTILABEL` registries enumerate exactly
+  the facets that gate capabilities — editing a facet no capability reads is excluded.
+- Because the user is an authoritative source, a corrected hard fact (fill_power, temp_rating,
+  seam_sealing, capacity_liters, UPF) carries `source:"user"` through the `HardFact` wrapper and
+  survives the mechanical demotion guard. This is what makes a correction actually move a capability
+  outcome (satisfies ↔ fails ↔ blocked_unknown), not just update the display.
+- `replanTrip(id)` fetches the saved trip's conditions, re-runs `planTrip` against the corrected
+  closet, and persists the new `RecommendationResult` via `updateTripResult`.
+- UI: a hard-fact editor on the item detail page; a "Re-plan" button on the trip result page;
+  verify→`/items/[id]?edit=1` deep links from blocked capabilities.
+- Proof: `test/verify-loop.integration.test.ts` (2 cases: facet correction propagates through
+  re-plan and is persisted; inventory change propagates through re-plan).
+
+**Self-building classification cache / knowledge base** (`src/core/cache.ts`,
+`src/core/ports.ts` ClassificationCacheRepository port, `src/server/memory-cache.ts`,
+`src/server/postgres-cache.ts`, `classification_cache` table in `src/db/schema.ts`):
+
+- `normalizeCacheKey(name)` produces a stable lookup key: lowercase, accent-folded,
+  punctuation collapsed to spaces, whitespace trimmed. v0 keys on name only.
+- Flow in `classifyToDraft`: check cache FIRST (before the classifier). Cache HIT reuses the stored
+  classification — no LLM call. Cache MISS classifies (live or offline) then writes back as
+  `source:"llm"` with `modelId` recorded for drift tracking.
+- `confirmDraft` upserts `source:"user"` on confirmation (user endorsed the full classification).
+  `updateItemClassification` upserts `source:"user"` on any facet correction. Both paths return
+  `fromCache: boolean` to the caller.
+- In-memory impl (`memory-cache.ts`) is seeded lazily from `SEED_CORPUS` with `source:"seed"`
+  entries; all prototype names are instant hits with no LLM call in dev/offline.
+- Postgres impl (`postgres-cache.ts`): Drizzle `onConflictDoUpdate` upsert; `createdAt` is
+  preserved on collision; lazy singleton (zero connection side effects at import time).
+- Proof: `test/cache.test.ts` (3 cases: seeded item served from KB; cache consulted before
+  classifier, proven by the fact that a pre-seeded novel name does not throw the offline
+  classifier; a user correction feeds the KB and the next add reflects it).
+
+**Known latent notes recorded for near-term hardening:**
+- `getCacheRepository()` in `services.ts` currently returns `memoryCache` in both branches;
+  the Postgres branch wiring is the next step pending the `classification_cache` migration.
+- `updateClassification` in the Postgres repo does not delete group rows removed by a
+  re-classification (documented in ADR-0006 Part B; tracked in the roadmap).
+- The item page does not render `?facetError=1` as a friendly message (tracked in the roadmap).
+
+### Verification evidence
+- `pnpm typecheck` — 0 errors
+- `pnpm lint` — 0 warnings/errors
+- `pnpm test` — 64 tests passed
+- `pnpm build` — compiled successfully (hard gate)
+- Live server: all routes (`/`, `/items/new`, `/login`, `/items/[id]`, `/plan`, `/trips`,
+  `/trips/[id]`) HTTP 200
+- Live LLM classification: item added by name → classified by `claude-sonnet-4-6` → draft stored
+  → review page rendered → confirmed into closet — end-to-end confirmed
+
+### Deferred (designed-for, not built)
+Multi-user auth, weather API, barcode/photo/URL enrichment, image upload, catalog gap-fill, native
+app, military/NSN domain — all remain out of scope per CLAUDE.md.
+
+### ADR recorded
+[ADR-0007](../decisions/0007-classification-cache.md) captures the cache design: name-only key
+(v0 scope decision), source provenance (llm/user/seed), corrections-feed-the-KB, review as safety
+valve, and known caveats.
+
+### Roadmap recorded
+[`docs/roadmap.md`](../roadmap.md) maps the full path from current state to a complete app:
+done-this-phase, near-term in-scope items, and gated items requiring explicit scope unlock.
+
+---
+
 ## 2026-06-19 (Phase 2) — Usable web app + durable Postgres + NL parser (gates green)
 
 Branch `claude/charming-franklin-441bvj`. All four gates green: `typecheck` / `lint` / `test` (51

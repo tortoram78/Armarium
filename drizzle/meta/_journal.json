@@ -15,6 +15,13 @@
       "when": 1781896334169,
       "tag": "0001_clammy_gertrude_yorkes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781988959865,
+      "tag": "0002_worried_thunderball",
+      "breakpoints": true
     }
   ]
 }
