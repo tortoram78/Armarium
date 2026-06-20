@@ -135,3 +135,84 @@ Covers commits `0b723e3` (Phase 2 core: web app + Postgres repo + NL parser + dr
   Scripted seeding only works against the test harness (same process).
 - **Promoted:** no (narrow verification-tooling note; doesn't generalise beyond this architecture's
   in-memory/Postgres split).
+
+---
+
+## 2026-06-20 — Verify→correct→re-plan loop, self-building classification cache, Phase 3 greenlight (analyzed through `c77884b`)
+
+Covers commits `5f18bac` (core: correction engine + re-plan spine), `7ab1fbe` (web: verify loop UI +
+end-to-end proof), `2c77699` (feat: self-building classification cache), `a80937f` (db: durable Postgres
+cache + docs), and `c77884b` (docs: Phase 3 scope greenlight). Baseline: `edac40f`.
+
+### Verify→correct→re-plan loop closes the feedback cycle
+- **Delta:** `src/core/corrections.ts` — `applyUserCorrections()` builds `source:"user"` envelopes so a
+  corrected hard fact (fill_power, temp_rating, upf, seam_sealing, capacity) is AUTHORITATIVE and
+  survives the `hardFact` demotion guard, actually moving capability outcomes. `replanTrip()` re-runs a
+  saved trip against the current closet and persists the new result. UI: FacetEditor is now
+  registry-driven (EDITABLE_UNIVERSAL/GROUPS/MULTILABEL), trip detail shows "Re-plan with current
+  closet," and each uncertain/blocked item deep-links to `/items/[id]?edit=1`. Service-level integration
+  test (`test/verify-loop.integration.test.ts`) pins the payoff: correction propagates through re-plan,
+  result is persisted.
+- **Why:** Phase 2 could surface gaps ("verify") but offered no path to resolve them — the loop was open.
+  Connecting corrections → capability re-evaluation → saved-result update closes it end to end.
+- **Lesson:** an open feedback loop (gap surfaced, no fix path) has zero payoff. Design the full cycle —
+  detect → correct → re-evaluate → persist — before shipping the detection UI.
+- **Promoted:** no (architectural principle; the specific pattern is already encoded in the design;
+  the general "close the loop" rule is too abstract without a crisper formulation than what's already
+  in the workflow rule about evidence and root causes).
+
+### MISS → NOTICED: capability/outcome test initially asserted the wrong lever
+- **Delta:** the integration test for the verify loop originally cleared `upf` alone to "disprove"
+  sun_protection, but the gate is `upf>=30 OR function_purpose⊇"sun_protection"` — so the test passed
+  with the item still in picks (the second lever was still set). The test was then written to clear
+  BOTH levers (`universal.upf: "unknown"` AND `multilabel.function_purpose: []`), which correctly
+  removes the item. The initial version would have asserted the right outcome for the wrong reason.
+- **Why:** the gate predicate was assumed from memory rather than read from `src/core/capabilities.ts`.
+  An OR-predicate with two arms only fails when ALL arms fail; clearing one arm while leaving the other
+  is not a real correction.
+- **Lesson:** **when a test asserts a capability outcome, read the actual gate before asserting.**
+  Capability gates are often OR-predicates across multiple facets; clearing one facet may leave the item
+  still satisfying the gate through another arm. Assert against the full real predicate.
+- **Promoted:** yes (new; broadly applicable to any capabilities test, now or in Phase 3).
+
+### Self-building classification cache — corrections feed the KB
+- **Delta:** `src/core/cache.ts` defines `normalizeCacheKey` (accent-fold, lowercase, punctuation→space)
+  and the `CachedClassification` shape. A `ClassificationCacheRepository` port backs two impls:
+  in-memory (seeded from the corpus, so known items hit instantly) and Postgres (`classification_cache`
+  table, ADR-0007). `classifyToDraft` consults the cache before calling the LLM; `confirmDraft` and
+  `updateItemClassification` upsert `source:"user"` entries so every correction improves the next add.
+  Three new tests pin: cache hit before classifier, cache-before-LLM ordering, correction-feeds-KB.
+- **Why:** repeat adds were re-deriving the same classification at LLM cost, and user corrections were
+  ephemeral — the next add of the same item regressed to the original inferred facets. A name-keyed KB
+  makes every correction durable and shared.
+- **Lesson:** for any derived-data system where user corrections exist, route corrections back into the
+  source so future derivations inherit them — don't let a cache diverge from user intent.
+- **Promoted:** no (the single-source-of-truth principle is implicit in Architecture rule #2; the
+  specific cache-feedback pattern is too narrow to stand as a top-level rule).
+
+### Docs fixed: `deploy.md` claimed offline classifier returns a "minimal default" — it throws
+- **Delta:** `deploy.md` stated "any unknown item receives a minimal default classification." The
+  Postgres-cache commit (`a80937f`) corrected it to "any unknown item causes `classifyOffline` to throw
+  an error directing the user to set `ANTHROPIC_API_KEY`. No default or fabricated classification is
+  returned." The code's actual behavior (the throw) was already present; the doc was wrong from the
+  prior iteration.
+- **Why:** the doc was written before the offline behavior was pinned precisely, and the cache commit
+  author noticed the discrepancy when writing the note "the offline classifier throws on novel items"
+  in the commit message.
+- **Lesson:** **verify doc claims about fallback/error paths against the code before shipping.** Docs
+  about "what happens when X is absent" drift silently — a quick read of the relevant function
+  (or a single test run) is the check.
+- **Promoted:** yes (new; broadly applicable whenever documenting fallback or absence behavior; the
+  existing "commit research as markdown" rule says to write docs, but doesn't say to verify them against
+  the code).
+
+### Phase 3 greenlit and sequenced in CLAUDE.md + roadmap.md
+- **Delta:** `CLAUDE.md` Scope discipline section updated from "Phase 2 only" to "Phase 2 complete,
+  Phase 3 approved — (1) Supabase Auth + RLS → (2) URL enrichment → (3) weather auto-conditions →
+  (4) catalog gap-fill suggestions." `docs/roadmap.md` added with sequenced phases and explicit
+  provider decisions gated at the start of each step.
+- **Why:** the user greenlit Phase 3 after reviewing the complete Phase 2 including the verify loop and
+  KB. Committing the sequence to the repo prevents phase-boundary drift and makes the next-action
+  unambiguous for any agent reading CLAUDE.md.
+- **Lesson:** commit scope decisions immediately as they happen (existing rule; confirmed effective here).
+- **Promoted:** no (confirms existing "commit research/decisions as markdown" lesson).

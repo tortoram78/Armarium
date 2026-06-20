@@ -125,11 +125,17 @@ Run **`/retro`** at the end of every iteration. Promote only durable, broadly-ap
 - **A passing canonical test is not proof of generality.** We let recommendations collapse onto one
   trip (Marcy); fixed by deriving requirements from structured conditions. For any "reasoning" feature,
   add cross-archetype tests (≥3 distinct cases) so the engine can't be secretly hardcoded.
+- **When a test asserts a capability outcome, read the actual gate first.** Capability gates are often
+  OR-predicates across multiple facets; clearing one arm may leave the item satisfying the gate through
+  another, making the test pass for the wrong reason. Assert against the full real predicate.
 - **Keep secrets/infra out of the gates.** DB + Anthropic clients are lazy/injected so
   `typecheck/lint/build/test` are green with no `DATABASE_URL`/`ANTHROPIC_API_KEY`; tests use a mock
   client + an offline classifier. Never make a gate depend on a secret.
 - **Unknown is first-class; specs are never fabricated.** Enforce it mechanically (the `hardFact`
   demotion guard) and test it with failing fixtures — not by prompt wording alone.
+- **Verify doc claims about fallback/error paths against the code.** Docs about "what happens when X
+  is absent" drift silently. Check the actual function (or run it) before shipping — a wrong fallback
+  claim misleads operators and agents alike.
 - **Commit research/decisions as markdown as you go** (ADRs, progress, design); the remote container is
   ephemeral and uncommitted work is lost.
 - **`pnpm build` passing is necessary, not sufficient for RSC routes.** Event-handler props on Server
