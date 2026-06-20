@@ -28,14 +28,17 @@ It is the single, non-negotiable operating model — do not substitute another.*
 
 ## Scope discipline — read this second
 
-- We are building **Phase 2 only**: the usable web app — closet (emergent facet grouping), add-by-name
-  → classify → review/save, plan-a-trip (NL + structured conditions → picks + capability gaps + "verify"),
-  and saved trips — on the approved Phase 0/1 foundation. Nothing else.
-- **YOU MUST NOT build** v0-out-of-scope work: real multi-user auth/sharing, a weather API,
-  barcode/photo/URL enrichment, an image-upload pipeline, military/NSN domain, a native app, or
-  catalog "suggest items to fill gaps." If a request drifts toward these, **stop and flag it.**
-- Anything that would **expand scope, add a dependency, or introduce new infrastructure: ask first.**
-  Default to a 20-second question over a heroic guess.
+- **Phase 2 is complete** — the usable web app (closet, add-by-name → classify → review/save,
+  plan-a-trip, saved trips) plus the **verify→correct→re-plan loop** and the **self-building
+  classification cache**.
+- **Phase 3 is APPROVED** (greenlit by the user 2026-06-20) — build in this sequence, each gated on
+  its own `DESIGN.md` update + ADR(s) + the one provider decision FIRST: **(1) real auth + multi-user
+  (Supabase Auth + RLS) → (2) manufacturer URL enrichment → (3) weather auto-conditions → (4) catalog
+  gap-fill suggestions.** See [`docs/roadmap.md`](docs/roadmap.md).
+- **Still OUT of scope** (do not build; stop and flag): image-upload / photo / barcode enrichment,
+  military/NSN domain, and a native app.
+- Anything that would **add a dependency or introduce new infrastructure: still ask first** (including
+  the auth/enrichment/weather/catalog provider choices above). Default to a 20-second question.
 
 ## Stack (DECIDED — do not substitute without asking)
 
@@ -43,8 +46,9 @@ It is the single, non-negotiable operating model — do not substitute another.*
 - **Postgres on Supabase** via **Drizzle ORM** (+ `drizzle-kit`); **Zod** for all I/O and LLM-output
   validation; **`@anthropic-ai/sdk`** in server code only.
 - **Deliberate non-choices:** v0 persistence runs through a **repository port** with an **in-memory
-  impl** (no DB needed to run) and a Postgres impl when `DATABASE_URL` is set. **Do NOT add real auth**
-  (a one-password gate only), a weather API, or any enrichment service — those are gated/out-of-scope.
+  impl** (no DB needed to run) and a Postgres impl when `DATABASE_URL` is set. Real auth, weather, and
+  URL enrichment are now **Phase 3 (approved & sequenced — see Scope discipline)**; until each is built,
+  the **one-password gate stands**. Image/photo/barcode enrichment and a native app remain out of scope.
 
 ## Architecture rules (violating any is a bug)
 

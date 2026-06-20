@@ -1,8 +1,11 @@
 # Armarium Roadmap
 
-**Scope anchor:** Phase 2 only. Items marked Gated require an explicit scope-unlock decision and a
-`DESIGN.md` update before any implementation begins. See `CLAUDE.md` and `DESIGN.md` for the
-definitive scope boundaries.
+**Scope anchor:** Phase 2 is complete. On **2026-06-20 the user greenlit Phase 3** — real auth +
+multi-user, manufacturer (URL) enrichment, weather auto-conditions, and catalog gap-fill — to be
+built in the sequence in the "Approved — Phase 3" section below. Each still needs its own `DESIGN.md`
+update + ADR(s) + the one provider decision noted before its build begins. **Still out of scope:**
+image-upload / photo / barcode enrichment, military/NSN domain, and a native app. See `CLAUDE.md`
+for the definitive boundary.
 
 ---
 
@@ -98,36 +101,40 @@ review queue. No new data shapes; drafts are already filtered by `!draft` in `ge
 
 ---
 
-## Gated (needs scope unlock before any implementation)
+## Approved — Phase 3 (greenlit 2026-06-20; build in sequence)
 
-The items below are explicitly out of scope for Phase 2 per `CLAUDE.md`. Building any of them
-requires: (1) a written scope-unlock decision with context and trade-offs surfaced to the user,
-(2) a `DESIGN.md` update covering the data shapes and seams, and (3) ADR(s) for load-bearing
-decisions within the new scope. Do not begin implementation until all three are in place.
+The user has unlocked the items below. Build them in the numbered order (they have dependencies).
+Each still requires, before its own implementation: a `DESIGN.md` update covering the new data
+shapes and seams, ADR(s) for load-bearing decisions, and the single infra/provider decision noted.
 
-**Real auth + multi-user + Supabase RLS**
-Replace the one-password gate with proper authentication (Supabase Auth or similar), per-user
-row isolation enforced by Postgres RLS, and a session model that ties `user_id` to an
-authenticated identity. The `user_id` column is already on every user-owned table (architecture
-rule #4) so the schema is ready; the application logic and auth middleware are not. This is the
-prerequisite for any sharing or social features.
+### 1. Real auth + multi-user + Supabase RLS — *foundation*
+Replace the one-password gate with proper authentication, per-user row isolation enforced by
+Postgres RLS, and a session model that ties `user_id` to an authenticated identity. The `user_id`
+column is already on every user-owned table (rule #4), so the schema is ready; the auth middleware
+and application logic are not. Prerequisite for any sharing/social features.
+**Decision:** auth provider — recommend **Supabase Auth** (already on Supabase; pairs with RLS).
 
-**Weather API auto-conditions**
-Automatically populate `TripConditions` from a weather forecast API given a destination and
-dates. Useful quality-of-life feature but introduces a new external service dependency and raises
-accuracy/liability questions (a wrong forecast leading to a wrong packing list). Needs a clear
-fallback story when the API is unavailable or the location is ambiguous.
+### 2. Manufacturer (URL) enrichment — *feeds the cache/KB*
+Enrich a classification from an authoritative manufacturer spec page given a product URL, producing
+`source:"manufacturer"` facts (the highest-confidence inputs) that flow into the classification KB.
+Photo and barcode channels remain out of scope (deferred sub-phases).
+**Decision:** start with paste-a-URL + server-side fetch (no scraping infra beyond fetch + parse).
 
-**Manufacturer / URL / photo / barcode enrichment**
-Enrich an item's classification using authoritative sources: manufacturer spec pages (URL
-scrape), product barcodes, or photos. These paths produce `source:"manufacturer"` facts which
-are the highest-confidence inputs the system accepts. Each channel is a distinct integration
-with its own reliability, rate-limit, and legal considerations. Barcode lookup requires an
-external catalog. Photo classification requires a vision model call. None of these are trivial
-to make reliable and auditable.
+### 3. Weather auto-conditions — *removes manual entry*
+Auto-populate `TripConditions` from a forecast given destination + dates (the user still adjusts).
+Needs a clear fallback when the API is unavailable or the location is ambiguous.
+**Decision:** provider — **Open-Meteo** (free, no key) recommended.
 
-**Catalog gap-fill suggestions ("buy to fill the gap")**
-When the recommender surfaces a capability gap, suggest specific products from a catalog that
-would fill it. This requires a product catalog (external dependency), matching logic between
-capability requirements and catalog items, and careful framing (Armarium is a personal gear
-manager, not a shopping engine). Out of scope until real auth and a catalog source are in place.
+### 4. Catalog gap-fill suggestions — *gaps → guidance*
+When the recommender surfaces a capability gap, suggest specific items that would fill it. Requires
+a catalog source + matching logic between capability requirements and catalog items, framed as
+guidance (Armarium is a personal gear manager, not a shopping engine). Benefits from the KB built in
+steps 1–2 as its item source.
+**Decision:** catalog source — reuse the classification KB vs a curated seed.
+
+---
+
+## Still out of scope (stop and flag)
+
+Image-upload / photo / barcode enrichment, military/NSN domain, and a native app remain out of
+scope. Building any of these needs a fresh scope-unlock decision.
