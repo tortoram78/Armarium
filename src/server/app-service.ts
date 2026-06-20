@@ -108,3 +108,13 @@ export async function getTrips(userId = DEFAULT_USER_ID): Promise<StoredTrip[]> 
 export async function getTrip(id: string, userId = DEFAULT_USER_ID): Promise<StoredTrip | null> {
   return getRepository().getTrip(userId, id);
 }
+
+/** Re-run a saved trip against the CURRENT closet (after corrections) and persist the new result. */
+export async function replanTrip(id: string, userId = DEFAULT_USER_ID): Promise<StoredTrip | null> {
+  const repo = getRepository();
+  const trip = await repo.getTrip(userId, id);
+  if (!trip) return null;
+  const inv = await getInventoryResolved(userId);
+  const result = planTrip(inv, trip.name, trip.conditions, trip.description);
+  return repo.updateTripResult(userId, id, result);
+}

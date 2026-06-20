@@ -57,4 +57,6 @@ export interface GearRepository {
   listTrips(userId: string): Promise<StoredTrip[]>;
   getTrip(userId: string, id: string): Promise<StoredTrip | null>;
   saveTrip(userId: string, trip: SaveTripInput): Promise<StoredTrip>;
+  /** Overwrite a saved trip's recommendation (used by re-plan after closet corrections). */
+  updateTripResult(userId: string, id: string, result: RecommendationResult): Promise<StoredTrip | null>;
 }

@@ -104,4 +104,10 @@ export const memoryRepository: GearRepository = {
     trips(userId).unshift(trip);
     return structuredClone(trip);
   },
+  async updateTripResult(userId, id, result) {
+    const found = trips(userId).find((t) => t.id === id);
+    if (!found) return null;
+    found.result = structuredClone(result);
+    return structuredClone(found);
+  },
 };

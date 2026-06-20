@@ -567,4 +567,16 @@ export const postgresRepository: GearRepository = {
     if (!row) throw new Error(`insert returned no row for trip ${id}`);
     return rowToStoredTrip(row);
   },
+
+  async updateTripResult(userId, id, result) {
+    const db = getDb();
+    const rows = await db
+      .update(trips)
+      .set({ resultSnapshot: result as unknown as Record<string, unknown> })
+      .where(and(eq(trips.userId, userId), eq(trips.id, id)))
+      .returning();
+    const row = rows[0];
+    if (!row) return null;
+    return rowToStoredTrip(row);
+  },
 };
