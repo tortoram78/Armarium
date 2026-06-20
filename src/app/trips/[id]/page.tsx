@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getTrip } from "@/server/app-service";
+import { replanTripAction } from "@/app/actions";
 import { CAPABILITY_LABELS } from "@/core/capabilities";
 import type { CapabilityKey } from "@/core/capabilities";
 import type { Severity } from "@/core/recommend";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
@@ -68,14 +70,22 @@ export default async function TripDetailPage({ params }: { params: { id: string 
       </Link>
 
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{trip.name}</h1>
-        <p className="mt-1 text-xs text-neutral-500">
-          {new Date(trip.createdAt).toLocaleDateString()}
-        </p>
-        {trip.description && (
-          <p className="mt-1 text-sm text-neutral-600">{trip.description}</p>
-        )}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{trip.name}</h1>
+          <p className="mt-1 text-xs text-neutral-500">
+            {new Date(trip.createdAt).toLocaleDateString()}
+          </p>
+          {trip.description && (
+            <p className="mt-1 text-sm text-neutral-600">{trip.description}</p>
+          )}
+        </div>
+        <form action={replanTripAction} className="shrink-0">
+          <input type="hidden" name="id" value={trip.id} />
+          <Button type="submit" variant="outline" size="sm">
+            Re-plan with current closet
+          </Button>
+        </form>
       </div>
 
       {/* Conditions summary */}
@@ -143,27 +153,48 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                   You may have gear covering these needs, but a key facet is unknown. Check your
                   item details and correct the facets to get a definitive answer.
                 </p>
+                <p className="text-xs text-amber-600 mt-1">
+                  Correct the unknown facet on an item below, then Re-plan.
+                </p>
               </CardHeader>
               <CardContent className="space-y-2">
                 {result.uncertain
                   .slice()
                   .sort((a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity))
-                  .map((u) => (
-                    <div
-                      key={u.capability}
-                      className="flex items-start gap-3 rounded-md border border-amber-100 bg-amber-50 p-3"
-                    >
-                      <Badge variant="verify" className="shrink-0 mt-0.5">Verify</Badge>
-                      <div>
-                        <p className="text-sm font-medium">
-                          {CAPABILITY_LABELS[u.capability as CapabilityKey]}
-                        </p>
-                        {u.reason && (
-                          <p className="text-xs text-amber-700 mt-0.5">{u.reason}</p>
-                        )}
+                  .map((u) => {
+                    // Look up blockedBy from the full outcomes array (Gap[] lacks blockedBy).
+                    const outcome = result.outcomes.find((o) => o.capability === u.capability);
+                    const blockedBy = outcome?.blockedBy ?? [];
+                    return (
+                      <div
+                        key={u.capability}
+                        className="flex items-start gap-3 rounded-md border border-amber-100 bg-amber-50 p-3"
+                      >
+                        <Badge variant="verify" className="shrink-0 mt-0.5">Verify</Badge>
+                        <div>
+                          <p className="text-sm font-medium">
+                            {CAPABILITY_LABELS[u.capability as CapabilityKey]}
+                          </p>
+                          {u.reason && (
+                            <p className="text-xs text-amber-700 mt-0.5">{u.reason}</p>
+                          )}
+                          {blockedBy.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1.5">
+                              {blockedBy.map((r) => (
+                                <Link
+                                  key={r.id}
+                                  href={`/items/${r.id}?edit=1`}
+                                  className="text-xs text-amber-800 underline hover:text-amber-950"
+                                >
+                                  {r.name}
+                                </Link>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
               </CardContent>
             </Card>
           )}
@@ -248,7 +279,18 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                       )}
                       {o.blockedBy.length > 0 && (
                         <p className="text-xs text-amber-700 mt-0.5">
-                          Possible (verify): {o.blockedBy.map((r) => r.name).join(", ")}
+                          Possible (verify):{" "}
+                          {o.blockedBy.map((r, i) => (
+                            <span key={r.id}>
+                              {i > 0 && ", "}
+                              <Link
+                                href={`/items/${r.id}?edit=1`}
+                                className="underline hover:text-amber-900"
+                              >
+                                {r.name}
+                              </Link>
+                            </span>
+                          ))}
                         </p>
                       )}
                     </div>

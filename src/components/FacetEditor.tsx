@@ -1,61 +1,115 @@
 "use client";
 
-// Inline facet editor — lets the user correct universal soft facets and multi-label facets.
-// Used on both the review page (draft) and the item detail page (confirmed item).
-// "use client" because it uses interactive form controls with checkbox state; the form action
-// is a server action and is passed as a prop.
+// Inline facet editor — lets the user correct universal + group hard facts + multi-label facets.
+// Driven entirely by the core registry (EDITABLE_UNIVERSAL, editableGroupFacets, EDITABLE_MULTILABEL).
+// Form field `name` equals the facet `path` (e.g. "universal.warmth", "groups.insulation.fill_power").
+// "use client" because it uses interactive form controls; the form action is a server action passed as
+// a prop.
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { ItemClassification } from "@/core/classification";
-import type { Evidence } from "@/core/evidence";
 import {
-  WATERPROOFNESS, WIND_RESISTANCE, BREATHABILITY, MOISTURE_MANAGEMENT, DRY_SPEED,
-  WARMTH_WHEN_WET, WARMTH, PACKABILITY, TECH_LIFESTYLE,
-  LAYERING_ROLE, FUNCTION_PURPOSE, BODY_ZONE, ACTIVITY_FIT, CONDITIONS_FIT,
-} from "@/core/facets/levels";
+  EDITABLE_UNIVERSAL,
+  EDITABLE_MULTILABEL,
+  editableGroupFacets,
+  type EditableFacet,
+} from "@/core/corrections";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
-
-// Map of universal facet key -> human label + allowed vocab
-const SOFT_FACET_DEFS = [
-  { key: "waterproofness", label: "Waterproofness", vocab: WATERPROOFNESS },
-  { key: "wind_resistance", label: "Wind resistance", vocab: WIND_RESISTANCE },
-  { key: "breathability", label: "Breathability", vocab: BREATHABILITY },
-  { key: "moisture_management", label: "Moisture management", vocab: MOISTURE_MANAGEMENT },
-  { key: "dry_speed", label: "Dry speed", vocab: DRY_SPEED },
-  { key: "warmth_when_wet", label: "Warmth when wet", vocab: WARMTH_WHEN_WET },
-  { key: "warmth", label: "Warmth", vocab: WARMTH },
-  { key: "packability", label: "Packability", vocab: PACKABILITY },
-  { key: "technical_vs_lifestyle", label: "Technical vs lifestyle", vocab: TECH_LIFESTYLE },
-] as const;
-
-const MULTI_FACET_DEFS = [
-  { key: "layering_role", label: "Layering role", vocab: LAYERING_ROLE },
-  { key: "function_purpose", label: "Function / purpose", vocab: FUNCTION_PURPOSE },
-  { key: "body_zone_covered", label: "Body zone", vocab: BODY_ZONE },
-  { key: "activity_fit", label: "Activity fit", vocab: ACTIVITY_FIT },
-  { key: "conditions_fit", label: "Conditions fit", vocab: CONDITIONS_FIT },
-] as const;
 
 function titleize(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function softValue(e: Evidence<string> | undefined | null): string {
-  if (!e || e.value === null) return "unknown";
-  return e.value;
+/** Read a scalar Evidence value from the classification at a dotted path. */
+function readScalarValue(
+  c: ItemClassification,
+  path: string,
+): string | number | null {
+  const parts = path.split(".");
+  if (parts[0] === "universal" && parts[1]) {
+    const ev = (c.universal as unknown as Record<string, { value: unknown } | null>)[parts[1]];
+    if (!ev || ev.value === null || ev.value === undefined) return null;
+    return ev.value as string | number;
+  }
+  if (parts[0] === "groups" && parts[1] && parts[2]) {
+    const grp = (c.groups as Record<string, Record<string, { value: unknown } | null> | undefined>)[parts[1]];
+    if (!grp) return null;
+    const ev = grp[parts[2]];
+    if (!ev || ev.value === null || ev.value === undefined) return null;
+    return ev.value as string | number;
+  }
+  return null;
+}
+
+/** Read a multi-label array from the classification at a dotted path. */
+function readMultiValue(c: ItemClassification, path: string): string[] {
+  const parts = path.split(".");
+  if (parts[0] === "multilabel" && parts[1]) {
+    const arr = (c.multilabel as unknown as Record<string, readonly string[]>)[parts[1]];
+    return arr ? [...arr] : [];
+  }
+  return [];
+}
+
+/** Render a single editable scalar facet field. */
+function ScalarField({ facet, value }: { facet: EditableFacet; value: string | number | null }) {
+  const isNumeric = facet.tier === "hard_int" || facet.tier === "hard_num" || facet.tier === "soft_num";
+  if (isNumeric) {
+    return (
+      <div className="space-y-0.5">
+        <Label className="text-xs">{facet.label}</Label>
+        <input
+          type="number"
+          name={facet.path}
+          defaultValue={value !== null ? String(value) : ""}
+          step={facet.tier === "hard_int" ? "1" : "any"}
+          placeholder="Unknown"
+          className="h-8 w-full rounded-md border border-neutral-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-neutral-400"
+        />
+      </div>
+    );
+  }
+  // enum (soft_enum / hard_enum)
+  return (
+    <div className="space-y-0.5">
+      <Label className="text-xs">{facet.label}</Label>
+      <Select
+        name={facet.path}
+        defaultValue={value !== null ? String(value) : "unknown"}
+        className="text-xs h-8"
+      >
+        <option value="unknown">Unknown</option>
+        {(facet.vocab ?? []).map((v) => (
+          <option key={v} value={v}>{titleize(v)}</option>
+        ))}
+      </Select>
+    </div>
+  );
 }
 
 interface FacetEditorProps {
   itemId: string;
   classification: ItemClassification;
   action: string | ((formData: FormData) => void | Promise<void>);
+  /** If true, the editor opens immediately (for ?edit=1 deep-link). */
+  defaultOpen?: boolean;
 }
 
-export function FacetEditor({ itemId, classification, action }: FacetEditorProps) {
-  const [open, setOpen] = useState(false);
+export function FacetEditor({ itemId, classification, action, defaultOpen }: FacetEditorProps) {
+  const [open, setOpen] = useState(defaultOpen ?? false);
+
+  // Compute group sections dynamically from the core registry.
+  const groupFacets = editableGroupFacets(classification);
+  // Group them by their `group` key.
+  const groupSections = new Map<string, EditableFacet[]>();
+  for (const f of groupFacets) {
+    if (!f.group) continue;
+    const arr = groupSections.get(f.group) ?? [];
+    arr.push(f);
+    groupSections.set(f.group, arr);
+  }
 
   return (
     <div className="mt-4">
@@ -82,51 +136,53 @@ export function FacetEditor({ itemId, classification, action }: FacetEditorProps
           <form action={action} className="space-y-5">
             <input type="hidden" name="id" value={itemId} />
 
+            {/* Universal section */}
             <section>
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                Universal soft facets
+                Universal
               </h4>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {SOFT_FACET_DEFS.map(({ key, label, vocab }) => {
-                  // Access universal facet dynamically
-                  const current = softValue(
-                    (classification.universal as unknown as Record<string, Evidence<string> | null>)[key],
-                  );
-                  return (
-                    <div key={key} className="space-y-0.5">
-                      <Label className="text-xs">{label}</Label>
-                      <Select name={key} defaultValue={current} className="text-xs h-8">
-                        <option value="unknown">Unknown</option>
-                        {vocab.map((v) => (
-                          <option key={v} value={v}>{titleize(v)}</option>
-                        ))}
-                      </Select>
-                    </div>
-                  );
+                {EDITABLE_UNIVERSAL.map((facet) => {
+                  const value = readScalarValue(classification, facet.path);
+                  return <ScalarField key={facet.path} facet={facet} value={value} />;
                 })}
               </div>
             </section>
 
+            {/* Group sections — only for groups this item carries */}
+            {Array.from(groupSections.entries()).map(([groupKey, facets]) => (
+              <section key={groupKey}>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                  {titleize(groupKey)} specs
+                </h4>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {facets.map((facet) => {
+                    const value = readScalarValue(classification, facet.path);
+                    return <ScalarField key={facet.path} facet={facet} value={value} />;
+                  })}
+                </div>
+              </section>
+            ))}
+
+            {/* Multi-label section */}
             <section>
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                Multi-label facets
+                Multi-label
               </h4>
               <div className="grid gap-4 sm:grid-cols-2">
-                {MULTI_FACET_DEFS.map(({ key, label, vocab }) => {
-                  const current = (
-                    classification.multilabel as Record<string, readonly string[]>
-                  )[key] ?? [];
+                {EDITABLE_MULTILABEL.map((facet) => {
+                  const current = readMultiValue(classification, facet.path);
                   return (
-                    <div key={key}>
-                      <p className="mb-1 text-xs font-medium text-neutral-700">{label}</p>
+                    <div key={facet.path}>
+                      <p className="mb-1 text-xs font-medium text-neutral-700">{facet.label}</p>
                       <div className="flex flex-wrap gap-1.5">
-                        {vocab.map((v) => (
+                        {(facet.vocab ?? []).map((v) => (
                           <label key={v} className="flex cursor-pointer items-center gap-1 text-xs">
                             <input
                               type="checkbox"
-                              name={key}
+                              name={facet.path}
                               value={v}
-                              defaultChecked={(current as string[]).includes(v)}
+                              defaultChecked={current.includes(v)}
                               className="h-3 w-3"
                             />
                             {titleize(v)}

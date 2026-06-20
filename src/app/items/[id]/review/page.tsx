@@ -48,7 +48,7 @@ export default async function ReviewPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { facetError?: string };
+  searchParams: { facetError?: string; edit?: string };
 }) {
   const item = await getItem(params.id);
   if (!item || !item.draft) {
@@ -266,6 +266,7 @@ export default async function ReviewPage({
             itemId={item.id}
             classification={c}
             action={updateFacetsAction}
+            defaultOpen={searchParams.edit === "1"}
           />
         </CardContent>
       </Card>
