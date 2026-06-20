@@ -1,7 +1,9 @@
 // Application service — the thin layer the UI (pages, actions) calls. Ties the repository to the pure
 // core (resolve, group, plan). Pages never import core reasoning directly; they go through here.
 
-import { getRepository, getClassifier, getTripParser, DEFAULT_USER_ID } from "./services";
+import { getRepository, getCacheRepository, getClassifier, getTripParser, DEFAULT_USER_ID } from "./services";
+import { normalizeCacheKey } from "@/core/cache";
+import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
@@ -52,22 +54,47 @@ export async function planAndSave(
 
 export type AddMode = "live" | "offline";
 
-/** Classify a named item and store it as a DRAFT (not yet in the closet) for review. */
+/**
+ * Classify a named item and store it as a DRAFT (not yet in the closet) for review. Checks the
+ * self-building knowledge base FIRST: a cache hit reuses a stored classification (no LLM call); a miss
+ * classifies live/offline and writes the result back to the cache. The review step still gates it.
+ */
 export async function classifyToDraft(
   name: string,
   text: string | undefined,
   inInventory: boolean,
   userId = DEFAULT_USER_ID,
-): Promise<{ item: StoredItem; mode: AddMode }> {
-  const { classify, mode } = getClassifier();
-  const classification = await classify({ name, text });
+): Promise<{ item: StoredItem; mode: AddMode; fromCache: boolean }> {
+  const cache = getCacheRepository();
+  const key = normalizeCacheKey(name);
+  const cached = await cache.getCached(key);
+
+  let classification: ItemClassification;
+  if (cached) {
+    classification = cached.classification;
+  } else {
+    const { classify } = getClassifier();
+    classification = await classify({ name, text });
+    await cache.putCached({ key, name, classification, source: "llm", modelId: MODEL_ID });
+  }
+
   const item = await getRepository().addItem(userId, { name, inInventory, draft: true, rawText: text, classification });
-  return { item, mode };
+  return { item, mode: classifierMode(), fromCache: Boolean(cached) };
 }
 
-/** Promote a reviewed draft into the closet. */
+/** Promote a reviewed draft into the closet. The confirmation endorses its classification into the KB. */
 export async function confirmDraft(id: string, userId = DEFAULT_USER_ID): Promise<StoredItem | null> {
-  return getRepository().setDraft(userId, id, false);
+  const item = await getRepository().setDraft(userId, id, false);
+  if (item) {
+    await getCacheRepository().putCached({
+      key: normalizeCacheKey(item.name),
+      name: item.name,
+      classification: item.classification,
+      source: "user",
+      modelId: MODEL_ID,
+    });
+  }
+  return item;
 }
 
 export async function updateItemClassification(
@@ -75,7 +102,18 @@ export async function updateItemClassification(
   classification: ItemClassification,
   userId = DEFAULT_USER_ID,
 ): Promise<StoredItem | null> {
-  return getRepository().updateClassification(userId, id, classification);
+  const updated = await getRepository().updateClassification(userId, id, classification);
+  if (updated) {
+    // A user correction is authoritative — feed it back so future adds of this item improve.
+    await getCacheRepository().putCached({
+      key: normalizeCacheKey(classification.name),
+      name: classification.name,
+      classification,
+      source: "user",
+      modelId: MODEL_ID,
+    });
+  }
+  return updated;
 }
 
 export async function setInventory(id: string, inInventory: boolean, userId = DEFAULT_USER_ID) {

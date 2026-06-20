@@ -5,6 +5,7 @@
 import type { ItemClassification } from "./classification";
 import type { TripConditions } from "./conditions";
 import type { RecommendationResult } from "./recommend";
+import type { CachedClassification, CacheUpsert } from "./cache";
 
 export interface StoredItem {
   id: string;
@@ -59,4 +60,14 @@ export interface GearRepository {
   saveTrip(userId: string, trip: SaveTripInput): Promise<StoredTrip>;
   /** Overwrite a saved trip's recommendation (used by re-plan after closet corrections). */
   updateTripResult(userId: string, id: string, result: RecommendationResult): Promise<StoredTrip | null>;
+}
+
+/**
+ * The self-building classification knowledge base. Reference data (not user-owned): a normalized name
+ * → a validated classification, written by the LLM on first sight and upgraded to source:"user" by
+ * corrections/confirmations. Lets repeat adds skip the LLM.
+ */
+export interface ClassificationCacheRepository {
+  getCached(key: string): Promise<CachedClassification | null>;
+  putCached(entry: CacheUpsert): Promise<void>;
 }

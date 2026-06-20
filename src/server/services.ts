@@ -3,7 +3,7 @@
 // in core.
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { GearRepository } from "@/core/ports";
+import type { GearRepository, ClassificationCacheRepository } from "@/core/ports";
 import type { ItemClassification } from "@/core/classification";
 import type { ClassifyInput } from "@/core/classify/prompt";
 import type { TripConditions } from "@/core/conditions";
@@ -11,6 +11,7 @@ import { classifyItem } from "@/core/classify/classify";
 import { classifyOffline } from "@/core/classify/offline";
 import { parseTripConditions, parseConditionsHeuristic } from "@/core/recommend/parse-conditions";
 import { memoryRepository } from "./memory-repo";
+import { memoryCache } from "./memory-cache";
 // Static import is safe because postgres-repo.ts constructs the DB client LAZILY (only on first
 // query, never at import time). Importing this module has zero connection side effects.
 import { postgresRepository } from "./postgres-repo";
@@ -27,6 +28,18 @@ export function getRepository(): GearRepository {
   if (repo) return repo;
   repo = process.env.DATABASE_URL ? postgresRepository : memoryRepository;
   return repo;
+}
+
+let cacheRepo: ClassificationCacheRepository | null = null;
+
+/** The classification knowledge base. Postgres when DATABASE_URL is set, in-memory (seeded) otherwise.
+ *  Lazy require keeps the no-DB build/test paths green. */
+export function getCacheRepository(): ClassificationCacheRepository {
+  if (cacheRepo) return cacheRepo;
+  // NOTE: schema-db-owner wires the Postgres branch here (mirrors getRepository) once
+  // postgres-cache.ts + the classification_cache table land. Memory-only keeps gates green today.
+  cacheRepo = memoryCache;
+  return cacheRepo;
 }
 
 export type Classifier = (input: ClassifyInput) => Promise<ItemClassification>;
