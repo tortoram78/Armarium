@@ -33,7 +33,7 @@ export function SignupForm({ action }: Props) {
 
   if (success) {
     return (
-      <div className="rounded-md border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
+      <div className="rounded-sm border-l-2 border-primary bg-primary/10 px-4 py-3 text-sm text-primary">
         Account created. Check your email to confirm, then{" "}
         <a href="/login" className="font-medium underline underline-offset-4">
           sign in
@@ -68,10 +68,12 @@ export function SignupForm({ action }: Props) {
           required
           placeholder="••••••••"
         />
-        <p className="text-xs text-muted-foreground">Minimum 8 characters.</p>
+        <p className="data-mono text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+          Minimum 8 characters
+        </p>
       </div>
       {error && (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <p className="rounded-sm border-l-2 border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </p>
       )}

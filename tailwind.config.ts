@@ -46,40 +46,54 @@ const config: Config = {
         border:             "hsl(var(--border))",
         input:              "hsl(var(--input))",
         ring:               "hsl(var(--ring))",
+
+        /* sharp orange punctuation — consistent across both skins */
+        blaze:              "hsl(var(--blaze))",
       },
 
       /* -------------------------------------------------------
-         Border radius: token-driven
+         Border radius: near-square, architectural.
+         Interactive elements get ~2px; structural panels get 0.
          ------------------------------------------------------- */
       borderRadius: {
-        DEFAULT:  "var(--radius)",
-        lg:       "var(--radius)",
-        md:       "calc(var(--radius) - 2px)",
-        sm:       "calc(var(--radius) - 4px)",
-        full:     "9999px",
+        none:     "0",
+        DEFAULT:  "0.125rem",        /* 2px — interactive */
+        sm:       "0.0625rem",       /* 1px — chips/inputs */
+        md:       "0.125rem",
+        lg:       "0",               /* structural panels/cards — square */
+        full:     "9999px",          /* reserved (status dots only) */
       },
 
       /* -------------------------------------------------------
          Font families: wired to CSS vars set by next/font
+         display = condensed structural; mono = technical data
          ------------------------------------------------------- */
       fontFamily: {
         sans:    ["var(--font-inter)", "ui-sans-serif", "system-ui", "sans-serif"],
         display: ["var(--font-display)", "var(--font-inter)", "ui-sans-serif", "sans-serif"],
-        mono:    ["ui-monospace", "SFMono-Regular", "monospace"],
+        mono:    ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+
+      letterSpacing: {
+        legend: "0.14em",            /* topo-legend label spacing */
       },
 
       /* -------------------------------------------------------
-         Animation keyframes for framer-motion companions
-         (CSS fallback animations for mount/unmount)
+         Animation keyframes — crisp, mechanical, no overshoot
          ------------------------------------------------------- */
       keyframes: {
         "fade-up": {
-          from: { opacity: "0", transform: "translateY(8px)" },
+          from: { opacity: "0", transform: "translateY(6px)" },
           to:   { opacity: "1", transform: "translateY(0)" },
         },
         "fade-in": {
           from: { opacity: "0" },
           to:   { opacity: "1" },
+        },
+        /* a confident left→right wipe reveal (instrument readout) */
+        "wipe-in": {
+          from: { opacity: "0", clipPath: "inset(0 100% 0 0)" },
+          to:   { opacity: "1", clipPath: "inset(0 0 0 0)" },
         },
         shimmer: {
           "0%":   { backgroundPosition: "-200% 0" },
@@ -87,18 +101,27 @@ const config: Config = {
         },
       },
       animation: {
-        "fade-up":  "fade-up 0.35s ease both",
-        "fade-in":  "fade-in 0.25s ease both",
+        "fade-up":  "fade-up 0.26s cubic-bezier(0.22,1,0.36,1) both",
+        "fade-in":  "fade-in 0.20s ease-out both",
+        "wipe-in":  "wipe-in 0.34s cubic-bezier(0.22,1,0.36,1) both",
         shimmer:    "shimmer 1.6s linear infinite",
       },
 
+      transitionTimingFunction: {
+        /* sharp ease-out — decisive, zero bounce */
+        crisp:   "cubic-bezier(0.22, 1, 0.36, 1)",
+        snappy:  "cubic-bezier(0.16, 1, 0.3, 1)",
+      },
+
       /* -------------------------------------------------------
-         Box shadow: token-accented shadows
+         Box shadow: hairline edges + letterpress depth.
+         NO soft blur drop-shadows — surfaces sit flat + defined.
          ------------------------------------------------------- */
       boxShadow: {
-        card:    "0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.07)",
-        "card-hover": "0 4px 12px 0 rgb(0 0 0 / 0.12)",
-        glow:    "0 0 0 3px hsl(var(--ring) / 0.25)",
+        none:        "none",
+        hairline:    "inset 0 0 0 1px hsl(var(--hairline))",
+        letterpress: "inset 0 1px 0 0 hsl(var(--letterpress)), inset 0 -1px 0 0 hsl(var(--inkpress))",
+        "press-in":  "inset 0 1px 2px 0 hsl(var(--inkpress))",
       },
     },
   },

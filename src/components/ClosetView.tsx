@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { PackageOpen, Plus, Layers } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 interface ItemSummary {
@@ -27,105 +26,129 @@ interface Props {
   groupingLinks: { key: string; label: string }[];
 }
 
-/* Framer-motion variants */
+/* Crisp eases — decisive, zero overshoot (no spring/bounce). */
+const EASE = [0.22, 1, 0.36, 1] as const;
+
 const containerVariants = {
   hidden: {},
   show: {
-    transition: { staggerChildren: 0.04, delayChildren: 0.05 },
+    transition: { staggerChildren: 0.025, delayChildren: 0.04 },
   },
 };
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 10 },
-  show:   { opacity: 1, y: 0, transition: { duration: 0.22, ease: "easeOut" } },
+  hidden: { opacity: 0, y: 6 },
+  show:   { opacity: 1, y: 0, transition: { duration: 0.2, ease: EASE } },
 };
 
 export function ClosetView({ items, groups, dimension, groupingLinks }: Props) {
   const itemMap = new Map(items.map((it) => [it.id, it]));
+  const verifyCount = items.filter((it) => it.needsVerify).length;
 
   return (
     <div className="space-y-6">
-      {/* ── Header ── */}
+      {/* ── Masthead: field-manual section header ── */}
       <motion.div
-        className="flex items-end justify-between gap-4"
-        initial={{ opacity: 0, y: -8 }}
+        className="border-b border-border pb-4"
+        initial={{ opacity: 0, y: -6 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.28, ease: "easeOut" }}
+        transition={{ duration: 0.24, ease: EASE }}
       >
-        <div>
-          <h1 className="heading-display text-3xl font-extrabold uppercase tracking-tight text-foreground">
-            Closet
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {items.length} item{items.length === 1 ? "" : "s"}
-            {" · "}emergent facet grouping
-          </p>
-        </div>
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            {/* legend kicker */}
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="h-2.5 w-0.5 bg-blaze" aria-hidden />
+              <span className="data-mono text-[0.625rem] uppercase tracking-[0.2em] text-muted-foreground">
+                Inventory&nbsp;/&nbsp;Faceted Index
+              </span>
+            </div>
+            <h1 className="heading-display text-4xl tracking-legend text-foreground">
+              Closet
+            </h1>
+            {/* spec readout */}
+            <p className="data-mono mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+              <span>
+                <span className="text-foreground">{items.length}</span> item{items.length === 1 ? "" : "s"}
+              </span>
+              <span className="text-border" aria-hidden>|</span>
+              <span>grouped by <span className="text-foreground">{dimension}</span></span>
+              {verifyCount > 0 && (
+                <>
+                  <span className="text-border" aria-hidden>|</span>
+                  <span className="text-blaze">{verifyCount} to verify</span>
+                </>
+              )}
+            </p>
+          </div>
 
-        <Link
-          href="/items/new"
-          className={cn(
-            "flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground",
-            "shadow-sm transition-all duration-150 hover:-translate-y-px hover:opacity-90 hover:shadow active:scale-[0.97]",
-          )}
-        >
-          <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden />
-          Add item
-        </Link>
-      </motion.div>
-
-      {/* ── Grouping selector pills ── */}
-      <motion.div
-        className="flex flex-wrap gap-1.5"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.2, delay: 0.1 }}
-      >
-        {groupingLinks.map(({ key, label }) => (
           <Link
-            key={key}
-            href={`/?group=${key}`}
+            href="/items/new"
             className={cn(
-              "rounded-full border px-3 py-1 text-xs font-medium transition-all duration-150",
-              key === dimension
-                ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                : "border-border text-muted-foreground hover:border-foreground/30 hover:bg-secondary hover:text-foreground",
+              "group flex shrink-0 items-center gap-2 rounded-sm bg-primary px-4 py-2.5",
+              "label-structural text-[0.6875rem] text-primary-foreground shadow-letterpress",
+              "transition-[transform,filter] duration-150 ease-crisp hover:brightness-110 active:scale-[0.985] active:shadow-press-in",
             )}
           >
-            {label}
+            <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+            Add item
           </Link>
-        ))}
+        </div>
+      </motion.div>
+
+      {/* ── Grouping selector: legend toggles (orange tick on active) ── */}
+      <motion.div
+        className="flex flex-wrap items-center gap-x-1 gap-y-2"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2, delay: 0.08, ease: EASE }}
+      >
+        <span className="data-mono mr-2 text-[0.625rem] uppercase tracking-[0.18em] text-muted-foreground">
+          Group&nbsp;by
+        </span>
+        {groupingLinks.map(({ key, label }) => {
+          const active = key === dimension;
+          return (
+            <Link
+              key={key}
+              href={`/?group=${key}`}
+              className={cn(
+                "label-structural relative rounded-sm border px-2.5 py-1 text-[0.625rem] transition-colors duration-150 ease-crisp",
+                active
+                  ? "border-blaze bg-blaze/10 text-foreground"
+                  : "border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+              )}
+              aria-current={active ? "true" : undefined}
+            >
+              {label}
+            </Link>
+          );
+        })}
       </motion.div>
 
       {/* ── Empty state ── */}
       {items.length === 0 ? (
         <motion.div
-          initial={{ opacity: 0, scale: 0.97 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.24, ease: EASE }}
+          className="border border-dashed border-border bg-card/40 px-6 py-16 text-center"
         >
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-              <div className="rounded-full bg-secondary p-4">
-                <PackageOpen className="h-8 w-8 text-muted-foreground" strokeWidth={1.5} />
-              </div>
-              <p className="text-base font-medium text-foreground">Your closet is empty</p>
-              <p className="text-sm text-muted-foreground">
-                Start by adding your first piece of gear.
-              </p>
-              <Link
-                href="/items/new"
-                className="mt-2 rounded-md bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:opacity-90"
-              >
-                Add first item
-              </Link>
-            </CardContent>
-          </Card>
+          <p className="label-structural text-sm text-foreground">Closet is empty</p>
+          <p className="data-mono mt-2 text-xs text-muted-foreground">
+            Add your first piece of gear to begin the index.
+          </p>
+          <Link
+            href="/items/new"
+            className="label-structural mt-5 inline-block rounded-sm bg-primary px-5 py-2 text-[0.6875rem] text-primary-foreground shadow-letterpress transition-[transform,filter] duration-150 ease-crisp hover:brightness-110 active:scale-[0.985]"
+          >
+            Add first item
+          </Link>
         </motion.div>
       ) : (
-        /* ── Item groups ── */
+        /* ── Indexed groups ── */
         <motion.div
-          className="space-y-8"
+          className="space-y-7"
           variants={containerVariants}
           initial="hidden"
           animate="show"
@@ -137,47 +160,54 @@ export function ClosetView({ items, groups, dimension, groupingLinks }: Props) {
             if (grpItems.length === 0) return null;
             return (
               <section key={grp.key}>
-                {/* Group heading */}
-                <div className="mb-3 flex items-center gap-2">
-                  <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden />
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                {/* Group heading — topo legend row with a hairline rule */}
+                <div className="mb-3 flex items-baseline gap-3 border-b border-border pb-1.5">
+                  <h2 className="label-structural text-xs text-foreground">
                     {grp.label}
                   </h2>
-                  <span className="ml-auto rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {grpItems.length}
+                  <span className="h-px flex-1 bg-border" aria-hidden />
+                  <span className="data-mono text-[0.625rem] tabular-nums text-muted-foreground">
+                    {String(grpItems.length).padStart(2, "0")}
                   </span>
                 </div>
 
-                {/* Item cards grid */}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {/* Item cards — flat, hairline, machined */}
+                <div className="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-3">
                   {grpItems.map((it) => (
                     <motion.div key={it.id} variants={itemVariants}>
-                      <Link href={`/items/${it.id}`} className="block h-full">
-                        <Card
-                          className={cn(
-                            "h-full cursor-pointer",
-                            "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover",
-                            it.needsVerify && "border-l-2 border-l-accent",
+                      <Link
+                        href={`/items/${it.id}`}
+                        className={cn(
+                          "group relative flex h-full flex-col gap-2.5 bg-card p-3.5",
+                          "transition-colors duration-150 ease-crisp hover:bg-secondary/50",
+                        )}
+                      >
+                        {/* verify = blaze left edge marker */}
+                        {it.needsVerify && (
+                          <span
+                            className="absolute inset-y-0 left-0 w-0.5 bg-blaze"
+                            aria-hidden
+                          />
+                        )}
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="text-sm font-semibold leading-snug text-foreground">
+                            {it.name}
+                          </h3>
+                          {it.needsVerify && <Badge variant="verify">verify</Badge>}
+                        </div>
+                        <div className="mt-auto flex flex-wrap gap-1">
+                          {it.badges.length === 0 ? (
+                            <span className="data-mono text-[0.625rem] uppercase tracking-wide text-muted-foreground/70">
+                              — no facets —
+                            </span>
+                          ) : (
+                            it.badges.map((b) => (
+                              <Badge key={b} variant="subtle">
+                                {b.replace(/_/g, " ")}
+                              </Badge>
+                            ))
                           )}
-                        >
-                          <CardHeader className="pb-2">
-                            <CardTitle className="text-base leading-snug">
-                              {it.name}
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="flex flex-wrap gap-1">
-                              {it.needsVerify && (
-                                <Badge variant="verify">verify</Badge>
-                              )}
-                              {it.badges.map((b) => (
-                                <Badge key={b} variant="subtle">
-                                  {b.replace(/_/g, " ")}
-                                </Badge>
-                              ))}
-                            </div>
-                          </CardContent>
-                        </Card>
+                        </div>
                       </Link>
                     </motion.div>
                   ))}

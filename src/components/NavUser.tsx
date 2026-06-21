@@ -13,13 +13,15 @@ interface Props {
  */
 export function NavUser({ email }: Props) {
   return (
-    <form action={signOutAction} className="ml-1 flex items-center gap-2">
+    <form action={signOutAction} className="flex items-center gap-2.5">
       {email && (
-        <span className="hidden text-xs text-muted-foreground sm:inline">{email}</span>
+        <span className="hidden data-mono text-[0.625rem] text-muted-foreground sm:inline">
+          {email}
+        </span>
       )}
       <button
         type="submit"
-        className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        className="label-structural rounded-sm px-2.5 py-1 text-[0.625rem] text-muted-foreground transition-colors duration-150 ease-crisp hover:text-blaze"
       >
         Sign out
       </button>

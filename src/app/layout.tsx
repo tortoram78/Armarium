@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Oswald } from "next/font/google";
+import { Inter, Oswald, JetBrains_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 import { NavShell } from "@/components/NavShell";
@@ -9,8 +9,11 @@ import { createClient } from "@/lib/supabase/server";
 
 /* ----------------------------------------------------------------
    Fonts — loaded at build time via next/font/google
-   Inter: base geometric sans (weights 400/500/600/700)
-   Oswald: rugged display face for Modern Trail headings
+   Inter:         base humanist sans (body, weights 400/500/600/700)
+   Oswald:        condensed display — structural labels & headings
+                  (topo-legend / field-manual section headers)
+   JetBrains Mono: technical data face — facet values, counts, specs
+                  (reads "instrument readout")
    ---------------------------------------------------------------- */
 const inter = Inter({
   subsets: ["latin"],
@@ -24,6 +27,13 @@ const oswald = Oswald({
   variable: "--font-display",
   display: "swap",
   weight: ["500", "600", "700"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+  weight: ["400", "500", "700"],
 });
 
 export const metadata: Metadata = {
@@ -66,7 +76,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html
       lang="en"
       data-skin={initialSkin}
-      className={`${inter.variable} ${oswald.variable}`}
+      className={`${inter.variable} ${oswald.variable} ${jetbrainsMono.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-background text-foreground antialiased">

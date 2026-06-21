@@ -39,12 +39,13 @@ export function SkinController({ children }: Props) {
       ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
       : false;
 
+  // Crisp cross-tone wipe — confident, mechanical, no bounce/overshoot.
   const variants = prefersReducedMotion
     ? { initial: {}, animate: {}, exit: {} }
     : {
-        initial: { opacity: 0, y: 6 },
-        animate: { opacity: 1, y: 0 },
-        exit:    { opacity: 0, y: -4 },
+        initial: { opacity: 0, clipPath: "inset(0 0 100% 0)" },
+        animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
+        exit:    { opacity: 0, clipPath: "inset(0 0 0% 0)" },
       };
 
   return (
@@ -54,7 +55,7 @@ export function SkinController({ children }: Props) {
         initial={variants.initial}
         animate={variants.animate}
         exit={variants.exit}
-        transition={{ duration: 0.22, ease: "easeInOut" }}
+        transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
         style={{ minHeight: "100%" }}
       >
         {children}
