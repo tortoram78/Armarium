@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginForm } from "./LoginForm";
+import { AuthCard } from "@/components/AuthCard";
 import { isAuthConfigured } from "@/lib/auth";
 
 /**
@@ -27,16 +28,18 @@ async function loginAction(formData: FormData): Promise<{ error: string } | unde
 
 export default function LoginPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Armarium</h1>
-      <p className="mt-1 text-sm text-neutral-500">Sign in to access your gear closet.</p>
+    <AuthCard
+      tagline="Sign in to access your gear closet."
+      footer={
+        <>
+          No account?{" "}
+          <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
+            Create one
+          </Link>
+        </>
+      }
+    >
       <LoginForm action={loginAction} />
-      <p className="mt-4 text-center text-sm text-neutral-500">
-        No account?{" "}
-        <Link href="/signup" className="underline hover:text-neutral-900">
-          Create one
-        </Link>
-      </p>
-    </main>
+    </AuthCard>
   );
 }

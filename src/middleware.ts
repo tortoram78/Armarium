@@ -10,15 +10,22 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
   // Dev / in-memory mode — no auth configured, pass everything through.
+  // Forward the pathname as a header so the layout can set the correct
+  // initial data-skin server-side (no hydration flash on first paint).
   if (!isAuthConfigured()) {
-    return NextResponse.next();
+    const res = NextResponse.next();
+    res.headers.set("x-armarium-pathname", pathname);
+    return res;
   }
 
   // Refresh the Supabase session cookie (keeps tokens alive).
   const response = await updateSession(req);
 
-  const { pathname } = req.nextUrl;
+  // Forward pathname for skin selection in layout.
+  response.headers.set("x-armarium-pathname", pathname);
 
   // Public pages always pass through even when authenticated.
   if (isPublicPath(pathname)) {

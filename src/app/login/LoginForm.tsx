@@ -27,8 +27,8 @@ export function LoginForm({ action }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-      <div className="space-y-1">
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
@@ -37,9 +37,10 @@ export function LoginForm({ action }: Props) {
           autoComplete="email"
           autoFocus
           required
+          placeholder="you@example.com"
         />
       </div>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <Label htmlFor="password">Password</Label>
         <Input
           id="password"
@@ -47,10 +48,11 @@ export function LoginForm({ action }: Props) {
           type="password"
           autoComplete="current-password"
           required
+          placeholder="••••••••"
         />
       </div>
       {error && (
-        <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </p>
       )}

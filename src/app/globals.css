@@ -1,3 +1,164 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ============================================================
+   DESIGN TOKENS — CSS VARIABLES
+   shadcn-convention: all values are HSL channels (no hsl() wrapper),
+   consumed as hsl(var(--token)) in Tailwind.
+   ============================================================ */
+
+@layer base {
+  /* -----------------------------------------------------------
+     REFINED skin  (warm paper, professional) — :root default
+     ----------------------------------------------------------- */
+  :root,
+  [data-skin="refined"] {
+    --background:        40 33% 98%;
+    --foreground:       220 18% 16%;
+
+    --card:               0  0% 100%;
+    --card-foreground:  220 18% 16%;
+
+    --popover:            0  0% 100%;
+    --popover-foreground: 220 18% 16%;
+
+    --primary:          158 42% 20%;   /* deep evergreen */
+    --primary-foreground: 40 33% 98%;
+
+    --secondary:         40 20% 94%;
+    --secondary-foreground: 220 18% 22%;
+
+    --muted:             40 18% 94%;
+    --muted-foreground: 220 10% 42%;
+
+    --accent:            22 85% 52%;   /* blaze orange — sparing */
+    --accent-foreground:  0  0% 100%;
+
+    --destructive:        0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border:            40 14% 88%;
+    --input:             40 14% 88%;
+    --ring:             158 42% 20%;
+
+    --radius: 0.7rem;
+  }
+
+  /* -----------------------------------------------------------
+     RUGGED "Modern Trail" skin — [data-skin="rugged"]
+     ----------------------------------------------------------- */
+  [data-skin="rugged"] {
+    --background:       158 28%  9%;   /* deep pine */
+    --foreground:        40 30% 90%;   /* warm sand */
+
+    --card:             158 22% 13%;
+    --card-foreground:   40 30% 90%;
+
+    --popover:          158 24% 12%;
+    --popover-foreground: 40 30% 90%;
+
+    --primary:           22 90% 54%;   /* blaze orange CTA */
+    --primary-foreground: 158 40% 10%;
+
+    --secondary:        158 18% 20%;
+    --secondary-foreground: 40 30% 90%;
+
+    --muted:            158 16% 18%;
+    --muted-foreground:  95 12% 62%;   /* sage */
+
+    --accent:            40 35% 75%;   /* sand */
+    --accent-foreground: 158 40% 10%;
+
+    --destructive:        0 65% 48%;
+    --destructive-foreground: 40 30% 90%;
+
+    --border:           158 16% 22%;
+    --input:            158 18% 18%;
+    --ring:              22 90% 54%;
+
+    --radius: 0.7rem;
+  }
+
+  /* -----------------------------------------------------------
+     BASE ELEMENT STYLES
+     ----------------------------------------------------------- */
+  * {
+    border-color: hsl(var(--border));
+    box-sizing: border-box;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* -----------------------------------------------------------
+     SMOOTH SKIN FLIP — transition themed surfaces on data-skin change.
+     Runs on the wrapper/html so every child inherits the tween.
+     ----------------------------------------------------------- */
+  html,
+  [data-skin] {
+    transition:
+      background-color 0.45s ease,
+      color 0.45s ease,
+      border-color 0.45s ease;
+  }
+
+  /* Respect reduced-motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    html,
+    [data-skin],
+    * {
+      transition-duration: 0ms !important;
+      animation-duration: 0ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+
+  /* -----------------------------------------------------------
+     RUGGED SKIN — subtle topographic grain overlay
+     Applied as a pseudo-element on the body so text is unaffected.
+     The SVG noise filter creates a paper/terrain texture at ~4% opacity.
+     ----------------------------------------------------------- */
+  [data-skin="rugged"] body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 300px 300px;
+  }
+
+  /* -----------------------------------------------------------
+     TYPOGRAPHY HELPERS — rugged display headings
+     ----------------------------------------------------------- */
+  [data-skin="rugged"] .heading-display {
+    font-family: var(--font-display), var(--font-inter), ui-sans-serif, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+  }
+
+  /* -----------------------------------------------------------
+     FOCUS VISIBLE — consistent ring using --ring token
+     ----------------------------------------------------------- */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* -----------------------------------------------------------
+     SCROLLBAR — subtle on rugged, invisible on refined
+     ----------------------------------------------------------- */
+  :root {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+}

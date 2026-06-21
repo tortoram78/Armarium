@@ -33,9 +33,9 @@ export function SignupForm({ action }: Props) {
 
   if (success) {
     return (
-      <div className="mt-6 rounded border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+      <div className="rounded-md border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
         Account created. Check your email to confirm, then{" "}
-        <a href="/login" className="underline hover:text-green-900">
+        <a href="/login" className="font-medium underline underline-offset-4">
           sign in
         </a>
         .
@@ -44,8 +44,8 @@ export function SignupForm({ action }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-      <div className="space-y-1">
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
@@ -54,9 +54,10 @@ export function SignupForm({ action }: Props) {
           autoComplete="email"
           autoFocus
           required
+          placeholder="you@example.com"
         />
       </div>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <Label htmlFor="password">Password</Label>
         <Input
           id="password"
@@ -65,11 +66,12 @@ export function SignupForm({ action }: Props) {
           autoComplete="new-password"
           minLength={8}
           required
+          placeholder="••••••••"
         />
-        <p className="text-xs text-neutral-400">Minimum 8 characters.</p>
+        <p className="text-xs text-muted-foreground">Minimum 8 characters.</p>
       </div>
       {error && (
-        <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </p>
       )}
