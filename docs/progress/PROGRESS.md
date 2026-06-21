@@ -3,6 +3,31 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-21 (governance) — Scope unlock: image/photo/barcode, military/NSN, native app
+
+The user directed that the three previously hard-blocked items be moved from "do not build; stop
+and flag" to an **unlocked backlog**: image-upload / photo enrichment, barcode enrichment, the
+military/NSN domain, and a native app. They may now be proposed and built when prioritized.
+
+The gating discipline is unchanged. Each item still requires a `DESIGN.md` update, one or more
+ADRs, and the dependency/infrastructure decision before any implementation. The "ask first before
+adding a dependency or introducing new infrastructure" rule remains fully in force.
+
+Key nuances recorded in ADR-0009:
+
+- **Barcode** is deferred until after Phase 3 step 2 (manufacturer URL enrichment) and is
+  explicitly flagged as better suited to a native app than a browser tool. Manufacturer URL
+  enrichment remains the prioritized "easier item input" path.
+- **Military/NSN domain** and **a native app** are large strategic pivots. The unlock is permission
+  to write a scoping ADR for each — not a green light to add military facets or start a native
+  build without one.
+
+The approved Phase 3 sequence (auth → URL enrichment → weather → catalog gap-fill) is unaffected.
+
+ADR recorded: [ADR-0009](../decisions/0009-scope-unlock.md)
+
+---
+
 ## 2026-06-21 (Phase 3 step 1) — Real auth + multi-user: Supabase Auth, RLS, multi-user wiring
 
 Phase 3 step 1 is in delivery. The design, ADR, and documentation are complete; code implementation

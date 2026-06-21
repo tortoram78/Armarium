@@ -3,9 +3,10 @@
 **Scope anchor:** Phase 2 is complete. On **2026-06-20 the user greenlit Phase 3** — real auth +
 multi-user, manufacturer (URL) enrichment, weather auto-conditions, and catalog gap-fill — to be
 built in the sequence in the "Approved — Phase 3" section below. Each still needs its own `DESIGN.md`
-update + ADR(s) + the one provider decision noted before its build begins. **Still out of scope:**
-image-upload / photo / barcode enrichment, military/NSN domain, and a native app. See `CLAUDE.md`
-for the definitive boundary.
+update + ADR(s) + the one provider decision noted before its build begins. On **2026-06-21 the user
+unlocked the previously blocked items** (image-upload / photo / barcode enrichment, military/NSN
+domain, native app) — they are now an **unlocked backlog**, each still gated on its own ADR +
+dependency/infra decision before any implementation. See `CLAUDE.md` and ADR-0009 for details.
 
 ---
 
@@ -117,7 +118,9 @@ and application logic are not. Prerequisite for any sharing/social features.
 ### 2. Manufacturer (URL) enrichment — *feeds the cache/KB*
 Enrich a classification from an authoritative manufacturer spec page given a product URL, producing
 `source:"manufacturer"` facts (the highest-confidence inputs) that flow into the classification KB.
-Photo and barcode channels remain out of scope (deferred sub-phases).
+Photo and barcode channels are unlocked backlog but deferred. Barcode is explicitly sequenced
+after this step (URL enrichment is the prioritized "easier item input" path); barcode is also
+better suited to a native app than a browser tool (see ADR-0009).
 **Decision:** start with paste-a-URL + server-side fetch (no scraping infra beyond fetch + parse).
 
 ### 3. Weather auto-conditions — *removes manual entry*
@@ -134,7 +137,25 @@ steps 1–2 as its item source.
 
 ---
 
-## Still out of scope (stop and flag)
+## Unlocked backlog (build when prioritized; each gated on its own ADR + dep/infra decision)
 
-Image-upload / photo / barcode enrichment, military/NSN domain, and a native app remain out of
-scope. Building any of these needs a fresh scope-unlock decision.
+The hard block on these items was lifted on 2026-06-21 (ADR-0009). They are no longer prohibited
+but are not part of the approved Phase 3 sequence. Any of them may be proposed and built when
+prioritized, provided the standard gating is satisfied first: a `DESIGN.md` update, one or more
+ADRs, and the dependency/infrastructure decision ("ask first" before any new dep lands).
+
+**Image-upload / photo enrichment.** Upload an image to assist classification. Gated on its own
+design + ADR. No active priority.
+
+**Barcode enrichment.** Deferred until after Phase 3 step 2 (manufacturer URL enrichment). Better
+suited to a native app than a browser tool; target native delivery when that platform is built.
+Manufacturer URL enrichment (step 2) remains the prioritized "easier item input" path.
+
+**Military/NSN domain.** Large strategic pivot — NSN catalog, military nomenclature, and
+military-specific facets (MOLLE, ballistic rating, mil-spec) represent a distinct ontology and
+likely a distinct user base. Requires a dedicated scoping ADR before any code or schema work.
+The unlock is permission to write that ADR, not to add military facets incrementally.
+
+**Native app.** Large strategic pivot — a native iOS/Android delivery target introduces a distinct
+build pipeline, distribution model, and potentially a different auth/data-sync model. The web app
+remains the primary target. Requires its own scoping ADR before any work begins.

@@ -35,8 +35,13 @@ It is the single, non-negotiable operating model — do not substitute another.*
   its own `DESIGN.md` update + ADR(s) + the one provider decision FIRST: **(1) real auth + multi-user
   (Supabase Auth + RLS) → (2) manufacturer URL enrichment → (3) weather auto-conditions → (4) catalog
   gap-fill suggestions.** See [`docs/roadmap.md`](docs/roadmap.md).
-- **Still OUT of scope** (do not build; stop and flag): image-upload / photo / barcode enrichment,
-  military/NSN domain, and a native app.
+- **Unlocked backlog** (allowed to propose/build when prioritized; the hard block was lifted
+  2026-06-21 per ADR-0009): image-upload / photo enrichment, barcode enrichment, military/NSN
+  domain, and a native app. Each still requires its own `DESIGN.md` update + ADR(s) + the
+  dependency/infra decision before implementation. **Barcode is deferred** until after Phase 3
+  step 2 (manufacturer URL enrichment) and is better suited to a native app than a browser tool.
+  Military/NSN and a native app are large strategic pivots — each needs a dedicated scoping ADR
+  before any work begins.
 - Anything that would **add a dependency or introduce new infrastructure: still ask first** (including
   the auth/enrichment/weather/catalog provider choices above). Default to a 20-second question.
 
@@ -48,7 +53,7 @@ It is the single, non-negotiable operating model — do not substitute another.*
 - **Deliberate non-choices:** v0 persistence runs through a **repository port** with an **in-memory
   impl** (no DB needed to run) and a Postgres impl when `DATABASE_URL` is set. Real auth, weather, and
   URL enrichment are now **Phase 3 (approved & sequenced — see Scope discipline)**; until each is built,
-  the **one-password gate stands**. Image/photo/barcode enrichment and a native app remain out of scope.
+  the **one-password gate stands**. Image/photo/barcode enrichment and a native app are unlocked backlog (each gated on its own ADR + dep/infra decision before any build begins; see Scope discipline).
 
 ## Architecture rules (violating any is a bug)
 
