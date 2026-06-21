@@ -61,23 +61,23 @@
      deep pine + warm sand + blaze-orange (palette unchanged)
      ----------------------------------------------------------- */
   [data-skin="rugged"] {
-    --background:       158 30%  8%;   /* deep pine */
+    --background:       158 33% 15%;   /* deep forest pine — clearly green, not near-black */
     --foreground:        40 32% 89%;   /* warm sand */
 
-    --card:             158 24% 11%;
+    --card:             158 27% 18%;
     --card-foreground:   40 32% 89%;
 
-    --popover:          158 26% 10%;
+    --popover:          158 29% 17%;
     --popover-foreground: 40 32% 89%;
 
     --primary:           22 92% 53%;   /* blaze orange CTA */
     --primary-foreground: 158 45% 8%;
 
-    --secondary:        158 20% 17%;
+    --secondary:        158 23% 24%;
     --secondary-foreground: 40 32% 89%;
 
-    --muted:            158 18% 15%;
-    --muted-foreground:  90 14% 60%;   /* sage */
+    --muted:            158 21% 22%;
+    --muted-foreground:  90 16% 66%;   /* sage — lifted to hold AA on the lighter ground */
 
     --accent:            40 38% 72%;   /* sand */
     --accent-foreground: 158 45% 8%;
@@ -85,14 +85,14 @@
     --destructive:        2 64% 50%;
     --destructive-foreground: 40 32% 89%;
 
-    --border:           158 16% 24%;   /* hairline on pine */
-    --input:            158 18% 16%;
+    --border:           158 16% 31%;   /* hairline on pine — lifted to stay visible */
+    --input:            158 21% 23%;
     --ring:              22 92% 53%;
 
     /* blaze = sharp orange punctuation (same family, tuned for pine ground) */
     --blaze:             22 92% 55%;
 
-    --hairline:         158 16% 26%;
+    --hairline:         158 16% 33%;
     --letterpress:       40 32% 89% / 0.05;
     --inkpress:           0  0%  0% / 0.30;
 

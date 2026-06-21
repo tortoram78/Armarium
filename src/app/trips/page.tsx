@@ -12,31 +12,38 @@ export default async function TripsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4">
+      {/* Masthead — field-manual section header */}
+      <div className="flex items-end justify-between gap-4 border-b border-border pb-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Saved trips</h1>
-          <p className="text-sm text-neutral-500">
-            {trips.length} trip{trips.length === 1 ? "" : "s"} planned.
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="h-2.5 w-0.5 bg-blaze" aria-hidden />
+            <span className="data-mono text-[0.625rem] uppercase tracking-[0.2em] text-muted-foreground">
+              Log&nbsp;/&nbsp;Saved Plans
+            </span>
+          </div>
+          <h1 className="heading-display text-3xl tracking-legend text-foreground">Saved trips</h1>
+          <p className="data-mono mt-2 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+            <span className="text-foreground">{trips.length}</span> trip{trips.length === 1 ? "" : "s"} planned
           </p>
         </div>
         <Link
           href="/plan"
-          className="shrink-0 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+          className="label-structural shrink-0 rounded-sm bg-primary px-4 py-2.5 text-[0.6875rem] text-primary-foreground shadow-letterpress transition-[transform,filter] duration-150 ease-crisp hover:brightness-110 active:scale-[0.985] active:shadow-press-in"
         >
           Plan a trip
         </Link>
       </div>
 
       {trips.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center text-neutral-500">
-            No trips planned yet.{" "}
-            <Link href="/plan" className="underline">
+        <div className="border border-dashed border-border bg-card/40 px-6 py-16 text-center">
+          <p className="label-structural text-sm text-foreground">No trips planned</p>
+          <p className="data-mono mt-2 text-xs text-muted-foreground">
+            <Link href="/plan" className="text-blaze underline-offset-4 hover:underline">
               Plan your first trip
             </Link>{" "}
             to see gear recommendations and gap analysis.
-          </CardContent>
-        </Card>
+          </p>
+        </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {trips
@@ -48,11 +55,11 @@ export default async function TripsPage() {
               const gaps = result?.gaps.length ?? 0;
               const uncertain = result?.uncertain.length ?? 0;
               return (
-                <Link key={trip.id} href={`/trips/${trip.id}`}>
-                  <Card className="h-full transition hover:border-neutral-400">
+                <Link key={trip.id} href={`/trips/${trip.id}`} className="group">
+                  <Card className="h-full transition-colors duration-150 ease-crisp group-hover:border-foreground/40">
                     <CardHeader>
-                      <CardTitle className="text-base">{trip.name}</CardTitle>
-                      <CardDescription>
+                      <CardTitle className="text-sm text-foreground">{trip.name}</CardTitle>
+                      <CardDescription className="data-mono text-[0.625rem] uppercase tracking-wide">
                         {new Date(trip.createdAt).toLocaleDateString()} ·{" "}
                         {trip.conditions.duration} ·{" "}
                         {trip.conditions.exposure}
@@ -75,7 +82,7 @@ export default async function TripsPage() {
                         )}
                       </div>
                       {trip.description && (
-                        <p className="mt-2 text-xs text-neutral-500 line-clamp-2">
+                        <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
                           {trip.description}
                         </p>
                       )}

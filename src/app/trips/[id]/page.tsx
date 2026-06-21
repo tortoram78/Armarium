@@ -67,19 +67,28 @@ export default async function TripDetailPage({ params }: { params: { id: string 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       {/* Breadcrumb */}
-      <Link href="/trips" className="text-xs text-neutral-500 hover:underline">
+      <Link
+        href="/trips"
+        className="data-mono text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-blaze"
+      >
         &larr; Saved trips
       </Link>
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{trip.name}</h1>
-          <p className="mt-1 text-xs text-neutral-500">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="h-2.5 w-0.5 bg-blaze" aria-hidden />
+            <span className="data-mono text-[0.625rem] uppercase tracking-[0.2em] text-muted-foreground">
+              Trip&nbsp;/&nbsp;Recommendation
+            </span>
+          </div>
+          <h1 className="heading-display text-3xl tracking-legend text-foreground">{trip.name}</h1>
+          <p className="data-mono mt-2 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
             {new Date(trip.createdAt).toLocaleDateString()}
           </p>
           {trip.description && (
-            <p className="mt-1 text-sm text-neutral-600">{trip.description}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{trip.description}</p>
           )}
         </div>
         <form action={replanTripAction} className="shrink-0">
@@ -92,15 +101,15 @@ export default async function TripDetailPage({ params }: { params: { id: string 
 
       {/* Conditions summary */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Trip conditions</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="label-structural text-xs text-foreground">Trip conditions</CardTitle></CardHeader>
         <CardContent>
-          <p className="text-xs text-neutral-600">{conditionsSummary(conds)}</p>
+          <p className="data-mono text-xs leading-relaxed text-muted-foreground">{conditionsSummary(conds)}</p>
         </CardContent>
       </Card>
 
       {!result ? (
         <Card>
-          <CardContent className="p-8 text-center text-neutral-500 text-sm">
+          <CardContent className="p-8 text-center text-sm text-muted-foreground">
             No recommendation result saved for this trip.
           </CardContent>
         </Card>
@@ -108,12 +117,13 @@ export default async function TripDetailPage({ params }: { params: { id: string 
         <>
           {/* Gap analysis — the signature feature, visual centerpiece */}
           {result.gaps.length > 0 && (
-            <Card className="border-red-200">
+            <Card className="border-l-2 border-l-destructive">
               <CardHeader>
-                <CardTitle className="text-base text-red-800">
+                <CardTitle className="label-structural flex items-center gap-2 text-xs text-foreground">
+                  <span className="h-2 w-2 bg-destructive" aria-hidden />
                   Gap analysis — {result.gaps.length} gap{result.gaps.length !== 1 ? "s" : ""}
                 </CardTitle>
-                <p className="text-xs text-red-700">
+                <p className="text-xs text-muted-foreground">
                   Your closet is missing gear to cover these required capabilities. Address critical
                   and high gaps before the trip.
                 </p>
@@ -125,17 +135,17 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                   .map((gap) => (
                     <div
                       key={gap.capability}
-                      className="flex items-start gap-3 rounded-md border border-neutral-100 bg-neutral-50 p-3"
+                      className="flex items-start gap-3 border border-border bg-secondary/40 p-3"
                     >
-                      <Badge variant={SEV_VARIANT[gap.severity]} className="shrink-0 mt-0.5">
+                      <Badge variant={SEV_VARIANT[gap.severity]} className="mt-0.5 shrink-0">
                         {titleize(gap.severity)}
                       </Badge>
                       <div>
-                        <p className="text-sm font-medium">
+                        <p className="text-sm font-medium text-foreground">
                           {CAPABILITY_LABELS[gap.capability as CapabilityKey]}
                         </p>
                         {gap.reason && (
-                          <p className="text-xs text-neutral-500 mt-0.5">{gap.reason}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{gap.reason}</p>
                         )}
                       </div>
                     </div>
@@ -146,16 +156,17 @@ export default async function TripDetailPage({ params }: { params: { id: string 
 
           {/* Verify — items that might satisfy but have unknown deciding facets */}
           {result.uncertain.length > 0 && (
-            <Card className="border-amber-200">
+            <Card className="border-l-2 border-l-blaze">
               <CardHeader>
-                <CardTitle className="text-base text-amber-800">
+                <CardTitle className="label-structural flex items-center gap-2 text-xs text-foreground">
+                  <span className="h-2 w-2 bg-blaze" aria-hidden />
                   Verify — {result.uncertain.length} uncertain
                 </CardTitle>
-                <p className="text-xs text-amber-700">
+                <p className="text-xs text-muted-foreground">
                   You may have gear covering these needs, but a key facet is unknown. Check your
                   item details and correct the facets to get a definitive answer.
                 </p>
-                <p className="text-xs text-amber-600 mt-1">
+                <p className="data-mono mt-1 text-[0.625rem] uppercase tracking-wide text-blaze">
                   Correct the unknown facet on an item below, then Re-plan.
                 </p>
               </CardHeader>
@@ -170,23 +181,23 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                     return (
                       <div
                         key={u.capability}
-                        className="flex items-start gap-3 rounded-md border border-amber-100 bg-amber-50 p-3"
+                        className="flex items-start gap-3 border border-blaze/40 bg-blaze/[0.07] p-3"
                       >
-                        <Badge variant="verify" className="shrink-0 mt-0.5">Verify</Badge>
+                        <Badge variant="verify" className="mt-0.5 shrink-0">Verify</Badge>
                         <div>
-                          <p className="text-sm font-medium">
+                          <p className="text-sm font-medium text-foreground">
                             {CAPABILITY_LABELS[u.capability as CapabilityKey]}
                           </p>
                           {u.reason && (
-                            <p className="text-xs text-amber-700 mt-0.5">{u.reason}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">{u.reason}</p>
                           )}
                           {blockedBy.length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1.5">
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
                               {blockedBy.map((r) => (
                                 <Link
                                   key={r.id}
                                   href={`/items/${r.id}?edit=1`}
-                                  className="text-xs text-amber-800 underline hover:text-amber-950"
+                                  className="data-mono text-[0.6875rem] uppercase tracking-wide text-blaze underline-offset-2 hover:underline"
                                 >
                                   {r.name}
                                 </Link>
@@ -205,10 +216,10 @@ export default async function TripDetailPage({ params }: { params: { id: string 
           {result.picks.length > 0 ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">
+                <CardTitle className="label-structural text-xs text-foreground">
                   Picks — {result.picks.length} item{result.picks.length !== 1 ? "s" : ""}
                 </CardTitle>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-muted-foreground">
                   These items from your closet satisfy at least one required capability.
                 </p>
               </CardHeader>
@@ -216,16 +227,16 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                 {result.picks.map((pick) => (
                   <div
                     key={pick.id}
-                    className="flex items-start gap-3 rounded-md border border-neutral-100 p-3"
+                    className="flex items-start gap-3 border border-border p-3"
                   >
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <Link
                         href={`/items/${pick.id}`}
-                        className="text-sm font-medium hover:underline"
+                        className="text-sm font-medium text-foreground underline-offset-2 hover:underline"
                       >
                         {pick.name}
                       </Link>
-                      <div className="mt-1 flex flex-wrap gap-1">
+                      <div className="mt-1.5 flex flex-wrap gap-1">
                         {pick.capabilities.map((cap) => (
                           <Badge key={cap} variant="success">
                             {CAPABILITY_LABELS[cap as CapabilityKey]}
@@ -239,9 +250,9 @@ export default async function TripDetailPage({ params }: { params: { id: string 
             </Card>
           ) : (
             <Card>
-              <CardContent className="p-6 text-center text-sm text-neutral-500">
+              <CardContent className="p-6 text-center text-sm text-muted-foreground">
                 No items from your inventory satisfy any required capability for this trip.{" "}
-                <Link href="/" className="underline">
+                <Link href="/" className="text-blaze underline-offset-2 hover:underline">
                   View your closet
                 </Link>.
               </CardContent>
@@ -251,14 +262,14 @@ export default async function TripDetailPage({ params }: { params: { id: string 
           {/* Full outcomes table */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Full capability outcomes</CardTitle>
+              <CardTitle className="label-structural text-xs text-foreground">Full capability outcomes</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
+              <div className="space-y-px bg-border">
                 {result.outcomes.map((o) => (
                   <div
                     key={o.capability}
-                    className="flex items-start gap-3 rounded border border-neutral-100 p-2.5"
+                    className="flex items-start gap-3 bg-card p-2.5"
                   >
                     <div className="w-36 shrink-0">
                       {o.status === "satisfied" && <Badge variant="success">Satisfied</Badge>}
@@ -267,27 +278,27 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                         <Badge variant={SEV_VARIANT[o.severity]}>{titleize(o.severity)} gap</Badge>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-foreground">
                         {CAPABILITY_LABELS[o.capability as CapabilityKey]}
                       </p>
                       {o.reason && (
-                        <p className="text-xs text-neutral-400 mt-0.5">{o.reason}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">{o.reason}</p>
                       )}
                       {o.satisfiedBy.length > 0 && (
-                        <p className="text-xs text-green-700 mt-0.5">
+                        <p className="data-mono mt-0.5 text-[0.6875rem] text-emerald-700 dark:text-emerald-400">
                           {o.satisfiedBy.map((r) => r.name).join(", ")}
                         </p>
                       )}
                       {o.blockedBy.length > 0 && (
-                        <p className="text-xs text-amber-700 mt-0.5">
+                        <p className="data-mono mt-0.5 text-[0.6875rem] text-blaze">
                           Possible (verify):{" "}
                           {o.blockedBy.map((r, i) => (
                             <span key={r.id}>
                               {i > 0 && ", "}
                               <Link
                                 href={`/items/${r.id}?edit=1`}
-                                className="underline hover:text-amber-900"
+                                className="underline-offset-2 hover:underline"
                               >
                                 {r.name}
                               </Link>
@@ -303,11 +314,17 @@ export default async function TripDetailPage({ params }: { params: { id: string 
           </Card>
 
           {/* Links */}
-          <div className="flex gap-4 text-sm pb-8">
-            <Link href="/plan" className="underline text-neutral-600 hover:text-neutral-900">
+          <div className="flex gap-4 pb-8">
+            <Link
+              href="/plan"
+              className="data-mono text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+            >
               Plan another trip
             </Link>
-            <Link href="/" className="underline text-neutral-600 hover:text-neutral-900">
+            <Link
+              href="/"
+              className="data-mono text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+            >
               Back to closet
             </Link>
           </div>

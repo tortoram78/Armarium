@@ -24,20 +24,20 @@ type EvidenceAny =
 function renderEvidence(e: EvidenceAny, label: string) {
   if (!e || e.value === null) {
     return (
-      <div className="flex items-start gap-2">
-        <span className="text-xs font-medium text-neutral-500 w-44 shrink-0">{label}</span>
-        <span className="text-xs text-amber-700 font-medium">Unknown — verify</span>
+      <div className="flex items-start gap-3">
+        <span className="data-mono w-44 shrink-0 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="data-mono text-[0.6875rem] uppercase tracking-wide text-blaze">Unknown — verify</span>
       </div>
     );
   }
   const displayVal = typeof e.value === "boolean" ? (e.value ? "Yes" : "No") : String(e.value).replace(/_/g, " ");
   return (
-    <div className="flex items-start gap-2">
-      <span className="text-xs font-medium text-neutral-500 w-44 shrink-0">{label}</span>
+    <div className="flex items-start gap-3">
+      <span className="data-mono w-44 shrink-0 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{label}</span>
       <div className="flex flex-col gap-0.5">
-        <span className="text-xs font-semibold capitalize">{displayVal}</span>
+        <span className="data-mono text-xs font-medium capitalize text-foreground">{displayVal}</span>
         {(e.confidence && e.confidence !== "unknown") || (e.source && e.source !== "unknown") || e.evidence ? (
-          <span className="text-xs text-neutral-400">
+          <span className="data-mono text-[0.625rem] text-muted-foreground/80">
             {e.confidence && e.confidence !== "unknown" ? `${e.confidence} confidence` : ""}
             {e.source && e.source !== "unknown" ? ` · ${e.source}` : ""}
             {e.evidence ? ` · ${e.evidence}` : ""}
@@ -75,15 +75,24 @@ export default async function ItemDetailPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       {/* Breadcrumb */}
-      <Link href="/" className="text-xs text-neutral-500 hover:underline">
+      <Link
+        href="/"
+        className="data-mono text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-blaze"
+      >
         &larr; Closet
       </Link>
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
-          <p className="text-sm text-neutral-500">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="h-2.5 w-0.5 bg-blaze" aria-hidden />
+            <span className="data-mono text-[0.625rem] uppercase tracking-[0.2em] text-muted-foreground">
+              Item&nbsp;/&nbsp;Facet Dossier
+            </span>
+          </div>
+          <h1 className="heading-display text-3xl tracking-legend text-foreground">{item.name}</h1>
+          <p className="data-mono mt-2 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
             Added {new Date(item.createdAt).toLocaleDateString()}
             {item.inInventory ? " · In inventory" : " · Catalog only"}
           </p>
@@ -98,7 +107,7 @@ export default async function ItemDetailPage({
           </form>
           <form action={deleteItemAction}>
             <input type="hidden" name="id" value={item.id} />
-            <ConfirmButton message="Delete this item?" type="submit" variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+            <ConfirmButton message="Delete this item?" type="submit" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive">
               Delete
             </ConfirmButton>
           </form>
@@ -106,18 +115,18 @@ export default async function ItemDetailPage({
       </div>
 
       {searchParams.facetError && (
-        <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+        <p className="rounded-sm border-l-2 border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {searchParams.facetError}
         </p>
       )}
 
       {/* Capabilities */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Capabilities</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="label-structural text-xs text-foreground">Capabilities</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {satisfied.length > 0 && (
             <div>
-              <p className="text-xs text-neutral-500 mb-1.5">Satisfies</p>
+              <p className="data-mono mb-1.5 text-[0.625rem] uppercase tracking-wide text-muted-foreground">Satisfies</p>
               <div className="flex flex-wrap gap-1.5">
                 {satisfied.map(({ cap, label }) => (
                   <Badge key={cap} variant="success">{label}</Badge>
@@ -127,7 +136,7 @@ export default async function ItemDetailPage({
           )}
           {verify.length > 0 && (
             <div>
-              <p className="text-xs text-neutral-500 mb-1.5">Unknown — verify before relying on</p>
+              <p className="data-mono mb-1.5 text-[0.625rem] uppercase tracking-wide text-blaze">Unknown — verify before relying on</p>
               <div className="flex flex-wrap gap-1.5">
                 {verify.map(({ cap, label }) => (
                   <Badge key={cap} variant="verify">{label}</Badge>
@@ -136,7 +145,7 @@ export default async function ItemDetailPage({
             </div>
           )}
           {satisfied.length === 0 && verify.length === 0 && (
-            <p className="text-xs text-neutral-500">
+            <p className="text-xs text-muted-foreground">
               No capabilities confirmed. Check facets — many may be unknown.
             </p>
           )}
@@ -145,7 +154,7 @@ export default async function ItemDetailPage({
 
       {/* Identity */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Identity</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="label-structural text-xs text-foreground">Identity</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {renderEvidence(c.identity.brand, "Brand")}
           {renderEvidence(c.identity.model, "Model")}
@@ -159,7 +168,7 @@ export default async function ItemDetailPage({
 
       {/* Universal soft facets */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Universal facets</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="label-structural text-xs text-foreground">Universal facets</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {renderEvidence(c.universal.waterproofness, "Waterproofness")}
           {renderEvidence(c.universal.wind_resistance, "Wind resistance")}
@@ -176,7 +185,7 @@ export default async function ItemDetailPage({
 
       {/* Multi-label facets */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Multi-label facets</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="label-structural text-xs text-foreground">Multi-label facets</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {(
             [
@@ -188,10 +197,10 @@ export default async function ItemDetailPage({
             ] as [string, readonly string[]][]
           ).map(([label, vals]) => (
             <div key={label}>
-              <p className="text-xs font-medium text-neutral-500 mb-1">{label}</p>
+              <p className="data-mono mb-1 text-[0.625rem] uppercase tracking-wide text-muted-foreground">{label}</p>
               <div className="flex flex-wrap gap-1">
                 {vals.length === 0 ? (
-                  <span className="text-xs text-amber-700">None — verify</span>
+                  <span className="data-mono text-[0.6875rem] uppercase tracking-wide text-blaze">None — verify</span>
                 ) : (
                   vals.map((v) => (
                     <Badge key={v} variant="subtle">{titleize(v)}</Badge>
@@ -206,14 +215,14 @@ export default async function ItemDetailPage({
       {/* Domain groups */}
       {c.applicable_groups.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-sm">Domain groups</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="label-structural text-xs text-foreground">Domain groups</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             {c.applicable_groups.map((gk) => {
               const grp = c.groups[gk as keyof typeof c.groups];
               if (!grp) return null;
               return (
                 <div key={gk}>
-                  <p className="text-xs font-semibold text-neutral-600 mb-2 uppercase tracking-wide">{gk}</p>
+                  <p className="label-structural mb-2 text-[0.625rem] text-muted-foreground">{gk.replace(/_/g, " ")}</p>
                   <div className="space-y-1.5">
                     {Object.entries(grp).map(([fk, fv]) =>
                       renderEvidence(fv as EvidenceAny, titleize(fk)),
@@ -229,14 +238,14 @@ export default async function ItemDetailPage({
       {/* Materials */}
       {c.materials.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-sm">Materials</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="label-structural text-xs text-foreground">Materials</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {c.materials.map((m, i) => (
-              <div key={i} className="text-xs border-b border-neutral-100 pb-2 last:border-0 last:pb-0">
+              <div key={i} className="border-b border-border pb-2 text-xs text-foreground last:border-0 last:pb-0">
                 <span className="font-medium capitalize">{m.role}</span>
                 {m.name ? ` — ${m.name}` : ""}
                 {m.fiber_components.length > 0 && (
-                  <span className="text-neutral-500">
+                  <span className="data-mono text-muted-foreground">
                     {" "}({m.fiber_components.map((fc) => `${fc.fiber}${fc.pct != null ? ` ${fc.pct}%` : ""}`).join(", ")})
                   </span>
                 )}
@@ -249,13 +258,13 @@ export default async function ItemDetailPage({
       {/* Treatments */}
       {c.treatments.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-sm">Treatments</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="label-structural text-xs text-foreground">Treatments</CardTitle></CardHeader>
           <CardContent className="space-y-1">
             {c.treatments.map((t, i) => (
-              <div key={i} className="text-xs">
+              <div key={i} className="text-xs text-foreground">
                 <span className="font-medium">{t.kind.replace(/_/g, " ")}</span>
                 {t.condition ? ` (${t.condition.replace(/_/g, " ")})` : ""}
-                {" — "}{t.evidence}
+                <span className="text-muted-foreground">{" — "}{t.evidence}</span>
               </div>
             ))}
           </CardContent>

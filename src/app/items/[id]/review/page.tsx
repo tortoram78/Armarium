@@ -22,19 +22,19 @@ type EvidenceAny =
 function renderEvidence(e: EvidenceAny, label: string) {
   if (!e || e.value === null) {
     return (
-      <div className="flex items-start gap-2">
-        <span className="text-xs font-medium text-neutral-500 w-40 shrink-0">{label}</span>
-        <span className="text-xs text-amber-700 font-medium">Unknown — verify</span>
+      <div className="flex items-start gap-3">
+        <span className="data-mono w-40 shrink-0 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="data-mono text-[0.6875rem] uppercase tracking-wide text-blaze">Unknown — verify</span>
       </div>
     );
   }
   const displayVal = typeof e.value === "boolean" ? (e.value ? "Yes" : "No") : String(e.value).replace(/_/g, " ");
   return (
-    <div className="flex items-start gap-2">
-      <span className="text-xs font-medium text-neutral-500 w-40 shrink-0">{label}</span>
+    <div className="flex items-start gap-3">
+      <span className="data-mono w-40 shrink-0 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{label}</span>
       <div className="flex flex-col gap-0.5">
-        <span className="text-xs font-semibold capitalize">{displayVal}</span>
-        <span className="text-xs text-neutral-400">
+        <span className="data-mono text-xs font-medium capitalize text-foreground">{displayVal}</span>
+        <span className="data-mono text-[0.625rem] text-muted-foreground/80">
           {e.confidence && e.confidence !== "unknown" ? `${e.confidence} confidence` : ""}
           {e.source && e.source !== "unknown" ? ` · ${e.source}` : ""}
           {e.evidence ? ` · ${e.evidence}` : ""}
@@ -73,19 +73,22 @@ export default async function ReviewPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
-          <span>Review before saving</span>
+      <div className="border-b border-border pb-4">
+        <div className="mb-1.5 flex items-center gap-2">
+          <span className="h-2.5 w-0.5 bg-blaze" aria-hidden />
+          <span className="data-mono text-[0.625rem] uppercase tracking-[0.2em] text-blaze">
+            Review&nbsp;/&nbsp;Before Saving
+          </span>
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
+        <h1 className="heading-display text-3xl tracking-legend text-foreground">{item.name}</h1>
         {mode === "offline" && (
-          <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <p className="mt-2 rounded-sm border-l-2 border-blaze bg-blaze/10 px-3 py-2 text-xs text-foreground">
             Offline classifier — prototype corpus only. Results may be imprecise. Set{" "}
-            <code>ANTHROPIC_API_KEY</code> for live classification.
+            <code className="data-mono text-blaze">ANTHROPIC_API_KEY</code> for live classification.
           </p>
         )}
         {searchParams.facetError && (
-          <p className="mt-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          <p className="mt-2 rounded-sm border-l-2 border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {searchParams.facetError}
           </p>
         )}
@@ -106,16 +109,16 @@ export default async function ReviewPage({
       {/* Raw text if any */}
       {item.rawText && (
         <Card>
-          <CardHeader><CardTitle className="text-sm">Source text</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="label-structural text-xs text-foreground">Source text</CardTitle></CardHeader>
           <CardContent>
-            <p className="text-xs text-neutral-600 whitespace-pre-wrap">{item.rawText}</p>
+            <p className="data-mono whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{item.rawText}</p>
           </CardContent>
         </Card>
       )}
 
       {/* Identity */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Identity</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="label-structural text-xs text-foreground">Identity</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {renderEvidence(c.identity.brand, "Brand")}
           {renderEvidence(c.identity.model, "Model")}
@@ -126,7 +129,7 @@ export default async function ReviewPage({
 
       {/* Universal facets */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Universal facets</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="label-structural text-xs text-foreground">Universal facets</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {renderEvidence(c.universal.waterproofness, "Waterproofness")}
           {renderEvidence(c.universal.wind_resistance, "Wind resistance")}
@@ -143,7 +146,7 @@ export default async function ReviewPage({
 
       {/* Multi-label facets */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Multi-label facets</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="label-structural text-xs text-foreground">Multi-label facets</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {(
             [
@@ -155,10 +158,10 @@ export default async function ReviewPage({
             ] as [string, readonly string[]][]
           ).map(([label, vals]) => (
             <div key={label}>
-              <p className="text-xs font-medium text-neutral-500 mb-1">{label}</p>
+              <p className="data-mono mb-1 text-[0.625rem] uppercase tracking-wide text-muted-foreground">{label}</p>
               <div className="flex flex-wrap gap-1">
                 {vals.length === 0 ? (
-                  <span className="text-xs text-amber-700">None</span>
+                  <span className="data-mono text-[0.6875rem] uppercase tracking-wide text-blaze">None</span>
                 ) : (
                   vals.map((v) => (
                     <Badge key={v} variant="subtle">{titleize(v)}</Badge>
@@ -173,14 +176,14 @@ export default async function ReviewPage({
       {/* Domain groups */}
       {c.applicable_groups.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-sm">Domain groups</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="label-structural text-xs text-foreground">Domain groups</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             {c.applicable_groups.map((gk) => {
               const grp = c.groups[gk as keyof typeof c.groups];
               if (!grp) return null;
               return (
                 <div key={gk}>
-                  <p className="text-xs font-semibold text-neutral-600 mb-2 uppercase tracking-wide">{gk}</p>
+                  <p className="label-structural mb-2 text-[0.625rem] text-muted-foreground">{gk.replace(/_/g, " ")}</p>
                   <div className="space-y-1.5">
                     {Object.entries(grp).map(([fk, fv]) =>
                       renderEvidence(fv as EvidenceAny, titleize(fk)),
@@ -196,14 +199,14 @@ export default async function ReviewPage({
       {/* Materials */}
       {c.materials.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-sm">Materials</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="label-structural text-xs text-foreground">Materials</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {c.materials.map((m, i) => (
-              <div key={i} className="text-xs border-b border-neutral-100 pb-2 last:border-0 last:pb-0">
+              <div key={i} className="border-b border-border pb-2 text-xs text-foreground last:border-0 last:pb-0">
                 <span className="font-medium capitalize">{m.role}</span>
                 {m.name ? ` — ${m.name}` : ""}
                 {m.fiber_components.length > 0 && (
-                  <span className="text-neutral-500">
+                  <span className="data-mono text-muted-foreground">
                     {" "}({m.fiber_components.map((fc) => `${fc.fiber}${fc.pct != null ? ` ${fc.pct}%` : ""}`).join(", ")})
                   </span>
                 )}
@@ -216,13 +219,13 @@ export default async function ReviewPage({
       {/* Treatments */}
       {c.treatments.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-sm">Treatments</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="label-structural text-xs text-foreground">Treatments</CardTitle></CardHeader>
           <CardContent className="space-y-1">
             {c.treatments.map((t, i) => (
-              <div key={i} className="text-xs">
+              <div key={i} className="text-xs text-foreground">
                 <span className="font-medium">{t.kind.replace(/_/g, " ")}</span>
                 {t.condition ? ` (${t.condition.replace(/_/g, " ")})` : ""}
-                {" — "}{t.evidence}
+                <span className="text-muted-foreground">{" — "}{t.evidence}</span>
               </div>
             ))}
           </CardContent>
@@ -232,12 +235,12 @@ export default async function ReviewPage({
       {/* Capability preview */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Capability preview</CardTitle>
+          <CardTitle className="label-structural text-xs text-foreground">Capability preview</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1">
           {satisfied.length > 0 && (
             <div className="mb-2">
-              <p className="text-xs text-neutral-500 mb-1">Satisfies</p>
+              <p className="data-mono mb-1 text-[0.625rem] uppercase tracking-wide text-muted-foreground">Satisfies</p>
               <div className="flex flex-wrap gap-1">
                 {satisfied.map(({ cap, label }) => (
                   <Badge key={cap} variant="success">{label}</Badge>
@@ -247,7 +250,7 @@ export default async function ReviewPage({
           )}
           {verify.length > 0 && (
             <div>
-              <p className="text-xs text-neutral-500 mb-1">Unknown — verify before relying on</p>
+              <p className="data-mono mb-1 text-[0.625rem] uppercase tracking-wide text-blaze">Unknown — verify before relying on</p>
               <div className="flex flex-wrap gap-1">
                 {verify.map(({ cap, label }) => (
                   <Badge key={cap} variant="verify">{label}</Badge>
@@ -256,7 +259,7 @@ export default async function ReviewPage({
             </div>
           )}
           {satisfied.length === 0 && verify.length === 0 && (
-            <p className="text-xs text-neutral-500">No capabilities satisfied with current facets.</p>
+            <p className="text-xs text-muted-foreground">No capabilities satisfied with current facets.</p>
           )}
         </CardContent>
       </Card>
