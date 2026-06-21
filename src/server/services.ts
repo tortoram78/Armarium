@@ -53,7 +53,7 @@ export interface ClassifierHandle {
 export function getClassifier(): ClassifierHandle {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey) {
-    const anthropic = new Anthropic({ apiKey });
+    const anthropic = new Anthropic({ apiKey, timeout: 30_000, maxRetries: 1 });
     return { classify: (input) => classifyItem(input, { anthropic }), mode: "live" };
   }
   return { classify: async (input) => classifyOffline(input), mode: "offline" };
@@ -70,7 +70,7 @@ export interface TripParserHandle {
 export function getTripParser(): TripParserHandle {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey) {
-    const anthropic = new Anthropic({ apiKey });
+    const anthropic = new Anthropic({ apiKey, timeout: 30_000, maxRetries: 1 });
     return { parse: (d) => parseTripConditions(d, { anthropic }), mode: "live" };
   }
   return { parse: async (d) => parseConditionsHeuristic(d), mode: "offline" };

@@ -21,8 +21,8 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  // Refresh the Supabase session cookie (keeps tokens alive).
-  const response = await updateSession(req);
+  // Refresh the session AND read the user from one client/response object.
+  const { response, user } = await updateSession(req);
 
   // Forward pathname for skin selection in layout.
   response.headers.set("x-armarium-pathname", pathname);
@@ -32,32 +32,17 @@ export async function middleware(req: NextRequest) {
     return response;
   }
 
-  // Check authentication: re-read the user from the refreshed session.
-  // We re-create the client here to read from the updated cookies in `response`.
-  const { createServerClient } = await import("@supabase/ssr");
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return req.cookies.getAll();
-        },
-        setAll() {
-          // no-op: cookies are already set in `response`
-        },
-      },
-    },
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   if (!user) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
-    return NextResponse.redirect(url);
+    // Carry the refreshed session cookies onto the redirect. A bare
+    // NextResponse.redirect() drops the Set-Cookie headers updateSession just
+    // wrote, which on mobile Safari (more frequent token refresh) bounced users
+    // back to /login in a loop — the documented @supabase/ssr pitfall.
+    const redirectRes = NextResponse.redirect(url);
+    response.cookies.getAll().forEach((c) => redirectRes.cookies.set(c));
+    redirectRes.headers.set("x-armarium-pathname", pathname);
+    return redirectRes;
   }
 
   return response;
