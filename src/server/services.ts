@@ -12,9 +12,11 @@ import { classifyOffline } from "@/core/classify/offline";
 import { parseTripConditions, parseConditionsHeuristic } from "@/core/recommend/parse-conditions";
 import { memoryRepository } from "./memory-repo";
 import { memoryCache } from "./memory-cache";
-// Static import is safe because postgres-repo.ts constructs the DB client LAZILY (only on first
-// query, never at import time). Importing this module has zero connection side effects.
+// Static imports are safe because postgres-repo.ts / postgres-cache.ts construct the DB client
+// LAZILY (only on first query, never at import time). Importing these modules has zero connection
+// side effects, so build/test/typecheck stay green with no DATABASE_URL.
 import { postgresRepository } from "./postgres-repo";
+import { postgresCache } from "./postgres-cache";
 
 /** v0 single fixed user (one-password gate; no real auth). */
 export const DEFAULT_USER_ID = process.env.ARMARIUM_USER_ID ?? "00000000-0000-0000-0000-000000000001";
@@ -37,11 +39,7 @@ let cacheRepo: ClassificationCacheRepository | null = null;
  *  never at module evaluation time). No DATABASE_URL required at build/test. */
 export function getCacheRepository(): ClassificationCacheRepository {
   if (cacheRepo) return cacheRepo;
-  if (process.env.DATABASE_URL) {
-    cacheRepo = (require("./postgres-cache") as { postgresCache: ClassificationCacheRepository }).postgresCache;
-  } else {
-    cacheRepo = memoryCache;
-  }
+  cacheRepo = process.env.DATABASE_URL ? postgresCache : memoryCache;
   return cacheRepo;
 }
 
