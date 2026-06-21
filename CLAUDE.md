@@ -133,14 +133,23 @@ Run **`/retro`** at the end of every iteration. Promote only durable, broadly-ap
 - **When a test asserts a capability outcome, read the actual gate first.** Capability gates are often
   OR-predicates across multiple facets; clearing one arm may leave the item satisfying the gate through
   another, making the test pass for the wrong reason. Assert against the full real predicate.
-- **Keep secrets/infra out of the gates.** DB + Anthropic clients are lazy/injected so
-  `typecheck/lint/build/test` are green with no `DATABASE_URL`/`ANTHROPIC_API_KEY`; tests use a mock
-  client + an offline classifier. Never make a gate depend on a secret.
+- **The hermetic gate requires zero env — no exceptions.** DB + Anthropic clients are lazy/injected so
+  `typecheck/lint/build/test` are green with no env; tests use a mock client + an offline classifier.
+  Even having `DATABASE_URL` *set* (not just required) switches to the Postgres path and breaks the
+  hermetic run. Always strip DB/API env vars for gate invocations; never make a gate depend on a secret.
 - **Unknown is first-class; specs are never fabricated.** Enforce it mechanically (the `hardFact`
   demotion guard) and test it with failing fixtures — not by prompt wording alone.
-- **Verify doc claims about fallback/error paths against the code.** Docs about "what happens when X
-  is absent" drift silently. Check the actual function (or run it) before shipping — a wrong fallback
-  claim misleads operators and agents alike.
+- **Verify the actual artifact, not the agent's (or doc's) summary.** Agents summarize; summaries
+  elide. An agent report can abbreviate "...same pattern" for a file that is actually complete — or a
+  doc can claim a fallback that the code doesn't implement. Read the real file/function before
+  shipping; a wrong claim misleads every agent that reads it next.
+- **`NEXT_PUBLIC_*` env vars are inlined at build time.** A gate like `isAuthConfigured()` that reads
+  them reflects the build-time env, not runtime. Testing the unconfigured/passthrough path requires a
+  build with those vars absent — unsetting them at runtime changes nothing.
+- **The cloud sandbox cannot reach raw Postgres (5432/6543).** Use the Supabase Management API for
+  migrations in-sandbox (`scripts/db-mgmt-migrate.mjs`); `drizzle-kit migrate` still works from any
+  DB-connected env. Expect the same egress constraint for any raw-TCP service — test outbound HTTP
+  calls (e.g., URL enrichment) against fixtures first, then verify on Vercel.
 - **Commit research/decisions as markdown as you go** (ADRs, progress, design); the remote container is
   ephemeral and uncommitted work is lost.
 - **`pnpm build` passing is necessary, not sufficient for RSC routes.** Event-handler props on Server
@@ -150,3 +159,7 @@ Run **`/retro`** at the end of every iteration. Promote only durable, broadly-ap
 - **Scope `git add` to your own files; never use `-A` while a delegated writer is active.** Stage by
   explicit path, or commit before dispatching writer agents and re-stage only after they settle. An
   opportunistic sweep captures in-flight partial writes from concurrent agents.
+- **Subjective design language needs concrete anti-patterns, not mood words.** Validate the target
+  aesthetic on one flagship screen with explicit direction (e.g., "no pills, no drop-shadows, edges
+  not depth, mono for data") — and on a stronger model if the result reads generic — before rolling
+  wide. A second-pass cost on one screen beats a full rollout of a rejected aesthetic.
