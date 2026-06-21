@@ -2,7 +2,7 @@ import { planTripAction, planFromDescriptionAction } from "@/app/actions";
 import { tripParserMode } from "@/server/app-service";
 import { TRIP_PRESETS } from "@/core/trips";
 import { PRECIPITATION, WIND, SUN, EXERTION, DURATION, EXPOSURE } from "@/core/conditions";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/SubmitButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -111,7 +111,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Record<
                 defaultValue={preset?.description ?? ""}
               />
             </div>
-            <Button type="submit">Plan from description</Button>
+            <SubmitButton pendingText="Planning…">Plan from description</SubmitButton>
           </form>
         </CardContent>
       </Card>
@@ -220,7 +220,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Record<
               />
             </div>
 
-            <Button type="submit">Plan trip</Button>
+            <SubmitButton pendingText="Planning…">Plan trip</SubmitButton>
           </form>
         </CardContent>
       </Card>

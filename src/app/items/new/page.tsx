@@ -1,6 +1,6 @@
 import { addItemAction } from "@/app/actions";
 import { getClassifier } from "@/server/services";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/SubmitButton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -54,7 +54,7 @@ export default function NewItemPage({ searchParams }: { searchParams: { error?: 
             {searchParams.error}
           </p>
         ) : null}
-        <Button type="submit">Classify &amp; save</Button>
+        <SubmitButton pendingText="Classifying…">Classify &amp; save</SubmitButton>
       </form>
     </div>
   );
