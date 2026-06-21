@@ -2,11 +2,13 @@ import Link from "next/link";
 import { getTrips } from "@/server/app-service";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { requireUserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function TripsPage() {
-  const trips = await getTrips();
+  const userId = await requireUserId();
+  const trips = await getTrips(userId);
 
   return (
     <div className="space-y-6">

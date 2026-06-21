@@ -1,3 +1,4 @@
+// RLS + ownership policies are out-of-band in drizzle/0003_enable_rls_auth.sql (Phase 3 step 1).
 // Drizzle schema — the capability-first hybrid (DESIGN.md §6, ADR-0003).
 // - Load-bearing facets are typed columns on `items`; soft facets carry a value + confidence + source.
 // - Multi-label facets are text[] (GIN-indexed). The long tail is a JSONB `facets` bag (GIN-indexed).

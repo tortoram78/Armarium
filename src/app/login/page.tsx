@@ -1,21 +1,42 @@
-import { loginAction } from "@/app/actions";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { LoginForm } from "./LoginForm";
+import { isAuthConfigured } from "@/lib/auth";
 
-export default function LoginPage({ searchParams }: { searchParams: { error?: string } }) {
+/**
+ * Server action: sign in with email + password via Supabase Auth.
+ * Returns an error object on failure (surfaced in the client form),
+ * or redirects to "/" on success.
+ */
+async function loginAction(formData: FormData): Promise<{ error: string } | undefined> {
+  "use server";
+  if (!isAuthConfigured()) {
+    redirect("/");
+  }
+  const { createClient } = await import("@/lib/supabase/server");
+  const supabase = createClient();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    return { error: error.message };
+  }
+  redirect("/");
+}
+
+export default function LoginPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8">
       <h1 className="text-2xl font-semibold tracking-tight">Armarium</h1>
-      <p className="mt-1 text-sm text-neutral-500">Enter the access password to continue.</p>
-      <form action={loginAction} className="mt-6 space-y-3">
-        <div className="space-y-1">
-          <Label htmlFor="password">Password</Label>
-          <Input id="password" name="password" type="password" autoFocus />
-        </div>
-        {searchParams.error ? <p className="text-sm text-red-600">Incorrect password.</p> : null}
-        <Button type="submit" className="w-full">Enter</Button>
-      </form>
+      <p className="mt-1 text-sm text-neutral-500">Sign in to access your gear closet.</p>
+      <LoginForm action={loginAction} />
+      <p className="mt-4 text-center text-sm text-neutral-500">
+        No account?{" "}
+        <Link href="/signup" className="underline hover:text-neutral-900">
+          Create one
+        </Link>
+      </p>
     </main>
   );
 }

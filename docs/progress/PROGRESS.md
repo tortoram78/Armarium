@@ -3,6 +3,70 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-21 (Phase 3 step 1) — Real auth + multi-user: Supabase Auth, RLS, multi-user wiring
+
+Phase 3 step 1 is in delivery. The design, ADR, and documentation are complete; code implementation
+by the relevant owners follows.
+
+### What is being built
+
+**Supabase Auth with email+password.** The one-password `APP_PASSWORD` gate and the fixed
+`ARMARIUM_USER_ID` env var are superseded. Users sign up and sign in with email+password via
+Supabase Auth (auto-confirm for now; email verification follows once SMTP is configured). OAuth
+(Google, GitHub) is designed-for but deferred — it requires a deployed redirect domain and external
+OAuth app registration that cannot be validated in the sandbox; it slots in later as a small additive
+change.
+
+**Cookie-based sessions via `@supabase/ssr`.** App Router middleware reads and refreshes the session
+cookie on every request. Server Components and Route Handlers receive a pre-refreshed Supabase client.
+
+**Multi-user wiring.** `getCurrentUserId()` and `requireUserId()` at the request boundary supply the
+authenticated `auth.uid()` UUID to the `userId` parameter already present on every `app-service.ts`
+function (built in Phase 2). All Drizzle queries already carry `WHERE user_id = $userId`; no
+query-layer changes are needed.
+
+**RLS on all user-owned tables.** Row-level security policies enforce `(select auth.uid()) = user_id`
+on `items`, `trips`, and `pending_facets`; the subtype tables (`item_insulation`, `item_sleep`,
+`item_shell`, `item_carry`, `item_footwear`, `item_treatments`, material link tables) are gated via
+their parent item. `materials` and `treatments` are readable by any authenticated user (shared
+reference libraries). `classification_cache` is locked to the service-role connection (shared KB — see
+ADR-0007). RLS guards the public PostgREST surface that the anon key exposes; app-layer `user_id`
+filtering guards the owner-role Drizzle path (which bypasses RLS). Both layers are mandatory — neither
+is redundant.
+
+**Dev fallback.** When `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are absent,
+`isAuthConfigured()` returns false and the app runs open with `DEFAULT_USER_ID` — identical to
+Phase 2 behaviour. The gauntlet (typecheck / lint / build / test) remains secret-free.
+
+**Sandbox migration path.** The cloud sandbox's HTTP/HTTPS proxy blocks raw Postgres connections
+(ports 5432/6543). `scripts/db-mgmt-migrate.mjs` applies migration SQL over the Supabase Management
+API (HTTPS) instead. `pnpm db:migrate` continues to work from any DB-connected environment (Vercel,
+local).
+
+### ADR recorded
+[ADR-0008](../decisions/0008-auth-multi-user.md) captures the load-bearing decisions: provider
+choice (Supabase Auth; OAuth deferred), session model (`@supabase/ssr` cookies), the dual-layer
+enforcement model (RLS guards the public API surface; app-layer filtering guards the owner-role
+path — both mandatory), the dev fallback contract (`isAuthConfigured` / `getCurrentUserId` /
+`requireUserId`), and email verification deferral.
+
+### Design updated
+[`DESIGN.md` §13](../../DESIGN.md) documents the full multi-user model: auth provider + session,
+the `user_id` flow from middleware through `app-service.ts`, the RLS policy table, the auth helper
+contract, and operational notes (sandbox migration, seeded-data re-attribution).
+
+### Deploy runbook updated
+[`docs/deploy.md`](../deploy.md) replaces `APP_PASSWORD`/`ARMARIUM_USER_ID` guidance with the
+Supabase Auth env vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`), documents
+`SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` for the Management API migrator, and clarifies
+that dev-mode / `DEFAULT_USER_ID` applies only when the Supabase env is absent.
+
+### Deferred within Phase 3 step 1
+- OAuth sign-in (designed-for; requires deployed redirect domain + provider console setup)
+- Email verification (requires SMTP configuration in Supabase)
+
+---
+
 ## 2026-06-20 (Phase 2) — Verify→correct→re-plan loop + self-building classification cache (gates green)
 
 Branch `claude/charming-franklin-441bvj`. All four gates green: `typecheck` / `lint` / `test` (64

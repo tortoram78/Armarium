@@ -3,14 +3,16 @@ import { getCloset } from "@/server/app-service";
 import { GROUPINGS, GROUPING_LABELS, type GroupingKey } from "@/core/closet";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { requireUserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClosetPage({ searchParams }: { searchParams: { group?: string } }) {
+  const userId = await requireUserId();
   const dimension: GroupingKey = (GROUPINGS as readonly string[]).includes(searchParams.group ?? "")
     ? (searchParams.group as GroupingKey)
     : "capability";
-  const { items, byId, groups } = await getCloset(dimension);
+  const { items, byId, groups } = await getCloset(dimension, userId);
 
   return (
     <div className="space-y-6">

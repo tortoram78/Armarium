@@ -8,6 +8,7 @@ import type { Severity } from "@/core/recommend";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { requireUserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,8 @@ function conditionsSummary(c: {
 }
 
 export default async function TripDetailPage({ params }: { params: { id: string } }) {
-  const trip = await getTrip(params.id);
+  const userId = await requireUserId();
+  const trip = await getTrip(params.id, userId);
   if (!trip) notFound();
 
   const result = trip.result;

@@ -6,6 +6,7 @@ import { FacetEditor } from "@/components/FacetEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { requireUserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,8 @@ export default async function ReviewPage({
   params: { id: string };
   searchParams: { facetError?: string; edit?: string };
 }) {
-  const item = await getItem(params.id);
+  const userId = await requireUserId();
+  const item = await getItem(params.id, userId);
   if (!item || !item.draft) {
     redirect(item ? `/items/${params.id}` : "/");
   }
