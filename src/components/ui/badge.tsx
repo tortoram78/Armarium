@@ -2,20 +2,30 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
+/**
+ * Badge — a square spec-stamp / data tag, not a rounded pill.
+ * Monospace, uppercase, hairline-bordered: reads like a field-manual
+ * legend chip or a stamped capability marker.
+ */
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
+  [
+    "inline-flex items-center rounded-sm border px-1.5 py-0.5",
+    "font-mono text-[0.625rem] font-medium uppercase tracking-wide leading-none",
+    "transition-colors",
+  ].join(" "),
   {
     variants: {
       variant: {
-        default: "border-transparent bg-neutral-900 text-white",
-        outline: "border-neutral-300 text-neutral-700",
-        subtle: "border-transparent bg-neutral-100 text-neutral-700",
-        success: "border-transparent bg-green-100 text-green-800",
-        critical: "border-transparent bg-red-100 text-red-800",
-        high: "border-transparent bg-orange-100 text-orange-800",
-        medium: "border-transparent bg-amber-100 text-amber-800",
-        low: "border-transparent bg-neutral-100 text-neutral-700",
-        verify: "border-transparent bg-yellow-100 text-yellow-900",
+        default:     "border-primary/40 bg-primary/15 text-primary",
+        outline:     "border-border text-foreground",
+        subtle:      "border-border bg-secondary/60 text-muted-foreground",
+        success:     "border-emerald-600/40 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400",
+        critical:    "border-red-600/50 bg-red-600/10 text-red-700 dark:text-red-400",
+        high:        "border-orange-600/50 bg-orange-600/10 text-orange-700 dark:text-orange-400",
+        medium:      "border-amber-600/40 bg-amber-600/10 text-amber-700 dark:text-amber-400",
+        low:         "border-border bg-secondary/60 text-muted-foreground",
+        /* verify = blaze-orange punctuation: an unknown/uncertain flag */
+        verify:      "border-blaze/70 bg-blaze/15 text-blaze",
       },
     },
     defaultVariants: { variant: "default" },
@@ -29,3 +39,5 @@ export interface BadgeProps
 export function Badge({ className, variant, ...props }: BadgeProps) {
   return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
+
+export { badgeVariants };

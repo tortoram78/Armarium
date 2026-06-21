@@ -5,12 +5,15 @@
 import type { ItemClassification } from "./classification";
 import type { TripConditions } from "./conditions";
 import type { RecommendationResult } from "./recommend";
+import type { CachedClassification, CacheUpsert } from "./cache";
 
 export interface StoredItem {
   id: string;
   userId: string;
   name: string;
   inInventory: boolean;
+  /** A draft is a freshly-classified candidate awaiting review/confirm; excluded from the closet. */
+  draft: boolean;
   rawText?: string;
   classification: ItemClassification;
   createdAt: string;
@@ -29,6 +32,8 @@ export interface StoredTrip {
 export interface AddItemInput {
   name: string;
   inInventory: boolean;
+  /** Defaults to false (saved). The review-before-save flow adds with draft: true. */
+  draft?: boolean;
   rawText?: string;
   classification: ItemClassification;
 }
@@ -46,9 +51,23 @@ export interface GearRepository {
   addItem(userId: string, input: AddItemInput): Promise<StoredItem>;
   updateClassification(userId: string, id: string, classification: ItemClassification): Promise<StoredItem | null>;
   setInventory(userId: string, id: string, inInventory: boolean): Promise<StoredItem | null>;
+  /** Confirm/unconfirm a draft. Confirming (draft=false) promotes a candidate into the closet. */
+  setDraft(userId: string, id: string, draft: boolean): Promise<StoredItem | null>;
   deleteItem(userId: string, id: string): Promise<void>;
 
   listTrips(userId: string): Promise<StoredTrip[]>;
   getTrip(userId: string, id: string): Promise<StoredTrip | null>;
   saveTrip(userId: string, trip: SaveTripInput): Promise<StoredTrip>;
+  /** Overwrite a saved trip's recommendation (used by re-plan after closet corrections). */
+  updateTripResult(userId: string, id: string, result: RecommendationResult): Promise<StoredTrip | null>;
+}
+
+/**
+ * The self-building classification knowledge base. Reference data (not user-owned): a normalized name
+ * → a validated classification, written by the LLM on first sight and upgraded to source:"user" by
+ * corrections/confirmations. Lets repeat adds skip the LLM.
+ */
+export interface ClassificationCacheRepository {
+  getCached(key: string): Promise<CachedClassification | null>;
+  putCached(entry: CacheUpsert): Promise<void>;
 }

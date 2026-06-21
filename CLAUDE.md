@@ -28,14 +28,22 @@ It is the single, non-negotiable operating model — do not substitute another.*
 
 ## Scope discipline — read this second
 
-- We are building **Phase 2 only**: the usable web app — closet (emergent facet grouping), add-by-name
-  → classify → review/save, plan-a-trip (NL + structured conditions → picks + capability gaps + "verify"),
-  and saved trips — on the approved Phase 0/1 foundation. Nothing else.
-- **YOU MUST NOT build** v0-out-of-scope work: real multi-user auth/sharing, a weather API,
-  barcode/photo/URL enrichment, an image-upload pipeline, military/NSN domain, a native app, or
-  catalog "suggest items to fill gaps." If a request drifts toward these, **stop and flag it.**
-- Anything that would **expand scope, add a dependency, or introduce new infrastructure: ask first.**
-  Default to a 20-second question over a heroic guess.
+- **Phase 2 is complete** — the usable web app (closet, add-by-name → classify → review/save,
+  plan-a-trip, saved trips) plus the **verify→correct→re-plan loop** and the **self-building
+  classification cache**.
+- **Phase 3 is APPROVED** (greenlit by the user 2026-06-20) — build in this sequence, each gated on
+  its own `DESIGN.md` update + ADR(s) + the one provider decision FIRST: **(1) real auth + multi-user
+  (Supabase Auth + RLS) → (2) manufacturer URL enrichment → (3) weather auto-conditions → (4) catalog
+  gap-fill suggestions.** See [`docs/roadmap.md`](docs/roadmap.md).
+- **Unlocked backlog** (allowed to propose/build when prioritized; the hard block was lifted
+  2026-06-21 per ADR-0009): image-upload / photo enrichment, barcode enrichment, military/NSN
+  domain, and a native app. Each still requires its own `DESIGN.md` update + ADR(s) + the
+  dependency/infra decision before implementation. **Barcode is deferred** until after Phase 3
+  step 2 (manufacturer URL enrichment) and is better suited to a native app than a browser tool.
+  Military/NSN and a native app are large strategic pivots — each needs a dedicated scoping ADR
+  before any work begins.
+- Anything that would **add a dependency or introduce new infrastructure: still ask first** (including
+  the auth/enrichment/weather/catalog provider choices above). Default to a 20-second question.
 
 ## Stack (DECIDED — do not substitute without asking)
 
@@ -43,8 +51,9 @@ It is the single, non-negotiable operating model — do not substitute another.*
 - **Postgres on Supabase** via **Drizzle ORM** (+ `drizzle-kit`); **Zod** for all I/O and LLM-output
   validation; **`@anthropic-ai/sdk`** in server code only.
 - **Deliberate non-choices:** v0 persistence runs through a **repository port** with an **in-memory
-  impl** (no DB needed to run) and a Postgres impl when `DATABASE_URL` is set. **Do NOT add real auth**
-  (a one-password gate only), a weather API, or any enrichment service — those are gated/out-of-scope.
+  impl** (no DB needed to run) and a Postgres impl when `DATABASE_URL` is set. Real auth, weather, and
+  URL enrichment are now **Phase 3 (approved & sequenced — see Scope discipline)**; until each is built,
+  the **one-password gate stands**. Image/photo/barcode enrichment and a native app are unlocked backlog (each gated on its own ADR + dep/infra decision before any build begins; see Scope discipline).
 
 ## Architecture rules (violating any is a bug)
 
@@ -121,10 +130,23 @@ Run **`/retro`** at the end of every iteration. Promote only durable, broadly-ap
 - **A passing canonical test is not proof of generality.** We let recommendations collapse onto one
   trip (Marcy); fixed by deriving requirements from structured conditions. For any "reasoning" feature,
   add cross-archetype tests (≥3 distinct cases) so the engine can't be secretly hardcoded.
+- **When a test asserts a capability outcome, read the actual gate first.** Capability gates are often
+  OR-predicates across multiple facets; clearing one arm may leave the item satisfying the gate through
+  another, making the test pass for the wrong reason. Assert against the full real predicate.
 - **Keep secrets/infra out of the gates.** DB + Anthropic clients are lazy/injected so
   `typecheck/lint/build/test` are green with no `DATABASE_URL`/`ANTHROPIC_API_KEY`; tests use a mock
   client + an offline classifier. Never make a gate depend on a secret.
 - **Unknown is first-class; specs are never fabricated.** Enforce it mechanically (the `hardFact`
   demotion guard) and test it with failing fixtures — not by prompt wording alone.
+- **Verify doc claims about fallback/error paths against the code.** Docs about "what happens when X
+  is absent" drift silently. Check the actual function (or run it) before shipping — a wrong fallback
+  claim misleads operators and agents alike.
 - **Commit research/decisions as markdown as you go** (ADRs, progress, design); the remote container is
   ephemeral and uncommitted work is lost.
+- **`pnpm build` passing is necessary, not sufficient for RSC routes.** Event-handler props on Server
+  Components compile and build cleanly but crash at render (HTTP 500). For any new or changed App Router
+  route, probe it live (`next start` + assert HTTP 200 + spot-check content). Interactive behaviour
+  (onClick, onSubmit, confirm dialogs) always belongs in a `"use client"` component.
+- **Scope `git add` to your own files; never use `-A` while a delegated writer is active.** Stage by
+  explicit path, or commit before dispatching writer agents and re-stage only after they settle. An
+  opportunistic sweep captures in-flight partial writes from concurrent agents.

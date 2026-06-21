@@ -2,11 +2,27 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
-import { getRepository, getClassifier, DEFAULT_USER_ID } from "@/server/services";
-import { planAndSave } from "@/server/app-service";
+// services used indirectly via app-service
+import {
+  classifyToDraft,
+  confirmDraft,
+  deleteItem,
+  updateItemClassification,
+  setInventory,
+  planAndSave,
+  parseDescription,
+  getItem,
+  replanTrip,
+} from "@/server/app-service";
 import { defaultConditions, PRECIPITATION, WIND, SUN, EXERTION, DURATION, EXPOSURE } from "@/core/conditions";
-import { SESSION_COOKIE } from "@/lib/auth";
+import { safeParseClassification } from "@/core/classification";
+import {
+  applyUserCorrections,
+  EDITABLE_UNIVERSAL,
+  EDITABLE_GROUPS,
+  EDITABLE_MULTILABEL,
+} from "@/core/corrections";
+import { requireUserId } from "@/lib/auth";
 
 function numOrNull(v: FormDataEntryValue | null): number | null {
   const s = String(v ?? "").trim();
@@ -20,41 +36,110 @@ function pick<T extends readonly string[]>(v: FormDataEntryValue | null, allowed
   return (allowed as readonly string[]).includes(s) ? (s as T[number]) : def;
 }
 
+export async function replanTripAction(formData: FormData) {
+  "use server";
+  const userId = await requireUserId();
+  const id = String(formData.get("id"));
+  await replanTrip(id, userId);
+  revalidatePath(`/trips/${id}`);
+}
+
 export async function addItemAction(formData: FormData) {
+  const userId = await requireUserId();
   const name = String(formData.get("name") ?? "").trim();
   const text = String(formData.get("text") ?? "").trim() || undefined;
   const inInventory = formData.get("inInventory") != null;
   if (!name) redirect("/items/new?error=" + encodeURIComponent("Please enter an item name."));
 
-  const { classify } = getClassifier();
   let itemId: string;
   try {
-    const classification = await classify({ name, text });
-    const item = await getRepository().addItem(DEFAULT_USER_ID, { name, inInventory, rawText: text, classification });
+    const { item } = await classifyToDraft(name, text, inInventory, userId);
     itemId = item.id;
   } catch (e) {
     redirect("/items/new?error=" + encodeURIComponent((e as Error).message) + "&name=" + encodeURIComponent(name));
   }
   revalidatePath("/");
-  redirect(`/items/${itemId}`);
+  redirect(`/items/${itemId}/review`);
+}
+
+export async function confirmItemAction(formData: FormData) {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "");
+  await confirmDraft(id, userId);
+  revalidatePath("/");
+  revalidatePath(`/items/${id}`);
+  redirect(`/items/${id}`);
+}
+
+export async function discardDraftAction(formData: FormData) {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "");
+  await deleteItem(id, userId);
+  revalidatePath("/");
+  redirect("/items/new");
+}
+
+export async function updateFacetsAction(formData: FormData) {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "");
+  const item = await getItem(id, userId);
+  if (!item) redirect("/");
+
+  // Collect all scalar facet values (universal + group) by path.
+  const values: Record<string, string | string[]> = {};
+  for (const f of [...EDITABLE_UNIVERSAL, ...EDITABLE_GROUPS]) {
+    const v = formData.get(f.path);
+    if (v !== null) values[f.path] = String(v);
+  }
+  // Collect multi-label arrays.
+  for (const m of EDITABLE_MULTILABEL) {
+    values[m.path] = formData.getAll(m.path).map(String);
+  }
+
+  const next = applyUserCorrections(item.classification, values);
+  const parsed = safeParseClassification(next);
+  if (!parsed.success) {
+    redirect(`/items/${id}${item.draft ? "/review" : ""}?facetError=1`);
+  }
+
+  await updateItemClassification(id, parsed.data, userId);
+  revalidatePath(`/items/${id}`);
+  revalidatePath(`/items/${id}/review`);
+  revalidatePath("/");
+  redirect(item.draft ? `/items/${id}/review` : `/items/${id}`);
 }
 
 export async function setInventoryAction(formData: FormData) {
+  const userId = await requireUserId();
   const id = String(formData.get("id") ?? "");
   const inInventory = String(formData.get("inInventory") ?? "") === "true";
-  await getRepository().setInventory(DEFAULT_USER_ID, id, inInventory);
+  await setInventory(id, inInventory, userId);
   revalidatePath("/");
   revalidatePath(`/items/${id}`);
 }
 
 export async function deleteItemAction(formData: FormData) {
+  const userId = await requireUserId();
   const id = String(formData.get("id") ?? "");
-  await getRepository().deleteItem(DEFAULT_USER_ID, id);
+  await deleteItem(id, userId);
   revalidatePath("/");
   redirect("/");
 }
 
+export async function planFromDescriptionAction(formData: FormData) {
+  const userId = await requireUserId();
+  const name = String(formData.get("name") ?? "").trim() || "Untitled trip";
+  const description = String(formData.get("description") ?? "").trim();
+  if (!description) redirect("/plan?error=" + encodeURIComponent("Please enter a trip description."));
+
+  const conditions = await parseDescription(description);
+  const trip = await planAndSave(name, conditions, description, userId);
+  revalidatePath("/trips");
+  redirect(`/trips/${trip.id}`);
+}
+
 export async function planTripAction(formData: FormData) {
+  const userId = await requireUserId();
   const name = String(formData.get("name") ?? "").trim() || "Untitled trip";
   const description = String(formData.get("description") ?? "").trim() || undefined;
   const conditions = defaultConditions({
@@ -71,21 +156,19 @@ export async function planTripAction(formData: FormData) {
       .map((s) => s.trim())
       .filter(Boolean),
   });
-  const trip = await planAndSave(name, conditions, description);
+  const trip = await planAndSave(name, conditions, description, userId);
   revalidatePath("/trips");
   redirect(`/trips/${trip.id}`);
 }
 
-export async function loginAction(formData: FormData) {
-  const pw = String(formData.get("password") ?? "");
-  if (process.env.APP_PASSWORD && pw === process.env.APP_PASSWORD) {
-    cookies().set(SESSION_COOKIE, "ok", { httpOnly: true, sameSite: "lax", path: "/" });
-    redirect("/");
+/** Sign out the current user and redirect to /login. */
+export async function signOutAction() {
+  "use server";
+  const { isAuthConfigured } = await import("@/lib/auth");
+  if (isAuthConfigured()) {
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = createClient();
+    await supabase.auth.signOut();
   }
-  redirect("/login?error=1");
-}
-
-export async function logoutAction() {
-  cookies().delete(SESSION_COOKIE);
   redirect("/login");
 }

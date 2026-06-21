@@ -22,9 +22,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.108.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "framer-motion": "^11.18.2",
     "lucide-react": "^1.21.0",
     "next": "^14.2.35",
     "postgres": "^3.4.9",

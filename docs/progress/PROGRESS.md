@@ -3,6 +3,265 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-21 (governance) — Scope unlock: image/photo/barcode, military/NSN, native app
+
+The user directed that the three previously hard-blocked items be moved from "do not build; stop
+and flag" to an **unlocked backlog**: image-upload / photo enrichment, barcode enrichment, the
+military/NSN domain, and a native app. They may now be proposed and built when prioritized.
+
+The gating discipline is unchanged. Each item still requires a `DESIGN.md` update, one or more
+ADRs, and the dependency/infrastructure decision before any implementation. The "ask first before
+adding a dependency or introducing new infrastructure" rule remains fully in force.
+
+Key nuances recorded in ADR-0009:
+
+- **Barcode** is deferred until after Phase 3 step 2 (manufacturer URL enrichment) and is
+  explicitly flagged as better suited to a native app than a browser tool. Manufacturer URL
+  enrichment remains the prioritized "easier item input" path.
+- **Military/NSN domain** and **a native app** are large strategic pivots. The unlock is permission
+  to write a scoping ADR for each — not a green light to add military facets or start a native
+  build without one.
+
+The approved Phase 3 sequence (auth → URL enrichment → weather → catalog gap-fill) is unaffected.
+
+ADR recorded: [ADR-0009](../decisions/0009-scope-unlock.md)
+
+---
+
+## 2026-06-21 (Phase 3 step 1) — Real auth + multi-user: Supabase Auth, RLS, multi-user wiring
+
+Phase 3 step 1 is in delivery. The design, ADR, and documentation are complete; code implementation
+by the relevant owners follows.
+
+### What is being built
+
+**Supabase Auth with email+password.** The one-password `APP_PASSWORD` gate and the fixed
+`ARMARIUM_USER_ID` env var are superseded. Users sign up and sign in with email+password via
+Supabase Auth (auto-confirm for now; email verification follows once SMTP is configured). OAuth
+(Google, GitHub) is designed-for but deferred — it requires a deployed redirect domain and external
+OAuth app registration that cannot be validated in the sandbox; it slots in later as a small additive
+change.
+
+**Cookie-based sessions via `@supabase/ssr`.** App Router middleware reads and refreshes the session
+cookie on every request. Server Components and Route Handlers receive a pre-refreshed Supabase client.
+
+**Multi-user wiring.** `getCurrentUserId()` and `requireUserId()` at the request boundary supply the
+authenticated `auth.uid()` UUID to the `userId` parameter already present on every `app-service.ts`
+function (built in Phase 2). All Drizzle queries already carry `WHERE user_id = $userId`; no
+query-layer changes are needed.
+
+**RLS on all user-owned tables.** Row-level security policies enforce `(select auth.uid()) = user_id`
+on `items`, `trips`, and `pending_facets`; the subtype tables (`item_insulation`, `item_sleep`,
+`item_shell`, `item_carry`, `item_footwear`, `item_treatments`, material link tables) are gated via
+their parent item. `materials` and `treatments` are readable by any authenticated user (shared
+reference libraries). `classification_cache` is locked to the service-role connection (shared KB — see
+ADR-0007). RLS guards the public PostgREST surface that the anon key exposes; app-layer `user_id`
+filtering guards the owner-role Drizzle path (which bypasses RLS). Both layers are mandatory — neither
+is redundant.
+
+**Dev fallback.** When `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are absent,
+`isAuthConfigured()` returns false and the app runs open with `DEFAULT_USER_ID` — identical to
+Phase 2 behaviour. The gauntlet (typecheck / lint / build / test) remains secret-free.
+
+**Sandbox migration path.** The cloud sandbox's HTTP/HTTPS proxy blocks raw Postgres connections
+(ports 5432/6543). `scripts/db-mgmt-migrate.mjs` applies migration SQL over the Supabase Management
+API (HTTPS) instead. `pnpm db:migrate` continues to work from any DB-connected environment (Vercel,
+local).
+
+### ADR recorded
+[ADR-0008](../decisions/0008-auth-multi-user.md) captures the load-bearing decisions: provider
+choice (Supabase Auth; OAuth deferred), session model (`@supabase/ssr` cookies), the dual-layer
+enforcement model (RLS guards the public API surface; app-layer filtering guards the owner-role
+path — both mandatory), the dev fallback contract (`isAuthConfigured` / `getCurrentUserId` /
+`requireUserId`), and email verification deferral.
+
+### Design updated
+[`DESIGN.md` §13](../../DESIGN.md) documents the full multi-user model: auth provider + session,
+the `user_id` flow from middleware through `app-service.ts`, the RLS policy table, the auth helper
+contract, and operational notes (sandbox migration, seeded-data re-attribution).
+
+### Deploy runbook updated
+[`docs/deploy.md`](../deploy.md) replaces `APP_PASSWORD`/`ARMARIUM_USER_ID` guidance with the
+Supabase Auth env vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`), documents
+`SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` for the Management API migrator, and clarifies
+that dev-mode / `DEFAULT_USER_ID` applies only when the Supabase env is absent.
+
+### Deferred within Phase 3 step 1
+- OAuth sign-in (designed-for; requires deployed redirect domain + provider console setup)
+- Email verification (requires SMTP configuration in Supabase)
+
+---
+
+## 2026-06-20 (Phase 2) — Verify→correct→re-plan loop + self-building classification cache (gates green)
+
+Branch `claude/charming-franklin-441bvj`. All four gates green: `typecheck` / `lint` / `test` (64
+passing) / `build`. Live verification: all routes HTTP 200; live LLM classification confirmed
+end-to-end.
+
+### What was built
+
+**Verify → correct → re-plan loop** (`src/core/corrections.ts`, server action + `replanTrip` in
+`src/server/app-service.ts`, `updateTripResult` in the Postgres + memory repos):
+
+- `applyUserCorrections` takes a flat map of form field values (path → raw string or string[]) and
+  builds `source:"user"` `Evidence<T>`/`HardFact<T>` envelopes onto a clone of the
+  `ItemClassification`. Missing paths are left untouched; group fields are skipped if the item
+  lacks that group.
+- `EDITABLE_UNIVERSAL`, `EDITABLE_GROUPS`, and `EDITABLE_MULTILABEL` registries enumerate exactly
+  the facets that gate capabilities — editing a facet no capability reads is excluded.
+- Because the user is an authoritative source, a corrected hard fact (fill_power, temp_rating,
+  seam_sealing, capacity_liters, UPF) carries `source:"user"` through the `HardFact` wrapper and
+  survives the mechanical demotion guard. This is what makes a correction actually move a capability
+  outcome (satisfies ↔ fails ↔ blocked_unknown), not just update the display.
+- `replanTrip(id)` fetches the saved trip's conditions, re-runs `planTrip` against the corrected
+  closet, and persists the new `RecommendationResult` via `updateTripResult`.
+- UI: a hard-fact editor on the item detail page; a "Re-plan" button on the trip result page;
+  verify→`/items/[id]?edit=1` deep links from blocked capabilities.
+- Proof: `test/verify-loop.integration.test.ts` (2 cases: facet correction propagates through
+  re-plan and is persisted; inventory change propagates through re-plan).
+
+**Self-building classification cache / knowledge base** (`src/core/cache.ts`,
+`src/core/ports.ts` ClassificationCacheRepository port, `src/server/memory-cache.ts`,
+`src/server/postgres-cache.ts`, `classification_cache` table in `src/db/schema.ts`):
+
+- `normalizeCacheKey(name)` produces a stable lookup key: lowercase, accent-folded,
+  punctuation collapsed to spaces, whitespace trimmed. v0 keys on name only.
+- Flow in `classifyToDraft`: check cache FIRST (before the classifier). Cache HIT reuses the stored
+  classification — no LLM call. Cache MISS classifies (live or offline) then writes back as
+  `source:"llm"` with `modelId` recorded for drift tracking.
+- `confirmDraft` upserts `source:"user"` on confirmation (user endorsed the full classification).
+  `updateItemClassification` upserts `source:"user"` on any facet correction. Both paths return
+  `fromCache: boolean` to the caller.
+- In-memory impl (`memory-cache.ts`) is seeded lazily from `SEED_CORPUS` with `source:"seed"`
+  entries; all prototype names are instant hits with no LLM call in dev/offline.
+- Postgres impl (`postgres-cache.ts`): Drizzle `onConflictDoUpdate` upsert; `createdAt` is
+  preserved on collision; lazy singleton (zero connection side effects at import time).
+- Proof: `test/cache.test.ts` (3 cases: seeded item served from KB; cache consulted before
+  classifier, proven by the fact that a pre-seeded novel name does not throw the offline
+  classifier; a user correction feeds the KB and the next add reflects it).
+
+**Known latent notes recorded for near-term hardening:**
+- `getCacheRepository()` in `services.ts` currently returns `memoryCache` in both branches;
+  the Postgres branch wiring is the next step pending the `classification_cache` migration.
+- `updateClassification` in the Postgres repo does not delete group rows removed by a
+  re-classification (documented in ADR-0006 Part B; tracked in the roadmap).
+- The item page does not render `?facetError=1` as a friendly message (tracked in the roadmap).
+
+### Verification evidence
+- `pnpm typecheck` — 0 errors
+- `pnpm lint` — 0 warnings/errors
+- `pnpm test` — 64 tests passed
+- `pnpm build` — compiled successfully (hard gate)
+- Live server: all routes (`/`, `/items/new`, `/login`, `/items/[id]`, `/plan`, `/trips`,
+  `/trips/[id]`) HTTP 200
+- Live LLM classification: item added by name → classified by `claude-sonnet-4-6` → draft stored
+  → review page rendered → confirmed into closet — end-to-end confirmed
+
+### Deferred (designed-for, not built)
+Multi-user auth, weather API, barcode/photo/URL enrichment, image upload, catalog gap-fill, native
+app, military/NSN domain — all remain out of scope per CLAUDE.md.
+
+### ADR recorded
+[ADR-0007](../decisions/0007-classification-cache.md) captures the cache design: name-only key
+(v0 scope decision), source provenance (llm/user/seed), corrections-feed-the-KB, review as safety
+valve, and known caveats.
+
+### Roadmap recorded
+[`docs/roadmap.md`](../roadmap.md) maps the full path from current state to a complete app:
+done-this-phase, near-term in-scope items, and gated items requiring explicit scope unlock.
+
+---
+
+## 2026-06-19 (Phase 2) — Usable web app + durable Postgres + NL parser (gates green)
+
+Branch `claude/charming-franklin-441bvj`. All four gates green: `typecheck` / `lint` / `test` (51
+passing) / `build`. Live verification: closet, plan, trips, /items/new, /login, item detail all
+HTTP 200; live LLM classification confirmed end-to-end.
+
+### What was built
+
+**Review-before-save add flow** (`src/app/items/new`, `/items/[id]/review`, `src/app/actions.ts`):
+- Adding an item by name classifies it → stores it as a DRAFT (`StoredItem.draft = true`, excluded
+  from the closet) → redirects to `/items/[id]/review`.
+- The review page shows the full evidence tree (identity, universal facets, multi-label, domain
+  groups, materials, treatments, capability preview). The user confirms (promotes into closet via
+  `setDraft(…, false)`) or discards (deletes the draft row).
+- A facet-correction editor (`FacetEditor` client component) lets the user override any universal
+  or multi-label facet; corrections carry `source: "user"`. The updated object is re-validated
+  by `safeParseClassification` before persisting — invalid payloads are rejected and shown inline.
+  Server Components cannot pass event handlers to server-action forms, so the delete-confirm
+  button on the item detail page required a client `ConfirmButton` wrapper
+  (`src/components/ConfirmButton.tsx`).
+- New port method `setDraft(userId, id, draft)` added to `GearRepository`; `StoredItem.draft: boolean`
+  is new in the port contract (see `src/core/ports.ts`).
+
+**NL trip parsing** (`src/core/recommend/parse-conditions.ts`):
+- Live path: Anthropic call (injected client, `MODEL_ID` constant) → model emits a partial
+  `TripConditions` JSON → `PartialConditionsSchema` (Zod, closed enum literals) validates it →
+  merged onto `defaultConditions`. The model is instructed to omit fields it cannot determine
+  (no guess); unresolved fields fall back to the default, never to a fabricated value.
+- Offline / no-key path: `parseConditionsHeuristic` — deterministic keyword→enum mapping with
+  explicit-temperature extraction (Fahrenheit converted to Celsius). Conservative: unrecognised
+  text falls to mild defaults, so the user can correct via the structured form.
+- Either path emits the same `TripConditions` envelope `deriveRequirements` reasons over — NL input
+  never bypasses the structured contract.
+- Cross-archetype test suite (`test/parse-conditions.test.ts`, 5 cases across alpine / desert /
+  sustained-rain / casual / Fahrenheit conversion). Per the engineering lesson, ≥3 distinct
+  archetypes are required so the parser cannot secretly collapse onto one.
+- Composition root (`src/server/services.ts`) selects live vs offline based on `ANTHROPIC_API_KEY`.
+
+**Web surface** (`src/app/**`):
+- Closet (`/`) with emergent facet grouping (no hardcoded categories).
+- Item detail (`/items/[id]`) with inventory toggle, facet editor, delete confirm.
+- Plan a trip (`/plan`): NL description form + structured conditions form + trip presets
+  (`TRIP_PRESETS` are prototype data; no trip is hard-coded into the engine).
+- Saved trips (`/trips`) and trip result (`/trips/[id]`): picks, severity-ranked capability gaps,
+  `blocked_unknown` capabilities shown as "verify" (never silently passes).
+- One-password gate (`APP_PASSWORD` env var, `/login`, `SESSION_COOKIE`).
+
+**Durable Postgres** (`src/server/postgres-repo.ts`, migration `drizzle/0001_*`):
+- Full `GearRepository` implementation behind the existing port interface.
+- Lazy singleton: `getDb()` throws only on first query — importing the module has zero connection
+  side effects; build and test need no `DATABASE_URL`.
+- Write path: projects typed/hot columns from `classification` at insert/update for indexability
+  (`projectIdentity`, `projectUniversal`, `projectMultilabel`). Group tables are upserted after
+  the items row (`upsertGroups`). FK `onDelete: "cascade"` cleans group rows on item delete.
+- Read path: reconstructs `StoredItem` entirely from the `classification` jsonb column (lossless
+  source of truth) + the row's own scalars (`id`, `userId`, `name`, `inInventory`, `draft`,
+  `rawText`, `createdAt`). Typed columns are not consulted on reads.
+- Every query is `WHERE user_id = $userId` (architecture rule #4).
+- `getRepository()` (in `src/server/services.ts`) selects `postgresRepository` when `DATABASE_URL`
+  is set, `memoryRepository` otherwise.
+- Migration `drizzle/0001_clammy_gertrude_yorkes.sql` adds `items.classification` (jsonb NOT NULL)
+  and `items.draft` (boolean NOT NULL DEFAULT false) to the Phase 1 schema.
+
+**Known latent note for future hardening:** `updateClassification` upserts group rows that are
+present in the new classification but does not delete a group row that was removed (e.g. an item
+re-classified away from the insulation group). Harmless in v0 because reads use the jsonb
+source-of-truth column, not the group tables. Document and fix before group-table reads are relied
+upon.
+
+### Verification evidence
+- `pnpm typecheck` — 0 errors
+- `pnpm lint` — 0 warnings/errors
+- `pnpm test` — 51 tests passed
+- `pnpm build` — compiled successfully (hard gate)
+- Live server: closet `/`, `/items/new`, `/login`, `/items/[id]`, `/plan`, `/trips`, `/trips/[id]`
+  all HTTP 200
+- Live LLM classification: item added by name → classified by `claude-sonnet-4-6` → draft stored →
+  review page rendered → confirmed into closet — end-to-end confirmed
+
+### Deferred (designed-for, not built)
+Multi-user auth, weather API, barcode/photo/URL enrichment, image upload, catalog gap-fill, native
+app, military/NSN domain — all remain out of scope per CLAUDE.md.
+
+### ADR recorded
+[ADR-0006](../decisions/0006-phase2-nl-parser-draft-lifecycle-postgres.md) captures the three
+load-bearing Phase 2 decisions: NL parsing with offline fallback, review-before-save draft
+lifecycle, and Postgres persistence shape.
+
+---
+
 ## 2026-06-19 (Phase 1) — Foundation + general recommendation engine (gates green)
 
 Approved (hybrid backbone + all five group stubs) → built Phase 1 foundation.

@@ -16,3 +16,7 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0003 — Facet ontology + data model (storage architecture)](0003-facet-ontology-and-data-model.md) — **Proposed (awaiting approval)**
 - [0004 — LLM classification contract (evidence shape + confidence/unknown)](0004-llm-classification-contract.md) — **Proposed (awaiting approval)**
 - [0005 — Conditions → capabilities recommendation engine (general, not per-trip)](0005-conditions-to-capabilities-engine.md) — Accepted
+- [0006 — Phase 2: NL parser + offline fallback, review-before-save draft lifecycle, Postgres lossless jsonb](0006-phase2-nl-parser-draft-lifecycle-postgres.md) — Accepted
+- [0007 — Classification cache: self-building knowledge base](0007-classification-cache.md) — Accepted
+- [0008 — Real auth + multi-user: Supabase Auth, cookie sessions, RLS enforcement model](0008-auth-multi-user.md) — Accepted
+- [0009 — Scope unlock: image/photo/barcode enrichment, military/NSN domain, native app moved to unlocked backlog](0009-scope-unlock.md) — Accepted

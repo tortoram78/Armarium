@@ -1,11 +1,15 @@
 # Armarium — DESIGN (Phase 0 synthesis)
 
-> **Status: PROPOSAL — awaiting approval.** This is the integrated output of the Phase 0 design swarm
-> (9 investigation agents → 3 blind competing architectures → 3 adversarial audits → this synthesis).
-> Nothing here is migrated or coded yet. The schema below is a **proposal in the doc**. On approval it
-> becomes Phase 1. Source artifacts: [`docs/phase0/`](docs/phase0/). Decisions:
+> **Status: LIVE — Phase 2 complete; Phase 3 step 1 in delivery.** This document began as the Phase 0
+> design synthesis (9 investigation agents → 3 competing architectures → 3 adversarial audits) and is
+> updated as each phase lands. Phase 1 (core + schema), Phase 2 (usable web app + NL parser + review
+> lifecycle + Postgres + self-building cache), and Phase 3 step 1 (real auth + multi-user) are all
+> reflected below. Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
 > [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
-> [ADR-0004](docs/decisions/0004-llm-classification-contract.md).
+> [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
+> [ADR-0006](docs/decisions/0006-phase2-nl-parser-draft-lifecycle-postgres.md),
+> [ADR-0007](docs/decisions/0007-classification-cache.md),
+> [ADR-0008](docs/decisions/0008-auth-multi-user.md).
 
 ## 0. TL;DR
 
@@ -232,8 +236,9 @@ it is never silently wrong.
 
 ## 6. Proposed Drizzle schema (PROPOSAL — not migrated)
 
-`user_id` is on every user-owned table from day one (v0 = one fixed user + a password gate; no real
-auth). The `materials`/`treatments` libraries are intentionally **shared/global** (no `user_id`).
+`user_id` is on every user-owned table from day one (architecture rule #4 — planted in Phase 1; tied
+to a real authenticated identity in Phase 3 step 1; see §13 for the multi-user model). The
+`materials`/`treatments` libraries are intentionally **shared/global** (no `user_id`).
 Sketch (illustrative Drizzle/TS; enums abbreviated — full level lists come from the registry):
 
 ```ts
@@ -467,3 +472,97 @@ derived from facets (C‑F3).
 
 Barcode/photo/URL enrichment; weather API; real multi-user auth/sharing; military/NSN; native app;
 image upload; catalog suggestions to fill gaps. (If a task needs one of these, STOP and ask.)
+
+---
+
+## 13. Multi-user model and auth posture (Phase 3 step 1)
+
+Architecture rule #4 required `user_id` on every user-owned table from the first migration; Phase 3
+step 1 ties that column to a real authenticated identity. The model described here supersedes the Phase 2
+one-password gate (`APP_PASSWORD` / `ARMARIUM_USER_ID`). See [ADR-0008](docs/decisions/0008-auth-multi-user.md)
+for full rationale and rejected alternatives.
+
+### Auth provider and session
+
+**Supabase Auth** with email+password is the sign-in method for Phase 3 step 1. Supabase Auth
+integrates natively with Postgres RLS through `auth.uid()` — no cross-service JWT mapping is needed.
+Sessions are **cookie-based** via `@supabase/ssr`, refreshed in App Router middleware on every request.
+Server Components and Route Handlers receive a pre-refreshed client.
+
+**OAuth** (Google, GitHub, etc.) is designed-for but deferred. It requires an external OAuth app
+registration and a deployed redirect domain that cannot be validated in the cloud sandbox. It slots in
+as an additive change (one `signInWithOAuth` call + Supabase dashboard config) once a deployed redirect
+URL is available; no schema or RLS rework is required.
+
+**Email verification** is deferred. Signup uses auto-confirm initially (no SMTP configured). Real
+email confirmation follows once SMTP is set up in the Supabase project. Known limitation: in the
+interim, any email address can be used at signup without verification.
+
+### The `user_id` flow
+
+```
+Request → App Router middleware
+         ↓  @supabase/ssr refreshes session cookie
+         ↓  session JWT contains auth.uid()
+Server Component / Route Handler / Server Action
+         ↓  getCurrentUserId()  →  userId: string (UUID)
+         ↓  requireUserId()     →  same, but redirects/throws if no session
+src/server/app-service.ts  (functions already accept userId param)
+         ↓
+Postgres query: WHERE user_id = $userId
+```
+
+Every user-owned table operation already accepts a `userId` parameter at the `app-service.ts` layer
+(built in Phase 2). Phase 3 step 1 wires `getCurrentUserId()` and `requireUserId()` at the
+request boundary to supply that parameter from the real session instead of from the fixed env var.
+
+### Enforcement model (dual-layer — both are mandatory)
+
+The database is reached through two paths that require distinct enforcement:
+
+**Path 1 — App server (Drizzle + postgres.js, owner/service role, bypasses RLS).** All Drizzle
+queries run as the Postgres owner role, which bypasses row-level security by design. The
+`WHERE user_id = $userId` clause in every query — already present in `src/server/postgres-repo.ts` —
+is the primary enforcement mechanism for application traffic.
+
+**Path 2 — Public PostgREST API (Supabase anon key, subject to RLS).** Supabase exposes every table
+through a public REST endpoint authenticated by `NEXT_PUBLIC_SUPABASE_ANON_KEY`, which ships to the
+browser. Without RLS, any holder of this key can read or write any row. RLS is mandatory on every
+user-owned table to prevent cross-user data exposure through the public API surface.
+
+| Table | RLS policy | Rationale |
+|---|---|---|
+| `items`, `trips`, `pending_facets` | `(select auth.uid()) = user_id` on all operations | User-owned; no cross-user access |
+| `item_insulation`, `item_sleep`, `item_shell`, `item_carry`, `item_footwear`, `item_treatments`, material link tables | Join to parent `items.user_id` | Gated via parent item |
+| `materials`, `treatments` | Readable by `authenticated`; INSERT/UPDATE service-role only | Shared reference libraries; no user_id |
+| `classification_cache` | No public-role access; service-role only | Shared KB — see ADR-0007; not user-owned |
+
+Neither layer is redundant: removing app-layer filtering leaves cross-user leakage on the owner-role
+path; removing RLS leaves the public anon-key endpoint unguarded.
+
+### Auth helper contract (application boundary)
+
+Three helpers at the application boundary are the only code that knows whether auth is configured:
+
+- `isAuthConfigured()` — true when `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  are both present.
+- `getCurrentUserId()` — returns the authenticated user's UUID when auth is configured and a valid
+  session exists; returns `DEFAULT_USER_ID` otherwise (open dev / test mode).
+- `requireUserId()` — same as `getCurrentUserId()`, but redirects to sign-in (or throws) if auth
+  is configured and no valid session is present. Used in server actions and route handlers.
+
+All code downstream of these helpers receives a plain `userId: string` (UUID) and has no knowledge
+of the auth layer. This is what keeps the gauntlet (typecheck / lint / build / test) secret-free:
+when Supabase env vars are absent, `isAuthConfigured()` returns false and the app runs open with
+`DEFAULT_USER_ID` — no Supabase SDK is invoked at build or test time.
+
+### Operational notes
+
+- **Migrations in the cloud sandbox:** the sandbox's HTTP/HTTPS proxy blocks outbound TCP on ports
+  5432 and 6543, so `drizzle-kit migrate` cannot reach Supabase from inside the sandbox.
+  `scripts/db-mgmt-migrate.mjs` applies pending migration SQL over the Supabase Management API
+  (HTTPS). From any DB-connected environment (Vercel, local with a real network path), `pnpm db:migrate`
+  works normally.
+- **Seeded data re-attribution:** rows seeded under `DEFAULT_USER_ID` are not automatically migrated
+  to a new auth UUID when switching from open dev mode to a real Supabase Auth session. A one-time
+  re-attribution step is required for that transition.

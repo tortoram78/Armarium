@@ -1,3 +1,4 @@
+// RLS + ownership policies are out-of-band in drizzle/0003_enable_rls_auth.sql (Phase 3 step 1).
 // Drizzle schema — the capability-first hybrid (DESIGN.md §6, ADR-0003).
 // - Load-bearing facets are typed columns on `items`; soft facets carry a value + confidence + source.
 // - Multi-label facets are text[] (GIN-indexed). The long tail is a JSONB `facets` bag (GIN-indexed).
@@ -8,6 +9,7 @@
 //   treatments libraries are intentionally shared/global (no user_id).
 
 import { pgTable, uuid, text, integer, real, boolean, jsonb, timestamp, index, primaryKey } from "drizzle-orm/pg-core";
+import type { ItemClassification } from "@/core/classification";
 
 // ---- shared libraries (global, no user_id) ----
 export const materials = pgTable("materials", {
@@ -70,9 +72,13 @@ export const items = pgTable(
     insulationMaterialId: uuid("insulation_material_id").references(() => materials.id),
     liningMaterialId: uuid("lining_material_id").references(() => materials.id),
 
+    // lossless classification source-of-truth (reads reconstruct StoredItem from this, not typed columns)
+    classification: jsonb("classification").$type<ItemClassification>().notNull(),
+
     // provenance + ownership
     rawText: text("raw_text"),
     inInventory: boolean("in_inventory").notNull().default(false),
+    draft: boolean("draft").notNull().default(false),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => ({
@@ -157,6 +163,20 @@ export const trips = pgTable("trips", {
   conditions: jsonb("conditions").$type<Record<string, unknown>>(),
   resultSnapshot: jsonb("result_snapshot").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ---- classification cache (shared reference data — no user_id) ----
+// This is the self-building knowledge base: a normalized item name maps to a validated classification
+// so repeat adds skip the LLM. Like `materials` and `treatments`, it is intentionally global (not
+// user-owned) — a correction by any user improves the cache for all users (source:"user" entries).
+export const classificationCache = pgTable("classification_cache", {
+  key: text("key").primaryKey(),
+  name: text("name").notNull(),
+  classification: jsonb("classification").$type<ItemClassification>().notNull(),
+  source: text("source").notNull(), // "llm" | "user" | "seed"
+  modelId: text("model_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export type Item = typeof items.$inferSelect;
