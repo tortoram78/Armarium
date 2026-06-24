@@ -44,6 +44,26 @@ function isSafeMethod(method: string): boolean {
   return method === "GET" || method === "HEAD";
 }
 
+/**
+ * The ONE guest-readable path whose server actions are all read-only and MUST be reachable by a guest
+ * POST: `/plan`. The planner's read/preview funnel runs through server actions, which Next.js dispatches
+ * as POSTs to the page route (`/plan`). EVERY action on `/plan` self-gates correctly:
+ *   - `getWeatherConditionsAction` (pull a forecast to prefill) → `getUserIdOrGuest()` — read-only, no
+ *     persist; a guest SHOULD reach it.
+ *   - `planPreviewAction` (no-save preview → /plan/preview)      → `getUserIdOrGuest()` — read-only; a
+ *     guest SHOULD reach it.
+ *   - `planTripAction` / `planFromDescriptionAction` (save)      → `requireUserId()` — STILL redirects a
+ *     guest to /login. No write leaks.
+ * So pre-emptively 307→/login on a guest POST to /plan is BOTH over-aggressive AND breaks the legitimate
+ * read-only forecast/preview funnel. The action layer (`requireUserId` on every write) is the real wall;
+ * the matcher must not bounce these reads at the edge. Scoped to `/plan` ONLY — the other guest-readable
+ * paths (`/items/<id>`, `/trips/<id>`) have no read-only POST action (only writes, which self-gate via
+ * `requireUserId`), so they stay GET/HEAD-only and need no guest POST.
+ */
+function isGuestPostablePath(pathname: string): boolean {
+  return pathname === "/plan";
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -68,9 +88,18 @@ export async function middleware(req: NextRequest) {
   }
 
   // Guest funnel: a logged-out visitor may READ the sample closet / planner / a single item or trip.
-  // Allow only SAFE methods (a server-action POST to these paths is NOT exempt — it still hits the
-  // action's requireUserId(), which is the real save wall). The header was already set above.
+  // Allow SAFE methods (a server-action POST to these paths is NOT exempt by THIS clause — it still
+  // hits the action's requireUserId(), which is the real save wall). The header was already set above.
   if (!user && isGuestReadablePath(pathname) && isSafeMethod(req.method)) {
+    return response;
+  }
+
+  // Guest funnel — read-only POST exception: the planner's forecast-pull + no-save preview are server
+  // actions, which POST to `/plan`. Every action on `/plan` self-gates (the read ones via
+  // getUserIdOrGuest, the SAVE ones via requireUserId), so this exemption reaches the reads while a save
+  // attempt still redirects to /login INSIDE the action. Without this, a guest could never pull a
+  // forecast or see a preview — the core demo funnel. Scoped to `/plan` POST only; no write is relaxed.
+  if (!user && isGuestPostablePath(pathname) && req.method === "POST") {
     return response;
   }
 
