@@ -1,10 +1,11 @@
 # Armarium — DESIGN (Phase 0 synthesis)
 
-> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–2 in delivery.** This document began as the Phase 0
+> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 in delivery.** This document began as the Phase 0
 > design synthesis (9 investigation agents → 3 competing architectures → 3 adversarial audits) and is
 > updated as each phase lands. Phase 1 (core + schema), Phase 2 (usable web app + NL parser + review
 > lifecycle + Postgres + self-building cache + layering-system reasoning), Phase 3 step 1 (real
-> auth + multi-user), and Phase 3 step 2 (manufacturer URL enrichment) are all reflected below.
+> auth + multi-user), Phase 3 step 2 (manufacturer URL enrichment), and Phase 3 step 3 (weather
+> auto-conditions) are all reflected below.
 > Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
 > [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
 > [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
@@ -13,7 +14,8 @@
 > [ADR-0008](docs/decisions/0008-auth-multi-user.md),
 > [ADR-0010](docs/decisions/0010-layering-system-reasoning.md),
 > [ADR-0011](docs/decisions/0011-manufacturer-url-enrichment.md),
-> [ADR-0012](docs/decisions/0012-evidence-first-classification.md) *(north-star: evidence-first classification)*.
+> [ADR-0012](docs/decisions/0012-evidence-first-classification.md) *(north-star: evidence-first classification)*,
+> [ADR-0015](docs/decisions/0015-weather-auto-conditions.md) *(weather auto-conditions: Open-Meteo + override-always)*.
 
 ## 0. TL;DR
 
@@ -503,9 +505,10 @@ derived from facets (C‑F3).
 are now designed and being built (Phase 3 steps 1–2; see §13 and §14).
 
 Still out of scope / deferred: barcode enrichment (deferred until after Phase 3 step 2 and better
-suited to a native app — ADR-0009); photo/image enrichment; weather API (Phase 3 step 3);
-military/NSN domain; native app; catalog gap-fill suggestions (Phase 3 step 4). Each requires its
-own `DESIGN.md` update + ADR(s) before any implementation.
+suited to a native app — ADR-0009); photo/image enrichment; military/NSN domain; native app;
+catalog gap-fill suggestions (Phase 3 step 4). Each requires its own `DESIGN.md` update + ADR(s)
+before any implementation. Weather auto-conditions (Phase 3 step 3) has moved out of this list —
+it is now designed and being built (see §16 and ADR-0015).
 
 ---
 
@@ -704,6 +707,113 @@ use **fixture HTML files** (saved snapshots of real manufacturer pages) injected
 strings. The SSRF gate and the parser are pure functions and are covered by unit tests that run
 completely offline. Live end-to-end verification (paste a real URL; confirm extracted specs appear
 in the review UI) is performed on Vercel after deployment.
+
+---
+
+## 16. Weather auto-conditions (Phase 3 step 3)
+
+Auto-populate `TripConditions` from a real forecast so the user does not have to hand-enter
+temperature ranges, precipitation likelihood, and wind exposure. See
+[ADR-0015](docs/decisions/0015-weather-auto-conditions.md) for full rationale and rejected
+alternatives.
+
+### 16.1 Provider: Open-Meteo (no API key, no new dependency)
+
+**Open-Meteo** provides two plain HTTPS APIs, called with standard `fetch` — no new npm package,
+no API key, no new secret to manage:
+
+| API | Purpose | Endpoint (abbreviated) |
+|-----|---------|------------------------|
+| Geocoding | Place name → lat/lon | `geocoding-api.open-meteo.com/v1/search?name=<place>` |
+| Forecast | Daily weather over a date window | `api.open-meteo.com/v1/forecast?latitude=…&longitude=…&start_date=…&end_date=…&daily=…` |
+
+Daily variables fetched: `temperature_2m_max`, `temperature_2m_min`, `precipitation_sum`,
+`precipitation_probability_max`, `wind_speed_10m_max`.
+
+**Forecast horizon:** approximately 16 days. Trips starting beyond the horizon receive no
+auto-fill; the form falls back to manual entry and the UI notes the limitation.
+
+### 16.2 The auto-fill flow
+
+```
+Trip form: user enters location + start date + end date
+                 ↓
+1. Geocode location string → lat, lon
+   (fail → skip auto-fill, manual entry unchanged)
+                 ↓
+2. Fetch daily forecast for lat/lon over date window
+   (fail or beyond horizon → skip auto-fill)
+                 ↓
+3. forecastToConditions(dailyArrays) → Partial<TripConditions>
+   (pure derivation — see §16.3)
+                 ↓
+4. Pre-fill trip form conditions fields — user may change any field
+                 ↓
+5. User submits → existing planTrip pipeline, unchanged
+```
+
+The NL description path and the structured conditions form remain available and unchanged.
+Auto-fill is always skipped if location or dates are absent.
+
+### 16.3 Derivation contract (`forecastToConditions`)
+
+A pure function in `src/core/weather/forecast-to-conditions.ts` — no I/O, no `next/*` imports.
+Maps raw Open-Meteo daily arrays to the **existing** `TripConditions` fields. No new facets are
+introduced; this is an input convenience, not a model change.
+
+| Output field | Derivation |
+|---|---|
+| `temp_min_c` | minimum of all daily `temperature_2m_min` values across the trip window |
+| `temp_max_c` | maximum of all daily `temperature_2m_max` values across the trip window |
+| `precipitation` | `'certain'` if max daily prob ≥ 70 %; `'likely'` if ≥ 40 % or total sum > 5 mm; `'possible'` if ≥ 15 % or sum > 1 mm; else `'none'` |
+| `wind` | max daily `wind_speed_10m_max`: ≥ 62 km/h → `'extreme'`; ≥ 39 → `'strong'`; ≥ 20 → `'moderate'`; ≥ 6 → `'light'`; else `'calm'` |
+
+**Not derived from weather:** `sun_exposure`, `duration_days`, `activity`, `exertion`. These are
+trip-intent fields the forecast does not supply; they remain manual.
+
+**Failed/missing forecast → leave conditions for manual entry.** Unknown is first-class (ADR-0004);
+a condition is never fabricated from a failed forecast.
+
+Return type: `Partial<Pick<TripConditions, 'temp_min_c' | 'temp_max_c' | 'precipitation' | 'wind'>>` —
+only the fields the function can derive; absent fields are absent, not null-filled.
+
+### 16.4 Architecture split
+
+| What | Where |
+|------|-------|
+| `forecastToConditions` (pure) | `src/core/weather/forecast-to-conditions.ts` |
+| Open-Meteo response Zod schemas | `src/core/weather/open-meteo-schema.ts` |
+| Geocoding + forecast HTTP fetch | `src/server/weather-fetcher.ts` (injected; never imported into core) |
+| Trip form auto-fill wiring | `src/app/plan/` (route handler or server action) |
+
+`src/core/weather/` has no I/O — consistent with the purity invariant (architecture rule #3,
+ADR-0011). The fetcher is injected as a dependency.
+
+### 16.5 Override-always principle
+
+Auto-fill is a convenience, never a lock-in. The user can change any auto-filled field or bypass
+auto-fill entirely. The recommendation engine receives a `TripConditions` value that the user has
+seen and may have edited — the derivation source is invisible downstream.
+
+### 16.6 Caching and rate-limit politeness
+
+A short-TTL in-memory cache keyed on `(normalized_location, start_date, end_date)` prevents
+duplicate calls within a planning session. Suggested defaults: 10-minute TTL, 50-entry cap.
+No persistence required for v1. Open-Meteo is a free public service; human-paced trip planning
+naturally bounds call volume.
+
+### 16.7 Testing reality
+
+Same posture as ADR-0011 (URL enrichment):
+
+- Unit tests for `forecastToConditions` use hardcoded input objects — no HTTP, no env. Must cover
+  ≥ 3 trip archetypes (alpine winter, desert summer, coastal rainy at minimum).
+- Integration tests for Open-Meteo response parsing use **fixture JSON files** (captured API
+  responses) injected as the fetch result.
+- Live end-to-end verification (enter a real location and dates; confirm auto-fill) is performed
+  on Vercel after deployment.
+
+The gauntlet remains hermetic and secret-free.
 
 ---
 

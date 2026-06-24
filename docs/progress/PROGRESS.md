@@ -3,6 +3,61 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (Phase 3 step 3) — Weather auto-conditions: design + ADR-0015 recorded
+
+Design and ADR recorded. Code implementation by core-reasoning-owner (pure derivation logic +
+Zod schemas) and web-ui-owner (trip form auto-fill wiring) follows; server-fetcher plumbing by
+schema-db-owner or web-ui-owner depending on task allocation.
+
+**What this enables:** the trip form accepts a location string + start/end dates and
+pre-populates the `TripConditions` fields (`temp_min_c`, `temp_max_c`, `precipitation`, `wind`)
+from a real Open-Meteo forecast. The user sees the derived values, can edit any of them, and
+submits normally. The recommendation engine is completely unchanged — it receives the same
+`TripConditions` shape it always has.
+
+**Provider decision: Open-Meteo** — free, no API key, no new npm dependency, plain HTTPS `fetch`.
+Two APIs: geocoding (place name → lat/lon) and forecast (daily `temperature_2m_max`,
+`temperature_2m_min`, `precipitation_sum`, `precipitation_probability_max`, `wind_speed_10m_max`
+over the date window). Forecast horizon ≈ 16 days; beyond that the form falls back to manual
+entry.
+
+**Derivation contract (`forecastToConditions`) — a pure function:**
+- `temp_min_c` / `temp_max_c`: min/max across the trip's daily temperature arrays.
+- `precipitation`: tiered from max daily probability + total sum (`certain` ≥ 70 %; `likely` ≥ 40 %
+  or sum > 5 mm; `possible` ≥ 15 % or sum > 1 mm; `none` otherwise).
+- `wind`: tiered from max daily `wind_speed_10m_max` in km/h (`extreme` ≥ 62; `strong` ≥ 39;
+  `moderate` ≥ 20; `light` ≥ 6; `calm` otherwise).
+- `sun_exposure`, `duration_days`, `activity`, `exertion` — not derived; remain manual.
+- Failed/missing forecast → leave conditions for manual entry (unknown is first-class; no
+  fabricated conditions).
+
+**Architecture split:**
+- `src/core/weather/forecast-to-conditions.ts` — pure derivation (no I/O).
+- `src/core/weather/open-meteo-schema.ts` — Zod schemas for API responses.
+- `src/server/weather-fetcher.ts` — geocoding + forecast HTTP calls (injected, never imported into
+  core).
+- `src/app/plan/` — trip form wiring; calls the fetcher, passes result to `forecastToConditions`,
+  pre-fills the form.
+
+**Override-always:** auto-fill pre-populates; user can change any field. Manual entry is always
+available. NL description path unchanged.
+
+**Caching:** short-TTL in-memory cache keyed on `(normalized_location, start_date, end_date)`;
+10-minute TTL, 50-entry cap suggested; no persistence in v1.
+
+**Testing posture (same as ADR-0011):** unit tests for `forecastToConditions` use hardcoded
+inputs (no HTTP, ≥ 3 archetypes); integration tests use fixture JSON files (captured API
+responses); live verification on Vercel.
+
+**ADR recorded:** [ADR-0015](../decisions/0015-weather-auto-conditions.md)
+
+**DESIGN.md updated:** status banner (Phase 3 steps 1–3 in delivery), ADR-0015 added to key
+decisions list, §12 updated (weather removed from deferred list with forward pointer to §16),
+§16 added (full weather auto-conditions contract: provider, flow, derivation table, architecture
+split, override-always principle, caching, testing).
+
+---
+
 ## 2026-06-24 (Phase 3 — evidence-architecture) — Evidence store + claims LLM: ADR-0014 recorded
 
 **What this records:** the concrete build contracts for ADR-0012 Elements 2 and 4 — the

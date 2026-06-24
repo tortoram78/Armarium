@@ -25,3 +25,4 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0012 — Evidence-first classification: classification as an auditable argument](0012-evidence-first-classification.md) — Accepted
 - [0013 — Cache split: `llm_draft_cache` (global) + `user_overrides` (per-user)](0013-cache-split-per-user-overrides.md) — Accepted
 - [0014 — Evidence store + claims-based LLM (Phase 3 of evidence-architecture migration)](0014-evidence-store-claims-llm.md) — Accepted
+- [0015 — Weather auto-conditions: Open-Meteo geocoding + forecast, override-always](0015-weather-auto-conditions.md) — Accepted
