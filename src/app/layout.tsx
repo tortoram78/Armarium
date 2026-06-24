@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Oswald, JetBrains_Mono } from "next/font/google";
-import { headers } from "next/headers";
+import { Fraunces, Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { NavShell } from "@/components/NavShell";
 import { SkinController } from "@/components/SkinController";
@@ -8,13 +7,25 @@ import { isAuthConfigured, getUserIdOrGuest } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 /* ----------------------------------------------------------------
-   Fonts — loaded at build time via next/font/google
-   Inter:         base humanist sans (body, weights 400/500/600/700)
-   Oswald:        condensed display — structural labels & headings
-                  (topo-legend / field-manual section headers)
-   JetBrains Mono: technical data face — facet values, counts, specs
-                  (reads "instrument readout")
+   Fonts — premium outdoor-editorial, loaded at build via next/font/google.
+
+   Fraunces      — refined editorial serif. The display/heading voice:
+                   confident, timeless, optical-size-aware (soft "wonk"
+                   dialed to 0). Page titles + major headings only.
+   Inter         — humanist sans. All readable UI text: body, labels,
+                   buttons, nav. Comfortable sizes, generous leading.
+   IBM Plex Mono — refined technical mono. ONLY actual numeric specs /
+                   measurements, used sparingly (never labels/headings).
    ---------------------------------------------------------------- */
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-display",
+  display: "swap",
+  // Variable font: load the full weight range + optical-size/soft/wonk axes so the
+  // CSS utilities can dial a confident, timeless cut (weight via font-weight, wonk → 0).
+  axes: ["opsz", "SOFT", "WONK"],
+});
+
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
@@ -22,18 +33,11 @@ const inter = Inter({
   weight: ["400", "500", "600", "700"],
 });
 
-const oswald = Oswald({
-  subsets: ["latin"],
-  variable: "--font-display",
-  display: "swap",
-  weight: ["500", "600", "700"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
+const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   display: "swap",
-  weight: ["400", "500", "700"],
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
@@ -54,45 +58,28 @@ async function getNavUserEmail(): Promise<string | null> {
   }
 }
 
-/** Auth screens that wear the clean/refined skin. Keep in sync with SkinController. */
-const REFINED_AUTH_PREFIXES = ["/login", "/signup", "/forgot-password", "/update-password"];
-
-/** Determine the initial skin from the request URL so SSR matches client. */
-function getInitialSkin(pathname: string): "rugged" | "refined" {
-  if (REFINED_AUTH_PREFIXES.some((p) => pathname.startsWith(p))) {
-    return "refined";
-  }
-  return "rugged";
-}
-
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const userEmail = await getNavUserEmail();
   const authConfigured = isAuthConfigured();
   // Guest = auth configured + no session. Used to swap the nav user block for a Log in / Sign up affordance
-  // and a subtle SAMPLE indicator. (Auth unconfigured/dev → isGuest:false → the chrome is unchanged.)
+  // and a subtle sample indicator. (Auth unconfigured/dev → isGuest:false → the chrome is unchanged.)
   const { isGuest } = await getUserIdOrGuest();
 
-  // Read the request pathname (forwarded by middleware) so initial data-skin
-  // matches what SkinController will set on the client — no hydration flash.
-  const headersList = headers();
-  const pathname = headersList.get("x-armarium-pathname") ?? "/";
-  const initialSkin = getInitialSkin(pathname);
-
+  // One editorial light theme. `data-skin` is retained on <html> only so a future dark mode can hook in;
+  // it no longer flips aesthetics — every route resolves to the same premium look (see globals.css).
   return (
     <html
       lang="en"
-      data-skin={initialSkin}
-      className={`${inter.variable} ${oswald.variable} ${jetbrainsMono.variable}`}
+      data-skin="editorial"
+      className={`${fraunces.variable} ${inter.variable} ${plexMono.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-background text-foreground antialiased">
-        {/* NavShell is client-only (uses usePathname for active links + skin-aware chrome) */}
         <NavShell userEmail={userEmail} authConfigured={authConfigured} isGuest={isGuest} />
 
-        {/* SkinController: sets data-skin on <html>, wraps page content
-            with framer-motion route-change animation */}
+        {/* SkinController: a clean route-transition wrapper (gentle cross-fade), no skin flipping. */}
         <SkinController>
-          <main className="relative z-10 mx-auto max-w-5xl px-6 py-8">
+          <main className="relative z-10 mx-auto w-full max-w-6xl px-6 py-10 sm:py-14 lg:px-8">
             {children}
           </main>
         </SkinController>

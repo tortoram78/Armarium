@@ -4,37 +4,41 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
+/**
+ * Button — editorial, calm. Sentence-case Inter label, gentle radius,
+ * generous padding, quiet hover. No machined bezel, no uppercase shouting.
+ */
 const buttonVariants = cva(
   [
-    // square-ish, letter-spaced label — a machined control, not a pill
-    "relative inline-flex items-center justify-center gap-2 rounded-sm",
-    "text-sm font-semibold uppercase tracking-legend",
-    "transition-[transform,background-color,box-shadow,border-color,color] duration-150 ease-crisp",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+    "relative inline-flex items-center justify-center gap-2 rounded-md",
+    "font-sans text-sm font-medium leading-none",
+    "transition-[background-color,border-color,color,box-shadow,transform] duration-200 ease-crisp",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
     "disabled:pointer-events-none disabled:opacity-50",
-    // crisp tactile press: tiny scale + inset ink, no bounce
-    "active:scale-[0.985] active:shadow-press-in",
+    "active:translate-y-px",
   ].join(" "),
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-letterpress hover:brightness-110",
+          "bg-primary text-primary-foreground hover:bg-primary/92 shadow-[0_1px_2px_0_hsl(var(--shadow-soft))]",
         outline:
-          "border border-border bg-transparent text-foreground hover:border-accent hover:text-accent",
+          "border border-border bg-transparent text-foreground hover:bg-secondary hover:border-foreground/20",
         ghost:
           "text-foreground hover:bg-secondary",
         subtle:
-          "bg-secondary text-secondary-foreground border border-border hover:border-foreground/30",
+          "bg-secondary text-secondary-foreground hover:bg-muted",
+        accent:
+          "bg-accent text-accent-foreground hover:bg-accent/92 shadow-[0_1px_2px_0_hsl(var(--shadow-soft))]",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-letterpress hover:brightness-110",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/92",
         link:
-          "underline-offset-4 hover:underline text-accent p-0 h-auto normal-case tracking-normal font-medium",
+          "text-primary underline-offset-4 hover:underline p-0 h-auto font-medium",
       },
       size: {
-        default: "h-10 px-4 py-2 text-xs",
-        sm:      "h-8 px-3 text-[0.6875rem]",
-        lg:      "h-11 px-6 text-sm",
+        default: "h-10 px-5 py-2",
+        sm:      "h-9 px-4 text-[0.8125rem]",
+        lg:      "h-12 px-7 text-[0.9375rem]",
         icon:    "h-10 w-10",
       },
     },

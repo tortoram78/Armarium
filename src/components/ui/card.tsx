@@ -2,36 +2,39 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Card — a machined panel.
+ * Card — an editorial panel: warm white, hairline border, gentle radius,
+ * generous padding. Depth is restraint, not skeuomorphism.
  *
  * variant:
- *   "flat"  (default) — the original look: hairline border + letterpress edge.
- *                       Unchanged so existing pages are unaffected.
- *   "bezel" — a raised plate proud of the deck: 1px bright milled top-left edge,
- *             1px dark cut bottom-right edge, hard 0-blur cast shadow down-right.
- *   "well"  — a recessed inset panel: darker surface, hard inset top-left shadow.
+ *   "flat"  (default) — hairline border on warm card, no shadow.
+ *   "raised" — adds one soft low shadow for a standout panel.
+ *   "muted"  — a quiet warm-tinted recess (no inset shadow; just tone).
  *
- * Depth comes from precise milled edges + hard directional casts, never soft blur.
+ * "bezel"/"well" are RETAINED legacy aliases (not-yet-migrated screens use
+ * them). They now resolve to the flat editorial language — "bezel" → raised,
+ * "well" → muted — so those pages recolor cleanly until they're redesigned.
  */
-type CardVariant = "flat" | "bezel" | "well";
+type CardVariant = "flat" | "raised" | "muted" | "bezel" | "well";
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: CardVariant;
 }
 
 const CARD_VARIANT: Record<CardVariant, string> = {
-  flat: "border border-border bg-card text-card-foreground shadow-letterpress",
-  bezel: "surface-bezel",
-  well: "surface-well",
+  flat:   "border border-border bg-card text-card-foreground",
+  raised: "border border-border bg-card text-card-foreground elev-soft",
+  muted:  "border border-border bg-muted/50 text-card-foreground",
+  bezel:  "border border-border bg-card text-card-foreground elev-soft",
+  well:   "border border-border bg-muted/50 text-card-foreground",
 };
 
 export function Card({ className, variant = "flat", ...props }: CardProps) {
   return (
     <div
       className={cn(
-        "rounded-none",
+        "rounded-lg",
         CARD_VARIANT[variant],
-        "transition-[border-color,background-color] duration-150 ease-crisp",
+        "transition-[border-color,box-shadow] duration-200 ease-crisp",
         className,
       )}
       {...props}
@@ -40,13 +43,13 @@ export function Card({ className, variant = "flat", ...props }: CardProps) {
 }
 
 export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex flex-col space-y-1 p-3.5", className)} {...props} />;
+  return <div className={cn("flex flex-col space-y-1.5 p-6", className)} {...props} />;
 }
 
 export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cn("font-semibold leading-tight tracking-tight text-card-foreground", className)}
+      className={cn("subhead text-lg text-card-foreground", className)}
       {...props}
     />
   );
@@ -54,14 +57,14 @@ export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHead
 
 export function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <p className={cn("text-sm text-muted-foreground", className)} {...props} />
+    <p className={cn("text-sm leading-relaxed text-muted-foreground", className)} {...props} />
   );
 }
 
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("p-3.5 pt-0", className)} {...props} />;
+  return <div className={cn("p-6 pt-0", className)} {...props} />;
 }
 
 export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex items-center p-3.5 pt-0", className)} {...props} />;
+  return <div className={cn("flex items-center p-6 pt-0", className)} {...props} />;
 }

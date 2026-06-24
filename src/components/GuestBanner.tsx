@@ -21,40 +21,28 @@ export function GuestBanner({
   const signupHref = next ? `/signup?next=${encodeURIComponent(next)}` : "/signup";
 
   return (
-    <div className="hud-brackets surface-bezel relative overflow-hidden p-4 sm:p-5">
-      <span className="hud-corner-tr" aria-hidden />
-      <span className="hud-corner-bl" aria-hidden />
-      {/* blaze left edge marker — reads as an intentional advisory rail, not an error */}
-      <span className="absolute inset-y-0 left-0 w-0.5 bg-blaze" aria-hidden />
+    <div className="panel flex flex-wrap items-center justify-between gap-x-8 gap-y-4 border-l-2 border-l-accent p-5">
+      <div className="min-w-0">
+        <p className="eyebrow mb-1.5 text-accent">Sample closet</p>
+        <p className="text-[0.95rem] font-medium text-foreground">{message}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Browse and plan freely — saving requires an account.
+        </p>
+      </div>
 
-      <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-        <div className="min-w-0">
-          <div className="mb-1.5 flex items-center gap-2">
-            <span className="hud-pip" aria-hidden />
-            <span className="hud-readout text-[0.625rem] tracking-[0.2em] text-blaze">
-              Sample&nbsp;·&nbsp;Read-only
-            </span>
-          </div>
-          <p className="text-sm font-medium text-foreground">{message}</p>
-          <p className="data-mono mt-1 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
-            Browse and plan freely — saving requires an account.
-          </p>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <Link
-            href={loginHref}
-            className="label-structural surface-bezel text-stamped px-4 py-2 text-[0.6875rem] [background-color:hsl(var(--primary))] [color:hsl(var(--primary-foreground))] transition-[transform,filter] duration-150 ease-crisp hover:brightness-110 active:scale-[0.985]"
-          >
-            Log in
-          </Link>
-          <Link
-            href={signupHref}
-            className="label-structural surface-bezel text-stamped px-4 py-2 text-[0.6875rem] text-foreground transition-[transform,filter] duration-150 ease-crisp hover:brightness-[1.06] active:scale-[0.985]"
-          >
-            Sign up
-          </Link>
-        </div>
+      <div className="flex shrink-0 items-center gap-2.5">
+        <Link
+          href={loginHref}
+          className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-200 ease-crisp hover:bg-secondary"
+        >
+          Log in
+        </Link>
+        <Link
+          href={signupHref}
+          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92"
+        >
+          Sign up
+        </Link>
       </div>
     </div>
   );
