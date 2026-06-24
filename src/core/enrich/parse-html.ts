@@ -120,18 +120,37 @@ function scalarOf(v: unknown): string | null {
   return null;
 }
 
-/** Parse a money string/number to integer cents. "$189.00", "189", 189 -> 18900. null on garbage. */
+// A price beyond this is not a real product price — it is parse garbage (precision-lost giant, multiple
+// numbers concatenated, etc.). $10,000,000 in cents leaves huge headroom over any real gear price while
+// staying far inside Number.MAX_SAFE_INTEGER, so the *100 and rounding below can never lose precision.
+const MAX_PRICE_CENTS = 1_000_000_000;
+
+/**
+ * Parse a money string/number to integer cents. "$189.00", "189", 189 -> 18900. null on garbage.
+ * Rejects anything ambiguous or fabricated: a `-` sign (negative), more than one `.` (e.g. "1.2.3.4"),
+ * non-finite, and absurd magnitudes. Only a clean, unambiguous, in-range amount parses — a wrong hard
+ * fact is worse than a missing one (rule #2).
+ */
 function toCents(v: unknown): number | null {
   if (v == null) return null;
   let n: number;
-  if (typeof v === "number") n = v;
-  else if (typeof v === "string") {
+  if (typeof v === "number") {
+    n = v;
+  } else if (typeof v === "string") {
+    // Reject BEFORE stripping: a sign or a second decimal point makes the value ambiguous/garbage,
+    // and `replace(/[^0-9.]/g,'')` would silently launder it into a fabricated price.
+    if (v.includes("-")) return null;
     const cleaned = v.replace(/[^0-9.]/g, "");
     if (cleaned === "" || cleaned === ".") return null;
+    if ((cleaned.match(/\./g)?.length ?? 0) > 1) return null; // multi-dot → not a single number
     n = Number.parseFloat(cleaned);
-  } else return null;
+  } else {
+    return null;
+  }
   if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100);
+  const cents = Math.round(n * 100);
+  if (!Number.isSafeInteger(cents) || cents > MAX_PRICE_CENTS) return null; // precision/sanity guard
+  return cents;
 }
 
 /**
@@ -324,14 +343,89 @@ function specMatching(specs: ExtractedSpec[], keywords: string[]): string | null
   return null;
 }
 
+// The longest opening tag we will scan past while looking for the closing `>` of a <script>/<meta>
+// tag. A real tag's attributes are far shorter than this; bounding the look-ahead means a tag that is
+// never closed (a hostile `<script `-flood with no `>`) costs O(cap), not O(remaining buffer).
+const MAX_TAG_LEN = 8_192;
+
+// The maximum number of `<script`/`<meta` ANCHORS we will examine in one scan. A real product page has
+// far fewer than this (dozens of meta tags, a handful of scripts); the bound only ever trips on a
+// hostile flood (e.g. `'<meta '.repeat(500000)`), capping each scan's total work so the function stays
+// responsive (< 250 ms) no matter the input. Distinct from the count of tags we actually *use*.
+const MAX_TAG_SCANS = 20_000;
+
+const CC_GT = 0x3e; // '>'
+const CC_LT = 0x3c; // '<'
+
+/**
+ * Find the index of the tag-closing `>` for an opening tag that begins at `from`, scanning at most
+ * `window` chars. Returns -1 when the tag is not closed within the window OR an intervening `<` is hit
+ * first (a new tag started — this opener is malformed/unterminated).
+ *
+ * Stopping at the next `<` is what makes the tokenizers genuinely O(n) on hostile input: a `<meta `- or
+ * `<script `-flood with NO `>` anywhere advances anchor-to-anchor (the next `<` is a handful of chars
+ * away) instead of scanning the full `window` at every one of the millions of anchors (which would be
+ * O(n·window) ≈ O(n²)). A plain `indexOf(">", from)` would scan to end-of-buffer at each anchor — the
+ * exact ReDoS-class blowup we are eliminating. Uses `charCodeAt` (no per-anchor allocation).
+ */
+function findTagEnd(s: string, from: number, window: number): number {
+  const limit = Math.min(from + window, s.length);
+  for (let j = from + 1; j < limit; j++) {
+    const c = s.charCodeAt(j);
+    if (c === CC_GT) return j;
+    if (c === CC_LT) return -1; // a new tag opened before this one closed → malformed opener
+  }
+  return -1;
+}
+
+/**
+ * NON-BACKTRACKING extraction of `<script type="application/ld+json">…</script>` bodies via `indexOf`.
+ * For each `<script` anchor we (a) find the next `>` within a bounded window, (b) test only that small
+ * bounded tag slice for the ld+json type, (c) find `</script>` via `indexOf`. No `[^>]*` runs over the
+ * whole buffer, so a `<script `-flood with no closing `>`/`</script>` can't trigger O(n²) backtracking.
+ */
+function extractLdJsonBodies(html: string, cap: number): string[] {
+  const bodies: string[] = [];
+  const lower = html.toLowerCase();
+  let i = 0;
+  let anchors = 0;
+  while (bodies.length < cap && anchors < MAX_TAG_SCANS) {
+    const open = lower.indexOf("<script", i);
+    if (open === -1) break;
+    anchors++;
+    // `<script` must be followed by whitespace, `>`, or `/` to be a real tag (not `<scripting>`).
+    const after = html[open + 7];
+    if (after !== undefined && !/[\s>/]/.test(after)) {
+      i = open + 7;
+      continue;
+    }
+    // Find the end of the opening tag's `>` within a bounded window (never scan the whole buffer).
+    const gt = findTagEnd(html, open, MAX_TAG_LEN);
+    if (gt === -1) {
+      // No `>` (or a new `<`) before the bound — not a complete script tag; resume at the next char.
+      i = open + 1;
+      continue;
+    }
+    const tag = lower.slice(open, gt + 1); // small bounded slice — safe to test with a simple regex
+    const isLdJson = /type\s*=\s*["']?application\/ld\+json/.test(tag);
+    if (!isLdJson) {
+      i = gt + 1;
+      continue;
+    }
+    const close = lower.indexOf("</script", gt + 1);
+    if (close === -1) {
+      bodies.push(html.slice(gt + 1)); // unterminated final block — take the rest, then stop
+      break;
+    }
+    bodies.push(html.slice(gt + 1, close));
+    i = close + 8;
+  }
+  return bodies;
+}
+
 function extractFromJsonLd(html: string): ExtractedProduct | null {
   const products: Record<string, unknown>[] = [];
-  const scriptRe = /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let m: RegExpExecArray | null;
-  let scanned = 0;
-  while ((m = scriptRe.exec(html)) !== null && scanned < 50) {
-    scanned++;
-    const body = m[1];
+  for (const body of extractLdJsonBodies(html, 50)) {
     if (!body) continue;
     let parsed: unknown;
     try {
@@ -385,6 +479,24 @@ function extractFromJsonLd(html: string): ExtractedProduct | null {
   };
 }
 
+/**
+ * Extract the inner text of the first <title>…</title> via indexOf (non-backtracking). The old regex
+ * `<title\b[^>]*>([\s\S]*?)<\/title>` carried the same `[^>]*` backtracking shape as the script regex;
+ * this avoids it entirely. Returns null when absent or unterminated.
+ */
+function extractTitle(html: string): string | null {
+  const lower = html.toLowerCase();
+  const open = lower.indexOf("<title");
+  if (open === -1) return null;
+  const after = html[open + 6];
+  if (after !== undefined && !/[\s>/]/.test(after)) return null; // not a real <title> tag
+  const gt = findTagEnd(html, open, MAX_TAG_LEN);
+  if (gt === -1) return null;
+  const close = lower.indexOf("</title", gt + 1);
+  if (close === -1) return null;
+  return html.slice(gt + 1, close);
+}
+
 /** Read the value of one attribute from a SINGLE <meta ...> tag's inner text, quote-aware. */
 function attrValue(tagInner: string, attr: string): string | null {
   const esc = attr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -396,20 +508,47 @@ function attrValue(tagInner: string, attr: string): string | null {
 }
 
 /**
- * Read the `content` of the first <meta> tag whose `property` or `name` equals `key`. We tokenise the
- * HTML into individual <meta ...> tags FIRST and match attributes within a single tag — never across tag
- * boundaries — so a lazy quantifier can't bleed one tag's `content` into another tag's `property`.
+ * Tokenise the HTML into the inner text of each <meta …> tag ONCE, via the non-backtracking indexOf
+ * tokenizer. Returning a small bounded list (≤ 300 real tags) means the per-key `metaContent` lookups
+ * scan this tiny array instead of re-lowercasing + re-walking the whole (up to 4 MB) buffer for every
+ * one of ~16 keys — which, on a multi-MB input, caused tens of MB of repeated allocation and GC
+ * pressure that turned a hostile `<meta `-flood into a multi-second stall. Single-pass + bounded fixes
+ * both the correctness (tag-bounded attr matching) and the cost.
  */
-function metaContent(html: string, key: string): string | null {
-  const tagRe = /<meta\b([^>]*)>/gi;
-  let m: RegExpExecArray | null;
-  let scanned = 0;
-  while ((m = tagRe.exec(html)) !== null && scanned < 300) {
-    scanned++;
-    const inner = m[1] ?? "";
+function collectMetaTags(html: string): string[] {
+  const lower = html.toLowerCase();
+  const tags: string[] = [];
+  let i = 0;
+  let anchors = 0;
+  while (tags.length < 300 && anchors < MAX_TAG_SCANS) {
+    const open = lower.indexOf("<meta", i);
+    if (open === -1) break;
+    anchors++;
+    // `<meta` must be followed by whitespace, `>`, or `/` to be a real tag (not `<metadata>`).
+    const after = html[open + 5];
+    if (after !== undefined && !/[\s>/]/.test(after)) {
+      i = open + 5;
+      continue;
+    }
+    // Bounded look-ahead for the tag's closing `>` — never scan the whole buffer (ReDoS guard).
+    const gt = findTagEnd(html, open, MAX_TAG_LEN);
+    if (gt === -1) {
+      i = open + 1; // unterminated/malformed opener — resume at the next char (flood stays O(n))
+      continue;
+    }
+    tags.push(html.slice(open + 5, gt)); // bounded tag body — attrs parsed within this slice only
+    i = gt + 1;
+  }
+  return tags;
+}
+
+/** Find the `content` of the first pre-tokenized <meta> tag whose `property`/`name` equals `key`. */
+function metaContentFrom(tags: string[], key: string): string | null {
+  const wantedKey = key.toLowerCase();
+  for (const inner of tags) {
     const propOrName = attrValue(inner, "property") ?? attrValue(inner, "name");
     if (propOrName == null) continue;
-    if (decodeEntities(propOrName).trim().toLowerCase() !== key.toLowerCase()) continue;
+    if (decodeEntities(propOrName).trim().toLowerCase() !== wantedKey) continue;
     const content = attrValue(inner, "content");
     if (content == null) continue;
     const t = decodeEntities(content).trim();
@@ -419,21 +558,19 @@ function metaContent(html: string, key: string): string | null {
 }
 
 function extractFromOpenGraph(html: string): ExtractedProduct | null {
+  // Tokenise meta tags ONCE; every key lookup below reads this bounded list (no per-key full re-scan).
+  const metaTags = collectMetaTags(html);
+  const meta = (key: string) => metaContentFrom(metaTags, key);
+
   // A bare <title> is NOT a product signal (every page has one). We only treat the page as a product
   // source when an OG/product meta tag is actually present; the <title> is used solely as a name
   // fallback once such a signal exists.
-  const ogTitle = metaContent(html, "og:title") ?? metaContent(html, "twitter:title");
-  const brand =
-    metaContent(html, "og:brand") ??
-    metaContent(html, "product:brand");
-  const priceAmount =
-    metaContent(html, "product:price:amount") ??
-    metaContent(html, "og:price:amount");
-  const price_currency =
-    metaContent(html, "product:price:currency") ??
-    metaContent(html, "og:price:currency");
-  const mpn = metaContent(html, "product:mfr_part_no") ?? metaContent(html, "product:retailer_part_no");
-  const ogType = metaContent(html, "og:type");
+  const ogTitle = meta("og:title") ?? meta("twitter:title");
+  const brand = meta("og:brand") ?? meta("product:brand");
+  const priceAmount = meta("product:price:amount") ?? meta("og:price:amount");
+  const price_currency = meta("product:price:currency") ?? meta("og:price:currency");
+  const mpn = meta("product:mfr_part_no") ?? meta("product:retailer_part_no");
+  const ogType = meta("og:type");
 
   const price_cents = toCents(priceAmount);
 
@@ -442,12 +579,12 @@ function extractFromOpenGraph(html: string): ExtractedProduct | null {
     ogTitle != null || brand != null || price_cents != null || (ogType?.toLowerCase() === "product");
   if (!hasProductSignal) return null;
 
-  const titleTag = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? null;
+  const titleTag = extractTitle(html);
   const name = ogTitle ?? (titleTag ? decodeEntities(titleTag).trim() || null : null);
   const cleanName = name ? name.trim() || null : null;
 
   // og:site_name is only a brand hint when an explicit brand tag is absent AND there's another signal.
-  const resolvedBrand = brand ?? (price_cents != null || ogTitle != null ? metaContent(html, "og:site_name") : null);
+  const resolvedBrand = brand ?? (price_cents != null || ogTitle != null ? meta("og:site_name") : null);
 
   if (!cleanName && !resolvedBrand && price_cents == null) return null;
 

@@ -31,11 +31,19 @@ const treatmentInput = z.object({
 });
 
 // ---- identity hard facts ----
+// Sane magnitude bounds so an absurd value can't validate from ANY source (LLM output OR manufacturer
+// enrichment): a ~$1T price, a 100-tonne "weight", or a physically-impossible 0 g must demote to
+// null+unknown, never out-rank inference (rule #2). Bounds are deliberately generous — no real gear
+// approaches them (the heaviest seed item is ~340 g; the priciest ~$525), so nothing legitimate is lost.
+const MAX_PRICE_CENTS = 100_000_000; // $1,000,000 — far above any real piece of gear
+const MAX_WEIGHT_GRAMS = 200_000; // 200 kg — far above any wearable/carryable item
+const MIN_WEIGHT_GRAMS = 1; // 0 g is physically impossible for a real object
+
 const identity = z.object({
   brand: hardFact(z.string().min(1)),
   model: hardFact(z.string().min(1)),
-  price_cents: hardFact(z.number().int().nonnegative()),
-  weight_grams: hardFact(z.number().int().nonnegative()),
+  price_cents: hardFact(z.number().int().nonnegative().max(MAX_PRICE_CENTS)),
+  weight_grams: hardFact(z.number().int().min(MIN_WEIGHT_GRAMS).max(MAX_WEIGHT_GRAMS)),
 });
 
 // ---- universal soft behavioral facets (+ the one hard universal facet, upf) ----

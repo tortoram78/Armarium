@@ -15,6 +15,26 @@ import { ItemClassificationSchema } from "../classification";
 import { HARD_SOURCE } from "../evidence";
 import type { ExtractedProduct, ExtractedFiber } from "./parse-html";
 
+/** The closed set of provenance origins an ExtractedProduct may legitimately carry. */
+const EXTRACTED_FROM = z.enum(["json-ld", "opengraph", "none"]);
+
+/**
+ * Coerce a value to a non-empty string ONLY when it is genuinely a string (or finite number); otherwise
+ * null. Critically this NEVER triggers `String(obj)` / object→primitive coercion, so a malformed
+ * ExtractedProduct whose field is an object (e.g. `{toString:"x"}`, whose toString is non-callable)
+ * collapses to the known-unknown literal instead of throwing "Cannot convert object to primitive value".
+ */
+function safeString(v: unknown): string | null {
+  if (typeof v === "string") return v === "" ? null : v;
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  return null;
+}
+
+/** Coerce a value to a finite number, else null — never throws, never interpolates an object. */
+function safeNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
 // Reuse the exact field shapes from the classification contract so the overlay can never drift from it.
 const identitySchema = ItemClassificationSchema.shape.identity;
 const materialsSchema = ItemClassificationSchema.shape.materials;
@@ -68,11 +88,17 @@ function inferRole(materialRaw: string): Materials[number]["role"] {
 
 /** Map extracted fibers to the classification fiber_components shape (drop the recycled:false noise). */
 function toFiberComponents(fibers: ExtractedFiber[]): Materials[number]["fiber_components"] {
-  return fibers.map((f) => {
-    const comp: { fiber: string; pct: number | null; recycled?: boolean } = { fiber: f.fiber, pct: f.pct };
-    if (f.recycled) comp.recycled = true;
-    return comp;
-  });
+  const out: Materials[number]["fiber_components"] = [];
+  for (const f of fibers) {
+    if (!f || typeof f !== "object") continue; // never deref a null/garbage entry
+    const fiber = safeString((f as ExtractedFiber).fiber);
+    if (!fiber) continue; // a fiber without a usable name is dropped (the schema would reject it anyway)
+    const pct = safeNumber((f as ExtractedFiber).pct);
+    const comp: { fiber: string; pct: number | null; recycled?: boolean } = { fiber, pct };
+    if ((f as ExtractedFiber).recycled === true) comp.recycled = true;
+    out.push(comp);
+  }
+  return out;
 }
 
 /**
@@ -87,18 +113,26 @@ function toFiberComponents(fibers: ExtractedFiber[]): Materials[number]["fiber_c
  * NEVER throws: validation failures (e.g. a non-positive price that slips through) collapse to unknown.
  */
 export function toManufacturerEvidence(extracted: ExtractedProduct): ManufacturerEnrichment {
+  // Safe-coerce every field BEFORE any interpolation/use: a non-string/non-number field (a malformed
+  // ExtractedProduct, e.g. `{toString:"x"}`) becomes null here rather than throwing on String() coercion.
+  const brand = safeString(extracted?.brand);
+  const name = safeString(extracted?.name);
+  const priceCents = safeNumber(extracted?.price_cents);
+  const weightGrams = safeNumber(extracted?.weight_grams);
+  const priceCurrency = safeString(extracted?.price_currency);
+
   const identityRaw = {
-    brand: statedHard(extracted.brand, extracted.brand ? `manufacturer page: brand "${extracted.brand}"` : ""),
-    model: statedHard(extracted.name, extracted.name ? `manufacturer page: product name "${extracted.name}"` : ""),
+    brand: statedHard(brand, brand ? `manufacturer page: brand "${brand}"` : ""),
+    model: statedHard(name, name ? `manufacturer page: product name "${name}"` : ""),
     price_cents: statedHard(
-      extracted.price_cents,
-      extracted.price_cents != null
-        ? `manufacturer page: price ${(extracted.price_cents / 100).toFixed(2)} ${extracted.price_currency ?? ""}`.trim()
+      priceCents,
+      priceCents != null
+        ? `manufacturer page: price ${(priceCents / 100).toFixed(2)} ${priceCurrency ?? ""}`.trim()
         : "",
     ),
     weight_grams: statedHard(
-      extracted.weight_grams,
-      extracted.weight_grams != null ? `manufacturer page: weight ${extracted.weight_grams} g` : "",
+      weightGrams,
+      weightGrams != null ? `manufacturer page: weight ${weightGrams} g` : "",
     ),
   };
 
@@ -115,18 +149,19 @@ export function toManufacturerEvidence(extracted: ExtractedProduct): Manufacture
 
   // Build at most one material from the stated composition / material string.
   const materialsRaw: unknown[] = [];
-  const fiberComponents = toFiberComponents(extracted.fiber_components);
-  if (extracted.material_raw || fiberComponents.length > 0) {
-    const raw = extracted.material_raw ?? "";
+  const materialRaw = safeString(extracted?.material_raw); // null unless a genuine string was stated
+  const fiberComponents = toFiberComponents(Array.isArray(extracted?.fiber_components) ? extracted.fiber_components : []);
+  if (materialRaw || fiberComponents.length > 0) {
+    const raw = materialRaw ?? "";
     materialsRaw.push({
       role: inferRole(raw),
-      name: extracted.material_raw,
+      name: materialRaw,
       fiber_components: fiberComponents,
       // construction_type is a closed enum we cannot reliably read from text — leave null (not fabricated).
       construction_type: null,
       source: "manufacturer" as (typeof HARD_SOURCE)[number],
-      evidence: extracted.material_raw
-        ? `manufacturer page: composition "${extracted.material_raw}"`
+      evidence: materialRaw
+        ? `manufacturer page: composition "${materialRaw}"`
         : "manufacturer page: composition",
     });
   }
@@ -141,10 +176,15 @@ export function toManufacturerEvidence(extracted: ExtractedProduct): Manufacture
     identity.weight_grams.value !== null;
   const hasSignal = hasIdentitySignal || materials.length > 0;
 
+  // Validate the provenance origin against its closed enum — an arbitrary string (e.g. a forged
+  // "authoritative-verified-direct" or "user") must NEVER launder into the audit trail; default "none".
+  const extractedFromParsed = EXTRACTED_FROM.safeParse(extracted?.source);
+  const extractedFrom = extractedFromParsed.success ? extractedFromParsed.data : "none";
+
   return {
     identity,
     materials,
-    provenance: { source: "manufacturer", extractedFrom: extracted.source },
+    provenance: { source: "manufacturer", extractedFrom },
     hasSignal,
   };
 }
