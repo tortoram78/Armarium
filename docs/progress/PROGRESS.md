@@ -3,6 +3,70 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (Phase 2) — Layering-system reasoning: combination-aware capability evaluation
+
+Branch `claude/charming-franklin-441bvj`. Commit `bf116b4`. All gates green: 77 tests passing.
+
+### What was built
+
+**`src/core/recommend/combine.ts`** — combination evaluator activated only when no single item
+already satisfies a derived requirement. Composes over:
+
+- The `layering_role` facet (already `capabilityGate: true`, stored hot as a Postgres array),
+  partitioned into four structural slots: next-to-skin/base (0), active-insulation/mid (1),
+  static-insulation (2), wind/weather-shell (3). `sleep_system` and `accessory` excluded.
+  Items must occupy **distinct slots** to form a system — two items in the same slot do not count
+  as layers.
+- Per-capability `CAPABILITY_COMBINATION` strategy metadata declared in
+  `src/core/capabilities/index.ts` alongside existing per-item predicates. Two strategies:
+  `additive_warmth` (slot warmth ranks sum toward a thermal target derived from `temp_min_c`) and
+  `shell_over_warmth` (conjunctive: one slot satisfies a protective sub-capability AND a distinct
+  slot meets a warmth-base floor — both arms required).
+
+**Output contract extension (backward-compatible).** `CapabilityOutcome` adds
+`satisfiedBySystem?: ItemSystem[]` where `ItemSystem = { items: ItemRef[] }`. `status` is
+`"satisfied"` when `satisfiedBy.length > 0 || satisfiedBySystem.length > 0`. Existing consumers
+compile and render without change.
+
+**Unknown-blocks preserved.** An unknown/low-confidence value on any participating item demotes
+the system outcome to `blocked_unknown`. A fabricated system satisfy is never emitted.
+
+**No registry or schema changes.** All facets read by the combination evaluator are already
+`capabilityGate: true` and stored hot; the strategy metadata is reasoning metadata beside the
+predicates, not a new facet. The registry-gates-hot invariant and the cross-reference test are
+untouched.
+
+**Generality proof.** `test/recommend.layering.test.ts` — ≥3 cross-archetype tests: cold-dry
+additive warmth surfaces correctly; cold-wet conjunctive surfaces correctly and drops when either
+arm is removed (asserted); mild trip does not over-trigger; unknown facet demotes to
+`blocked_unknown`. Per the engineering lesson, ≥3 distinct archetypes are the minimum bar for any
+reasoning feature.
+
+### Open follow-up
+
+`satisfiedBySystem` is present in `CapabilityOutcome` and persisted in `trips.result_snapshot`
+but is not yet displayed in `src/app/trips/[id]/page.tsx`. Wiring that UI surface is the next
+step — until then, system satisfaction is computed correctly but invisible to the user.
+
+### ADR recorded
+
+[ADR-0010](../decisions/0010-layering-system-reasoning.md) captures: the combination strategy
+design, the slot partition, the `additive_warmth` and `shell_over_warmth` strategies, the
+output-contract extension, and the alternatives rejected (outfit templates, category routing,
+combination-without-slot-constraint, materialized combination cache).
+
+### DESIGN.md updated
+
+Section §5 documents that capability satisfaction is now single-item OR combination-of-layers
+(emergent over `layering_role` + strategy metadata). Section §8 (Marcy walkthrough) notes how the
+engine would handle a full three-layer kit. Status banner updated.
+
+### Roadmap updated
+
+"Layering-system reasoning" ticked as done with pointer to ADR-0010 and the open UI follow-up.
+
+---
+
 ## 2026-06-21 (governance) — Scope unlock: image/photo/barcode, military/NSN, native app
 
 The user directed that the three previously hard-blocked items be moved from "do not build; stop

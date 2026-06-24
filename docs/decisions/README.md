@@ -20,3 +20,4 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0007 — Classification cache: self-building knowledge base](0007-classification-cache.md) — Accepted
 - [0008 — Real auth + multi-user: Supabase Auth, cookie sessions, RLS enforcement model](0008-auth-multi-user.md) — Accepted
 - [0009 — Scope unlock: image/photo/barcode enrichment, military/NSN domain, native app moved to unlocked backlog](0009-scope-unlock.md) — Accepted
+- [0010 — Layering-system reasoning: combination-aware capability evaluation](0010-layering-system-reasoning.md) — Accepted

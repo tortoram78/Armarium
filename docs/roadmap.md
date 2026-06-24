@@ -47,12 +47,14 @@ Saved trips are currently read-only. Users need to rename a trip (the plan name 
 result header), clone a trip with different conditions, and delete trips they no longer need.
 Each is a thin repo method + server action + UI control; no new data shapes required.
 
-**Layering-system reasoning (combine items)**
-Current recommendations evaluate items individually against capabilities. A layering system
-reasons over item *combinations* — e.g. a wicking base + a fleece mid + a shell together satisfy
-`sustained_rain_protection` even if no single item does alone. This is the highest-impact
-reasoning upgrade for the recommendation engine. Requires a new capability predicate design and
-cross-archetype tests.
+**Layering-system reasoning (combine items)** — DONE (commit `bf116b4`; ADR-0010)
+`src/core/recommend/combine.ts` evaluates derived requirements against sets of owned items in
+distinct structural layering slots when no single item satisfies. Two strategies: `additive_warmth`
+(slot warmth ranks sum toward a thermal target) and `shell_over_warmth` (conjunctive: protective
+slot over warmth-base slot). Unknown facets demote the system to `blocked_unknown`. The
+`CapabilityOutcome` output contract is extended with `satisfiedBySystem: ItemSystem[]` (additive
+— existing consumers unaffected). **Open follow-up: wire `satisfiedBySystem` in the trip-result
+UI** (`src/app/trips/[id]/page.tsx`) so users can see which items form a system. See ADR-0010.
 
 **Weight / volume budgets**
 `planTrip` could accept a budget envelope (pack weight ceiling, volume ceiling) and rank or

@@ -3,13 +3,14 @@
 > **Status: LIVE — Phase 2 complete; Phase 3 step 1 in delivery.** This document began as the Phase 0
 > design synthesis (9 investigation agents → 3 competing architectures → 3 adversarial audits) and is
 > updated as each phase lands. Phase 1 (core + schema), Phase 2 (usable web app + NL parser + review
-> lifecycle + Postgres + self-building cache), and Phase 3 step 1 (real auth + multi-user) are all
-> reflected below. Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
-> [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
+> lifecycle + Postgres + self-building cache + layering-system reasoning), and Phase 3 step 1 (real
+> auth + multi-user) are all reflected below. Source artifacts: [`docs/phase0/`](docs/phase0/). Key
+> decisions: [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
 > [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
 > [ADR-0006](docs/decisions/0006-phase2-nl-parser-draft-lifecycle-postgres.md),
 > [ADR-0007](docs/decisions/0007-classification-cache.md),
-> [ADR-0008](docs/decisions/0008-auth-multi-user.md).
+> [ADR-0008](docs/decisions/0008-auth-multi-user.md),
+> [ADR-0010](docs/decisions/0010-layering-system-reasoning.md).
 
 ## 0. TL;DR
 
@@ -226,6 +227,22 @@ sleep_to(envelope)   := item_sleep present AND effective_comfort ≤ target_temp
 **Invariant:** every facet read by a capability is `capabilityGate: true` ⇒ stored hot (column/group),
 never JSONB — so capabilities have one query path and can't read stale cold data.
 
+**Capability satisfaction is single-item OR combination-of-layers.** A `CapabilityOutcome` is
+`"satisfied"` when either (a) at least one item individually satisfies the capability's predicate
+(`satisfiedBy: ItemRef[]`), or (b) a *set* of items in **distinct structural layering slots** jointly
+satisfies it (`satisfiedBySystem: ItemSystem[]`). Combination is evaluated only when (a) fails first,
+so it never over-triggers. The structural slots are derived from the `layering_role` facet (a
+capability-gated hot column): next-to-skin/base = slot 0, active-insulation/mid = slot 1,
+static-insulation = slot 2, wind/weather-shell = slot 3; sleep and accessory roles are excluded.
+Each combinable capability declares an aggregation **strategy** alongside its predicate (in
+`src/core/capabilities/index.ts`): `additive_warmth` (slot warmth ranks sum toward a thermal target
+derived from `temp_min_c`) or `shell_over_warmth` (one slot satisfies a protective sub-capability
+AND a distinct slot meets a warmth-base floor — both arms required). No outfit templates, no category
+routing: combination logic is entirely emergent from `layering_role` values and strategy metadata.
+Unknown/low-confidence facets on any participating item demote the system outcome to `blocked_unknown`
+— a fabricated system satisfy is worse than a flagged "verify." See
+[ADR-0010](docs/decisions/0010-layering-system-reasoning.md) for full rationale.
+
 **v0 = compute-on-read.** A personal closet is small-N; capabilities are evaluated live in `src/core`.
 This is always correct and sidesteps cache staleness entirely. The **optional** materialization
 (`item_capabilities` table) is specified for later **with both invalidation keys** — a content
@@ -390,6 +407,15 @@ breathable approach/sun layer. **Gaps surfaced (exactly the three intended):**
 3. **Adequate wicking base layer — HIGH.** The only base layer is cotton-blend → `wicking_base=fails`.
 
 This falls out of facet/capability queries — no category logic, no hardcoding.
+
+**Combination extension (Phase 2, ADR-0010).** If the same user owned a wicking synthetic base
+(slot 0), a fleece mid (slot 1), and a waterproof-breathable shell (slot 3), the engine would now
+surface that trio as a *joint* satisfier of `adequate_warmth` (via `additive_warmth` strategy) and
+`waterproof_insulated_system` (via `shell_over_warmth` strategy) — without the items individually
+satisfying those thresholds. Combination is only attempted after the single-item pass fails, so
+items that satisfy individually are never double-counted. The seed corpus has no such system (the
+only warm item is a sleeping bag, excluded from worn-layer slots), so the Marcy walkthrough is
+unchanged: the three gaps remain gaps.
 
 ---
 
