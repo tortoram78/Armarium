@@ -20,7 +20,16 @@ import {
   deleteTrip,
   updateTripConditions,
 } from "@/server/app-service";
-import { defaultConditions, PRECIPITATION, WIND, SUN, EXERTION, DURATION, EXPOSURE } from "@/core/conditions";
+import {
+  defaultConditions,
+  PRECIPITATION,
+  WIND,
+  SUN,
+  EXERTION,
+  DURATION,
+  EXPOSURE,
+  type TripConditions,
+} from "@/core/conditions";
 import { safeParseClassification } from "@/core/classification";
 import {
   applyUserCorrections,
@@ -251,6 +260,47 @@ export async function planFromDescriptionAction(formData: FormData) {
   const trip = await planAndSave(name, conditions, description, userId);
   revalidatePath("/trips");
   redirect(`/trips/${trip.id}`);
+}
+
+/**
+ * Result of an auto-conditions lookup. `ok:false` is the first-class manual-entry fallback signal:
+ * an unknown location, an out-of-horizon date window, or any provider/network failure all degrade to
+ * it. The UI leaves the conditions form untouched and the user enters conditions by hand. This action
+ * NEVER throws (the weather fetcher already fails to `null`); the try/catch is belt-and-suspenders so a
+ * transient hiccup can never surface a 500 in the planner.
+ */
+export type WeatherConditionsResult =
+  | { ok: true; conditions: TripConditions; locationLabel: string }
+  | { ok: false };
+
+/**
+ * Pull a forecast for a free-text location + ISO date window and derive a starting `TripConditions`.
+ * The returned conditions PRE-FILL the planner's structured fields; every field stays user-editable
+ * (override-always — the forecast is a starting point, never a lock). On any failure → `{ ok:false }`,
+ * the manual-entry fallback. Heavy lifting lives in the already-built fetcher + pure mapping; this is a
+ * thin action.
+ */
+export async function getWeatherConditionsAction(formData: FormData): Promise<WeatherConditionsResult> {
+  await requireUserId();
+  try {
+    const location = String(formData.get("location") ?? "").trim();
+    const startDate = String(formData.get("startDate") ?? "").trim();
+    const endDate = String(formData.get("endDate") ?? "").trim();
+    if (!location || !startDate || !endDate) return { ok: false };
+
+    const { getForecast } = await import("@/server/weather-fetcher");
+    const { forecastToConditions } = await import("@/core/weather");
+    const forecast = await getForecast(location, startDate, endDate);
+    if (!forecast) return { ok: false };
+
+    return {
+      ok: true,
+      conditions: forecastToConditions(forecast),
+      locationLabel: forecast.location.locationLabel,
+    };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export async function planTripAction(formData: FormData) {

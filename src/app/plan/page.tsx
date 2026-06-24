@@ -1,19 +1,15 @@
-import { planTripAction, planFromDescriptionAction } from "@/app/actions";
+import { planTripAction, planFromDescriptionAction, getWeatherConditionsAction } from "@/app/actions";
 import { tripParserMode } from "@/server/app-service";
 import { TRIP_PRESETS } from "@/core/trips";
-import { PRECIPITATION, WIND, SUN, EXERTION, DURATION, EXPOSURE } from "@/core/conditions";
+import { defaultConditions } from "@/core/conditions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { WeatherAutofill } from "@/components/WeatherAutofill";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
-
-function titleize(s: string) {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 // Merge a preset's conditions into the default values for the structured form.
 function presetDefaults(searchParams: Record<string, string | undefined>) {
@@ -26,7 +22,21 @@ export default async function PlanPage({ searchParams }: { searchParams: Record<
   const preset = presetDefaults(searchParams);
   const parserMode = tripParserMode();
 
-  const conds = preset?.conditions;
+  // Seed the (now controlled) structured-conditions form from the preset, falling back to defaults. The
+  // WeatherAutofill widget owns this as React state so a forecast pull can prefill it; every field stays
+  // editable. String-typed because they are form values.
+  const seed = preset?.conditions ?? defaultConditions();
+  const initialConditions = {
+    temp_min_c: seed.temp_min_c !== null ? String(seed.temp_min_c) : "",
+    temp_max_c: seed.temp_max_c !== null ? String(seed.temp_max_c) : "",
+    precipitation: seed.precipitation,
+    wind: seed.wind,
+    sun: seed.sun,
+    exertion: seed.exertion,
+    duration: seed.duration,
+    exposure: seed.exposure,
+    activities: seed.activities.join(", "),
+  };
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -151,7 +161,9 @@ export default async function PlanPage({ searchParams }: { searchParams: Record<
         </CardContent>
       </Card>
 
-      {/* Path 2: Structured conditions — recessed configuration well */}
+      {/* Path 2: Structured conditions + weather autofill — recessed configuration well. The form is a
+          client widget so a forecast pull (location + dates → Open-Meteo) can pre-fill the fields;
+          every field stays editable and the submit still posts to planTripAction. */}
       <Card variant="well">
         <CardHeader>
           <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
@@ -159,107 +171,17 @@ export default async function PlanPage({ searchParams }: { searchParams: Record<
             Set conditions manually
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            Configure each parameter directly for precise control.
+            Pull a forecast from a location &amp; dates, or configure each parameter directly — either way
+            you can adjust everything before planning.
           </p>
         </CardHeader>
         <CardContent>
-          <form action={planTripAction} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="struct-name">Trip name</Label>
-              <Input
-                id="struct-name"
-                name="name"
-                placeholder="Untitled trip"
-                defaultValue={preset?.name ?? ""}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="temp_min_c">Temp min (°C)</Label>
-                <Input
-                  id="temp_min_c"
-                  name="temp_min_c"
-                  type="number"
-                  placeholder="e.g. 3"
-                  defaultValue={conds?.temp_min_c ?? ""}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="temp_max_c">Temp max (°C)</Label>
-                <Input
-                  id="temp_max_c"
-                  name="temp_max_c"
-                  type="number"
-                  placeholder="e.g. 18"
-                  defaultValue={conds?.temp_max_c ?? ""}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label>Precipitation</Label>
-                <Select name="precipitation" defaultValue={conds?.precipitation ?? "none"}>
-                  {PRECIPITATION.map((v) => (
-                    <option key={v} value={v}>{titleize(v)}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Wind</Label>
-                <Select name="wind" defaultValue={conds?.wind ?? "calm"}>
-                  {WIND.map((v) => (
-                    <option key={v} value={v}>{titleize(v)}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Sun</Label>
-                <Select name="sun" defaultValue={conds?.sun ?? "moderate"}>
-                  {SUN.map((v) => (
-                    <option key={v} value={v}>{titleize(v)}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Exertion</Label>
-                <Select name="exertion" defaultValue={conds?.exertion ?? "moderate"}>
-                  {EXERTION.map((v) => (
-                    <option key={v} value={v}>{titleize(v)}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Duration</Label>
-                <Select name="duration" defaultValue={conds?.duration ?? "day"}>
-                  {DURATION.map((v) => (
-                    <option key={v} value={v}>{titleize(v)}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Exposure</Label>
-                <Select name="exposure" defaultValue={conds?.exposure ?? "sheltered"}>
-                  {EXPOSURE.map((v) => (
-                    <option key={v} value={v}>{titleize(v)}</option>
-                  ))}
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="activities">Activities (comma-separated)</Label>
-              <Input
-                id="activities"
-                name="activities"
-                placeholder="hiking, backpacking, alpine"
-                defaultValue={conds?.activities.join(", ") ?? ""}
-              />
-            </div>
-
-            <SubmitButton pendingText="Planning…">Plan trip</SubmitButton>
-          </form>
+          <WeatherAutofill
+            planAction={planTripAction}
+            weatherAction={getWeatherConditionsAction}
+            initial={initialConditions}
+            initialName={preset?.name ?? ""}
+          />
         </CardContent>
       </Card>
     </div>
