@@ -45,8 +45,28 @@ export interface SaveTripInput {
   result?: RecommendationResult;
 }
 
+/** Options for keyset (cursor) pagination of items. */
+export interface PageOpts {
+  /** Opaque cursor from a previous page's `nextCursor`. Omit/undefined for the first page. */
+  cursor?: string;
+  /** Page size. Defaults to 50 in both implementations. */
+  limit?: number;
+}
+
+/** A single page of items plus the cursor to fetch the next one (`null` when exhausted). */
+export interface ItemsPage {
+  items: StoredItem[];
+  nextCursor: string | null;
+}
+
 export interface GearRepository {
   listItems(userId: string): Promise<StoredItem[]>;
+  /**
+   * Keyset-paginated items, newest-first, with a STABLE cursor over (createdAt, id). Additive to
+   * `listItems`: recommend + emergent closet grouping still read ALL rows via `listItems`; this is for
+   * paged browsing only. `nextCursor` is null when the last page is reached.
+   */
+  listItemsPage(userId: string, opts: PageOpts): Promise<ItemsPage>;
   getItem(userId: string, id: string): Promise<StoredItem | null>;
   addItem(userId: string, input: AddItemInput): Promise<StoredItem>;
   updateClassification(userId: string, id: string, classification: ItemClassification): Promise<StoredItem | null>;
@@ -60,6 +80,17 @@ export interface GearRepository {
   saveTrip(userId: string, trip: SaveTripInput): Promise<StoredTrip>;
   /** Overwrite a saved trip's recommendation (used by re-plan after closet corrections). */
   updateTripResult(userId: string, id: string, result: RecommendationResult): Promise<StoredTrip | null>;
+  /** Rename a saved trip. No-op if the trip doesn't belong to the user. */
+  renameTrip(userId: string, id: string, name: string): Promise<void>;
+  /** Replace a trip's stored conditions. The trip becomes stale until re-planned — does NOT auto-replan. */
+  updateTripConditions(userId: string, id: string, conditions: TripConditions): Promise<void>;
+  /**
+   * Copy a trip's name (suffixed " (copy)") + conditions into a NEW trip id. Does NOT copy the result
+   * snapshot — a fresh clone is unplanned until re-planned. User-scoped; returns the new trip.
+   */
+  cloneTrip(userId: string, id: string): Promise<StoredTrip>;
+  /** Delete a saved trip (and its result snapshot), user-scoped. No-op if it isn't the user's. */
+  deleteTrip(userId: string, id: string): Promise<void>;
 }
 
 /**

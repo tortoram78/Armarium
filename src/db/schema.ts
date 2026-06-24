@@ -83,6 +83,9 @@ export const items = pgTable(
   },
   (t) => ({
     userIdx: index("items_user_idx").on(t.userId),
+    // Keyset pagination index: newest-first within a user, with id as a stable tiebreaker so the
+    // (created_at, id) cursor stays index-only. Matches listItemsPage's ORDER BY exactly.
+    userKeysetIdx: index("items_user_keyset_idx").on(t.userId, t.createdAt.desc(), t.id.desc()),
     layeringRoleIdx: index("items_layering_role_idx").using("gin", t.layeringRole),
     functionPurposeIdx: index("items_function_purpose_idx").using("gin", t.functionPurpose),
     facetsIdx: index("items_facets_idx").using("gin", t.facets),
@@ -155,15 +158,25 @@ export const pendingFacets = pgTable("pending_facets", {
 });
 
 // ---- trips (user-owned, revisitable) ----
-export const trips = pgTable("trips", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull(),
-  name: text("name").notNull(),
-  rawDescription: text("raw_description"),
-  conditions: jsonb("conditions").$type<Record<string, unknown>>(),
-  resultSnapshot: jsonb("result_snapshot").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+// `updatedAt` tracks rename / conditions edits / re-plans. The (user_id, created_at, id) index backs
+// keyset pagination of items AND keeps trip lookups user-scoped & cheap; the items keyset index is the
+// one that matters for paging (see items table below) — this one mirrors it for trips listing order.
+export const trips = pgTable(
+  "trips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    name: text("name").notNull(),
+    rawDescription: text("raw_description"),
+    conditions: jsonb("conditions").$type<Record<string, unknown>>(),
+    resultSnapshot: jsonb("result_snapshot").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    userIdx: index("trips_user_idx").on(t.userId),
+  }),
+);
 
 // ---- classification cache (shared reference data — no user_id) ----
 // This is the self-building knowledge base: a normalized item name maps to a validated classification
