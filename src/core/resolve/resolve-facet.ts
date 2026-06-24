@@ -110,16 +110,24 @@ function asserts<V>(c: Claim<V>): boolean {
  * THE OVERRIDE RULE (the one clean policy, applied pairwise: does `challenger` beat the running `best`?):
  *
  *   A higher-precedence asserting claim wins over a lower-precedence asserting claim,
- *   UNLESS the higher-precedence claim's source is NON-AUTHORITATIVE *and* its confidence is
- *   STRICTLY LOWER than the claim it would override — in which case it DEFERS (the lower one stands).
+ *   UNLESS the higher-precedence claim's source is NON-AUTHORITATIVE *and* ITS OWN confidence is `low`
+ *   — in which case it DEFERS to any other recognized asserting claim (the lower one stands).
  *
- * In words: precedence decides, EXCEPT a non-authoritative source may not clobber a more-confident claim
- * with its own *less*-confident one. Authoritative sources (user/manufacturer) are never subject to the
- * exception — a stated fact beats a guess even when the guess sounds more certain (rule #2).
+ * The defer is keyed on the higher-precedence non-authoritative claim's OWN acknowledged weakness, NOT on
+ * a comparison against the claim it would override. A `low`-confidence claim is one the source itself
+ * flags as not-determinative (notably fiber-derived `warmth`, rated `low` because fiber alone does not fix
+ * warmth — that is construction/weight). Such a claim is FILL-ONLY: it fills a gap but never overrides
+ * another source's actual opinion. A `medium`/`high` non-authoritative claim is a real position and wins
+ * by precedence even against a MORE-confident lower claim — physics beats a guess, even a confident one.
+ * Authoritative sources (user/manufacturer) are never subject to the exception — a stated fact beats a
+ * guess regardless of confidence (rule #2).
  *
- * This single rule produces both headline behaviors:
- *   - `derived_from_material` (high) overrides `inferred` (any) — the moisture correction.
- *   - `derived_from_material` (low warmth) does NOT override `inferred` (high warmth) — warmth defers.
+ * This rule produces the headline behaviors:
+ *   - `derived_from_material` (medium/high) ALWAYS overrides `inferred` (any) — the moisture correction,
+ *     and crucially the deceptive cellulosic (bamboo/lyocell): library `absorbs_holds`/medium beats a
+ *     confident LLM `wicks`/high. Cellulose holds water when saturated; physics wins, not the feel.
+ *   - `derived_from_material` (low `warmth`) does NOT override ANY asserting `inferred` warmth — it is
+ *     fill-only; it fills only when the LLM has no warmth opinion.
  *
  * Equal precedence (e.g. two `inferred`): higher confidence wins; on a true tie the incumbent stands
  * (stable, order-independent for the way callers assemble claims — see resolveBehavioralFacets).
@@ -131,19 +139,20 @@ function challengerBeats<V>(challenger: Claim<V>, best: Claim<V>): boolean {
   const bConf = confidenceOf(best.confidence);
 
   if (cP > bP) {
-    // Higher precedence — wins, UNLESS the challenger is a non-authoritative source bringing a strictly
-    // weaker claim than a RECOGNIZED claim it would override (don't defer to garbage-source input).
-    if (!isAuthoritative(challenger.source) && isRecognized(best.source) && cConf < bConf) {
-      return false; // defer: a weaker guess/derivation must not clobber a stronger legitimate one
+    // Higher precedence — wins, UNLESS the challenger is a non-authoritative source whose OWN confidence
+    // is `low` (an acknowledged-weak, fill-only claim) and the incumbent is a real (recognized) assertion
+    // it would otherwise clobber. Keyed on the challenger's own weakness, not on a confidence comparison.
+    if (!isAuthoritative(challenger.source) && challenger.confidence === "low" && isRecognized(best.source)) {
+      return false; // defer: a fill-only (low) guess/derivation must not clobber a legitimate assertion
     }
     return true;
   }
 
   if (cP < bP) {
     // Lower precedence — can only win by the symmetric exception: the INCUMBENT (higher precedence) is a
-    // recognized non-authoritative source and strictly less confident than this challenger. (Handles
-    // claims arriving in any order, so resolution is order-independent.)
-    return !isAuthoritative(best.source) && isRecognized(best.source) && cConf > bConf;
+    // recognized non-authoritative source whose OWN confidence is `low` (fill-only). Mirrors the cP>bP
+    // arm exactly so resolution is ORDER-INDEPENDENT — a claim set resolves the same regardless of order.
+    return !isAuthoritative(best.source) && best.confidence === "low" && isRecognized(challenger.source);
   }
 
   // Equal precedence → higher confidence wins; tie → incumbent stays (stable).

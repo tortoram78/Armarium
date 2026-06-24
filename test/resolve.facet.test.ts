@@ -92,10 +92,11 @@ describe("authoritative sources beat any guess regardless of confidence (rule #2
 });
 
 // ====================================================================================================
-// 3. The CONFIDENCE-CONFLICT exception: a NON-authoritative higher-precedence claim that is STRICTLY
-//    LESS confident than the claim it would override DEFERS. Both directions of the headline cases.
+// 3. The OVERRIDE exception, keyed on the higher-precedence non-authoritative claim's OWN weakness:
+//    it DEFERS only when ITS OWN confidence is `low` (an acknowledged fill-only claim), regardless of
+//    the other claim's confidence. A medium/high non-authoritative claim ALWAYS overrides a lower one.
 // ====================================================================================================
-describe("non-authoritative confidence-conflict exception", () => {
+describe("non-authoritative override exception (keyed on the claim's own low confidence)", () => {
   // The MOISTURE CORRECTION: derived (high) overrides inferred (any ≤ high).
   it("derived(high) overrides inferred(low) — the moisture correction", () => {
     const r = resolveFacet([claim("wicks", "inferred", "low"), claim("absorbs_holds", "derived_from_material", "high")]);
@@ -109,26 +110,56 @@ describe("non-authoritative confidence-conflict exception", () => {
     expect(r.value).toBe("absorbs_holds");
   });
 
-  // The WARMTH DEFERS case: derived (low) must NOT clobber a strictly-more-confident inferred warmth.
+  // THE HEADLINE FIX — the deceptive cellulosic (bamboo/lyocell). The library rates a cellulosic's
+  // moisture_management `absorbs_holds`/MEDIUM (the physics truth: cellulose holds water when saturated).
+  // A confident LLM `wicks`/HIGH is the marketing feel. Physics MUST win: a medium-confidence derivation
+  // is a real position, so it overrides the higher-confidence guess. (Pre-refinement this DEFERRED — the
+  // wart that handed unsafe "wicks" advice to a saturated cellulosic.)
+  it("derived(medium) OVERRIDES inferred(high) — the deceptive cellulosic (bamboo/lyocell): physics wins", () => {
+    const r = resolveFacet([
+      claim("wicks", "inferred", "high", "feels dry, marketed as moisture-wicking"),
+      claim("absorbs_holds", "derived_from_material", "medium", "regenerated cellulose; absorbent when saturated"),
+    ]);
+    expect(r.source).toBe("derived_from_material");
+    expect(r.value).toBe("absorbs_holds");
+  });
+
+  it("the cellulosic fix is order-independent (medium-derived wins from either argument order)", () => {
+    const forward = resolveFacet([
+      claim("wicks", "inferred", "high"),
+      claim("absorbs_holds", "derived_from_material", "medium"),
+    ]);
+    const reverse = resolveFacet([
+      claim("absorbs_holds", "derived_from_material", "medium"),
+      claim("wicks", "inferred", "high"),
+    ]);
+    expect(forward.source).toBe("derived_from_material");
+    expect(forward.value).toBe("absorbs_holds");
+    expect(reverse.source).toBe("derived_from_material");
+    expect(reverse.value).toBe("absorbs_holds");
+  });
+
+  // The WARMTH FILL-ONLY case: derived (low) is acknowledged-weak (fiber alone doesn't fix warmth), so it
+  // defers to ANY asserting inferred warmth — high, medium, OR low — and only fills a true gap.
   it("derived(low) does NOT override inferred(high) — it defers (the warmth case)", () => {
     const r = resolveFacet([claim("high", "inferred", "high"), claim("moderate", "derived_from_material", "low")]);
     expect(r.source).toBe("inferred");
     expect(r.value).toBe("high");
   });
 
-  it("derived(low) does NOT override inferred(medium) — strictly-lower still defers", () => {
+  it("derived(low) does NOT override inferred(medium) — still defers (own-low is fill-only)", () => {
     const r = resolveFacet([claim("high", "inferred", "medium"), claim("moderate", "derived_from_material", "low")]);
     expect(r.source).toBe("inferred");
     expect(r.value).toBe("high");
   });
 
-  it("derived(low) DOES override inferred(low) — equal confidence, precedence breaks the tie", () => {
+  it("derived(low) does NOT override inferred(low) — fill-only defers even to an equally-low assertion", () => {
     const r = resolveFacet([claim("high", "inferred", "low"), claim("moderate", "derived_from_material", "low")]);
-    expect(r.source).toBe("derived_from_material");
-    expect(r.value).toBe("moderate");
+    expect(r.source).toBe("inferred");
+    expect(r.value).toBe("high");
   });
 
-  it("the exception is order-independent (incumbent or challenger, same winner)", () => {
+  it("the fill-only defer is order-independent (incumbent or challenger, same winner)", () => {
     const forward = resolveFacet([claim("high", "inferred", "high"), claim("moderate", "derived_from_material", "low")]);
     const reverse = resolveFacet([claim("moderate", "derived_from_material", "low"), claim("high", "inferred", "high")]);
     expect(forward.source).toBe("inferred");

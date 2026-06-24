@@ -92,6 +92,42 @@ describe("derivation corrects an LLM guess for a hydrophilic fiber (the headline
 });
 
 // ====================================================================================================
+// 1b. THE DECEPTIVE CELLULOSIC (bamboo/lyocell): the library rates moisture_management absorbs_holds at
+//     MEDIUM (physics: cellulose holds water when saturated). A confident LLM "wicks"/HIGH is the
+//     marketing feel. The refined override rule makes the medium-confidence derivation WIN — physics
+//     beats a confident guess. Pre-refinement this deferred (the wart) and handed unsafe advice.
+// ====================================================================================================
+describe("deceptive cellulosic: a medium-confidence derivation beats a CONFIDENT (high) LLM wicks guess", () => {
+  for (const fiber of ["bamboo", "lyocell"] as const) {
+    it(`100% ${fiber}: LLM 'wicks'/high → resolved absorbs_holds/medium, source=derived_from_material`, () => {
+      const before = llmClassification({
+        name: `${fiber} base layer`,
+        materials: material([{ fiber, pct: 100 }]),
+        universal: {
+          // The LLM is CONFIDENTLY wrong: it reads the dry hand-feel/marketing as moisture-wicking.
+          moisture_management: s("wicks", "high", "inferred", "feels dry, marketed as moisture-wicking"),
+        },
+      });
+
+      // Sanity: the derivation is exactly absorbs_holds at MEDIUM (the value/confidence the rule must honor).
+      const d = deriveFromComposition(before.materials);
+      expect(d.moisture_management).toMatchObject({ value: "absorbs_holds", confidence: "medium" });
+
+      // BEFORE: the confident LLM guess.
+      expect(before.universal.moisture_management).toMatchObject({ value: "wicks", confidence: "high", source: "inferred" });
+
+      const after = resolved(before);
+
+      // AFTER: physics wins — a medium-confidence cellulosic derivation overrides the high-confidence guess.
+      expect(after.universal.moisture_management).toMatchObject({ value: "absorbs_holds", source: "derived_from_material" });
+      // Auditable: the overridden confident guess is retained in the trail.
+      expect(after.universal.moisture_management.evidence).toContain("won over");
+      expect(after.universal.moisture_management.evidence).toContain("wicks");
+    });
+  }
+});
+
+// ====================================================================================================
 // 2. AGREEMENT: a polyester item where LLM + derivation agree → value stable, derived source wins.
 // ====================================================================================================
 describe("LLM + derivation agree (polyester) → value stable, provenance reflects the win", () => {
@@ -163,10 +199,11 @@ describe("unknown fiber → derivation defers entirely; the LLM's facets stand",
 });
 
 // ====================================================================================================
-// 5. THE WARMTH CASE: a LOW-confidence derived warmth must NOT override a higher-confidence inferred
-//    warmth — it defers. And it FILLS warmth when the LLM had none.
+// 5. THE WARMTH CASE: derived warmth is rated LOW (fiber alone doesn't fix warmth — that's construction/
+//    weight). Per the refined override rule it is FILL-ONLY: it defers to ANY asserting inferred warmth
+//    (high, medium, OR low) and only fills when the LLM had no warmth opinion at all.
 // ====================================================================================================
-describe("low-confidence derived warmth defers to a stronger inference (per the policy)", () => {
+describe("low-confidence derived warmth is fill-only: defers to any inferred warmth (per the policy)", () => {
   it("merino: derived warmth (moderate, LOW) does NOT clobber an inferred warmth (high)", () => {
     const before = llmClassification({
       name: "Heavy Merino Expedition Top",
@@ -183,7 +220,7 @@ describe("low-confidence derived warmth defers to a stronger inference (per the 
 
     const after = resolved(before);
 
-    // The stronger inference WINS — derived warmth defers (does not downgrade a confident 'high' to 'moderate').
+    // The inference WINS — derived warmth defers (does not downgrade a confident 'high' to 'moderate').
     expect(after.universal.warmth).toMatchObject({ value: "high", confidence: "high", source: "inferred" });
   });
 
@@ -200,15 +237,16 @@ describe("low-confidence derived warmth defers to a stronger inference (per the 
     expect(after.universal.warmth).toMatchObject({ value: "moderate", confidence: "low", source: "derived_from_material" });
   });
 
-  it("merino: derived warmth DOES correct an equally-low inferred warmth (precedence breaks the tie)", () => {
+  it("merino: derived warmth DEFERS to an equally-low inferred warmth (fill-only — own-low never clobbers)", () => {
     const before = llmClassification({
       name: "Merino Top (low-conf warmth guess)",
       materials: material([{ fiber: "merino wool", pct: 100 }]),
       universal: { warmth: s("minimal", "low", "inferred", "thin-looking") },
     });
     const after = resolved(before);
-    // Equal confidence (low vs low) → higher-precedence derived wins.
-    expect(after.universal.warmth).toMatchObject({ value: "moderate", source: "derived_from_material" });
+    // Refined rule: derived warmth is rated LOW → fill-only → it defers even to an equally-low inference,
+    // because the defer is keyed on the derivation's OWN acknowledged weakness, not on a confidence compare.
+    expect(after.universal.warmth).toMatchObject({ value: "minimal", confidence: "low", source: "inferred" });
   });
 });
 
