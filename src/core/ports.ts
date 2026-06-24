@@ -5,7 +5,10 @@
 import type { ItemClassification } from "./classification";
 import type { TripConditions } from "./conditions";
 import type { RecommendationResult } from "./recommend";
-import type { CachedClassification, CacheUpsert } from "./cache";
+
+// The classification-cache port lives with its types in ./cache (the split-store contract — ADR-0012
+// Element 5). Re-exported here so existing importers of the persistence ports keep working.
+export type { ClassificationCacheRepository } from "./cache";
 
 export interface StoredItem {
   id: string;
@@ -91,14 +94,4 @@ export interface GearRepository {
   cloneTrip(userId: string, id: string): Promise<StoredTrip>;
   /** Delete a saved trip (and its result snapshot), user-scoped. No-op if it isn't the user's. */
   deleteTrip(userId: string, id: string): Promise<void>;
-}
-
-/**
- * The self-building classification knowledge base. Reference data (not user-owned): a normalized name
- * → a validated classification, written by the LLM on first sight and upgraded to source:"user" by
- * corrections/confirmations. Lets repeat adds skip the LLM.
- */
-export interface ClassificationCacheRepository {
-  getCached(key: string): Promise<CachedClassification | null>;
-  putCached(entry: CacheUpsert): Promise<void>;
 }

@@ -178,19 +178,38 @@ export const trips = pgTable(
   }),
 );
 
-// ---- classification cache (shared reference data — no user_id) ----
-// This is the self-building knowledge base: a normalized item name maps to a validated classification
-// so repeat adds skip the LLM. Like `materials` and `treatments`, it is intentionally global (not
-// user-owned) — a correction by any user improves the cache for all users (source:"user" entries).
-export const classificationCache = pgTable("classification_cache", {
+// ---- classification cache: the split store (ADR-0012 Element 5) ----
+// The single shared cache was replaced by two stores so one user's correction can never poison
+// another user's next classification (cross-tenant poisoning). See src/core/cache.ts for the contract.
+
+// 1. llm_draft_cache — GLOBAL, low-authority DRAFTS (LLM-extracted + seed classifications). A hit is a
+//    starting draft for review, NOT authoritative. No user_id; service-role only (RLS-on, no policies),
+//    exactly like the old classification_cache. `source` records draft provenance ("llm" | "seed").
+export const llmDraftCache = pgTable("llm_draft_cache", {
   key: text("key").primaryKey(),
   name: text("name").notNull(),
   classification: jsonb("classification").$type<ItemClassification>().notNull(),
-  source: text("source").notNull(), // "llm" | "user" | "seed"
+  source: text("source").notNull(), // "llm" | "seed"
   modelId: text("model_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// 2. user_overrides — PER-USER corrections/confirmations, RLS-scoped to the owner. PK (user_id, key):
+//    each user has at most one override per normalized name, and a correction by user A is invisible to
+//    user B. user_id is NOT NULL (rule #4); owner policies mirror drizzle/0003 ((select auth.uid())=user_id).
+export const userOverrides = pgTable(
+  "user_overrides",
+  {
+    userId: uuid("user_id").notNull(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    classification: jsonb("classification").$type<ItemClassification>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.userId, t.key] }) }),
+);
 
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;

@@ -81,8 +81,10 @@ function deriveAndResolve(classification: ItemClassification): ItemClassificatio
 
 /**
  * Classify a named item and store it as a DRAFT (not yet in the closet) for review. Checks the
- * self-building knowledge base FIRST: a cache hit reuses a stored classification (no LLM call); a miss
- * classifies live/offline and writes the result back to the cache. The review step still gates it.
+ * self-building knowledge base FIRST, scoped to THIS user: a hit reuses a stored classification (no LLM
+ * call) — the user's own override wins over the shared low-authority draft (ADR-0012 Element 5). A miss
+ * classifies live/offline and writes the result back as a GLOBAL DRAFT (never a user override — only an
+ * explicit correction/confirmation does that). The review step still gates everything.
  */
 export async function classifyToDraft(
   name: string,
@@ -92,22 +94,23 @@ export async function classifyToDraft(
 ): Promise<{ item: StoredItem; mode: AddMode; fromCache: boolean }> {
   const cache = getCacheRepository();
   const key = normalizeCacheKey(name);
-  const cached = await cache.getCached(key);
+  const hit = await cache.lookup(userId, key);
 
   let classification: ItemClassification;
-  if (cached) {
-    classification = cached.classification;
+  if (hit) {
+    classification = hit.classification;
   } else {
     const { classify } = getClassifier();
     classification = await classify({ name, text });
     // Derive behavioral facets from composition and resolve them against the LLM's inference (stronger
     // provenance wins). Cache the RESOLVED classification so the knowledge base stores the corrected form.
     classification = deriveAndResolve(classification);
-    await cache.putCached({ key, name, classification, source: "llm", modelId: MODEL_ID });
+    // A classify-miss is a LOW-AUTHORITY draft — shared, but never attributed to this (or any) user.
+    await cache.putDraft(key, name, classification, MODEL_ID);
   }
 
   const item = await getRepository().addItem(userId, { name, inInventory, draft: true, rawText: text, classification });
-  return { item, mode: classifierMode(), fromCache: Boolean(cached) };
+  return { item, mode: classifierMode(), fromCache: Boolean(hit) };
 }
 
 // ---- add-by-manufacturer-URL (review-before-save; authoritative enrichment) ----
@@ -211,17 +214,12 @@ function manufacturerDetailText(p: ExtractedProduct): string | undefined {
   return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
-/** Promote a reviewed draft into the closet. The confirmation endorses its classification into the KB. */
+/** Promote a reviewed draft into the closet. The confirmation endorses its classification as THIS
+ *  user's override — scoped to them, so it never reshapes another user's next classification. */
 export async function confirmDraft(id: string, userId = DEFAULT_USER_ID): Promise<StoredItem | null> {
   const item = await getRepository().setDraft(userId, id, false);
   if (item) {
-    await getCacheRepository().putCached({
-      key: normalizeCacheKey(item.name),
-      name: item.name,
-      classification: item.classification,
-      source: "user",
-      modelId: MODEL_ID,
-    });
+    await getCacheRepository().putUserOverride(userId, normalizeCacheKey(item.name), item.name, item.classification);
   }
   return item;
 }
@@ -233,14 +231,9 @@ export async function updateItemClassification(
 ): Promise<StoredItem | null> {
   const updated = await getRepository().updateClassification(userId, id, classification);
   if (updated) {
-    // A user correction is authoritative — feed it back so future adds of this item improve.
-    await getCacheRepository().putCached({
-      key: normalizeCacheKey(classification.name),
-      name: classification.name,
-      classification,
-      source: "user",
-      modelId: MODEL_ID,
-    });
+    // A user correction is authoritative FOR THIS USER — feed it back as their override so future adds
+    // of this item improve, WITHOUT poisoning any other user's classifications (ADR-0012 Element 5).
+    await getCacheRepository().putUserOverride(userId, normalizeCacheKey(classification.name), classification.name, classification);
   }
   return updated;
 }
