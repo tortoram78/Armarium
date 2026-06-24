@@ -83,19 +83,20 @@ async function main() {
 
   console.log(`\nDone: ${success} seeded, ${failures} failed.`);
 
-  // Populate the classification cache from the seed corpus so repeat adds skip the LLM immediately.
-  console.log("\nPopulating classification cache …");
+  // Populate the GLOBAL draft cache from the seed corpus so repeat adds skip the LLM immediately.
+  // Seed entries are low-authority DRAFTS (ADR-0012 Element 5) — shared, never a per-user override.
+  console.log("\nPopulating classification draft cache …");
   let cacheSuccess = 0;
   let cacheFailures = 0;
   for (const entry of SEED_CORPUS) {
     try {
-      await postgresCache.putCached({
-        key: normalizeCacheKey(entry.classification.name),
-        name: entry.classification.name,
-        classification: entry.classification,
-        source: "seed",
-        modelId: null,
-      });
+      await postgresCache.putDraft(
+        normalizeCacheKey(entry.classification.name),
+        entry.classification.name,
+        entry.classification,
+        null,
+        "seed",
+      );
       cacheSuccess++;
     } catch (err) {
       console.error(`  ERROR caching "${entry.classification.name}":`, err);

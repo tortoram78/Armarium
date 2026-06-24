@@ -1,11 +1,18 @@
 import { createServerClient } from "@supabase/ssr";
+import type { User } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * Refreshes the Supabase session cookie on every request (standard @supabase/ssr pattern).
- * Must be called from middleware so the session stays alive across page navigations.
+ * Refreshes the Supabase session cookie AND returns the authenticated user from a
+ * single client + response object (the canonical @supabase/ssr middleware
+ * pattern). Returning the user lets the caller decide auth without a second
+ * client, and lets it carry the refreshed Set-Cookie headers onto a redirect —
+ * a bare redirect would drop them, which is what bounced mobile users back to
+ * /login in a loop.
  */
-export async function updateSession(request: NextRequest): Promise<NextResponse> {
+export async function updateSession(
+  request: NextRequest,
+): Promise<{ response: NextResponse; user: User | null }> {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -27,9 +34,11 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     },
   );
 
-  // Refresh the session — do not remove this await.
-  // It refreshes the token if expired and writes the updated cookie.
-  await supabase.auth.getUser();
+  // Do not remove this await — it refreshes the token if expired and writes the
+  // updated cookie into supabaseResponse.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  return supabaseResponse;
+  return { response: supabaseResponse, user };
 }

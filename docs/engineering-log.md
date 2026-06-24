@@ -216,3 +216,108 @@ cache + docs), and `c77884b` (docs: Phase 3 scope greenlight). Baseline: `edac40
   unambiguous for any agent reading CLAUDE.md.
 - **Lesson:** commit scope decisions immediately as they happen (existing rule; confirmed effective here).
 - **Promoted:** no (confirms existing "commit research/decisions as markdown" lesson).
+
+---
+
+## 2026-06-21 — Phase 3 step 1: real auth + multi-user + RLS; two-skin visual overhaul; scope unlock (analyzed through `1211f04`)
+
+Covers commits `cea6cca` (Supabase Management API migrator), `5190c60` (Phase 3 auth + RLS),
+`a77a568` (require→static-import fix), `d54a705` (framer-motion dep), `d39f416` (two-skin pass 1),
+`d03cfec` (Opus redo — field-dossier skin), `9ddc7f5` (scope unlock ADR-0009), `1211f04` (skin
+rollout + green adjust). Baseline: `c77884b`.
+
+### Sandbox egress is HTTP/HTTPS-proxy-only — raw Postgres unreachable; Management API fills the gap
+- **Delta:** `drizzle-kit migrate` couldn't connect (5432/6543 blocked). `scripts/db-mgmt-migrate.mjs`
+  was built to apply Drizzle migrations over HTTPS via the Supabase Management API, recording each in
+  `drizzle.__drizzle_migrations` exactly as `drizzle-kit` would, so a normal migrate from a
+  DB-connected env stays in sync. Used to apply migrations 0000–0002 to the live project (verified:
+  12 tables, 12 FKs, GIN indexes, tracking rows).
+- **Why:** Claude Code's cloud sandbox routes all egress through an HTTP/HTTPS proxy; raw TCP on
+  port 5432/6543 is not reachable. This is a persistent constraint of the environment, not a
+  one-off config issue.
+- **Lesson:** the cloud sandbox cannot reach raw Postgres — use the Supabase Management API for
+  migrations, and expect the same constraint for any service that speaks raw TCP. For upcoming URL
+  enrichment (and any outbound HTTP): test against fixtures first, then verify on Vercel where actual
+  egress is unrestricted.
+- **Promoted:** yes — new rule about the sandbox egress constraint; broadly applicable to any work
+  that needs DB or arbitrary-HTTP connectivity inside this environment.
+
+### Phase 3 step 1: Supabase Auth + RLS ships; one-password gate retired
+- **Delta:** `src/lib/supabase/{server,client,middleware}.ts` (SSR cookie sessions), `src/lib/auth.ts`
+  (`isAuthConfigured()` / `getCurrentUserId()` / `requireUserId()` with dev passthrough when env is
+  absent), `src/middleware.ts` (session refresh + route protection), `/login` + `/signup` pages,
+  `drizzle/0003` (RLS + `auth.uid()=user_id` ownership policies on every user-owned table). All four
+  gauntlet gates green with no env (passthrough mode). ADR-0008 committed.
+- **Why:** Phase 2 had a one-password gate and a fixed user id; Phase 3 step 1's contract is real
+  per-user isolation end to end. RLS guards the public PostgREST/anon surface (the anon key is public);
+  the app's postgres-role connection bypasses RLS and filters at the app layer.
+- **Lesson (NEXT_PUBLIC env inlined at build):** `NEXT_PUBLIC_*` env vars are baked into the JS bundle
+  at `next build` time. A gate like `isAuthConfigured()` that reads them will always reflect the
+  build-time env — unsetting the vars at runtime changes nothing. Testing the unconfigured/passthrough
+  path requires a build with those vars absent, not just a runtime unset.
+- **Promoted:** yes — new rule; affects any feature toggled on a `NEXT_PUBLIC_*` flag (auth, future
+  enrichment toggles, etc.).
+
+### MISS → FIX: `require()` vs. static-import drift in services.ts
+- **Delta:** `getCacheRepository()` used `require("./postgres-cache")` — failing under vitest's ESM
+  mode and a riskier bundling path — while its sibling `getRepository()` used a static import and the
+  in-file comment already claimed a static import. Fixed in `a77a568` (one commit, 12-line change).
+- **Why:** the `require()` call was written without checking the sibling factory's pattern. The
+  comment and the code disagreed; the discrepancy was only caught because vitest exposed it.
+- **Lesson:** when a module's own comment claims a pattern (e.g., "static import"), verify the code
+  matches the comment; and match the sibling's proven pattern rather than improvising. `require()` in
+  ESM-first codebases is a silent incompatibility that only surfaces at test or bundle time.
+- **Promoted:** no — specific to a `require()`/ESM mismatch in this one file; the general rule
+  "read the actual code, not its summary" is already covered by the agent-verification lesson below.
+
+### The gauntlet is only hermetic at zero env
+- **Delta:** running tests with `DATABASE_URL` set broke them (module-resolution + a Postgres
+  connection timeout during test); the canonical gate requires no env vars.
+- **Why:** the in-memory path is the designed-for-testing path; the Postgres path requires a live DB
+  that isn't available in the test environment. Injecting `DATABASE_URL` switches branches to the
+  Postgres impl, which then times out.
+- **Lesson:** the hermetic gate (`pnpm typecheck && pnpm test`) requires no env. Running it with
+  `DATABASE_URL` set invalidates the hermetic guarantee. Gate invocations in CI or a validation step
+  must explicitly strip DB/API env vars — or document that the hermetic pass is always a clean-env run.
+- **Promoted:** yes — sharpens the existing "keep secrets/infra out of the gates" rule; the new
+  nuance is that even having the var set (not just requiring it) breaks hermetic.
+
+### Visual overhaul: first skin rejected as bubbly; Opus redo landed the field-dossier aesthetic
+- **Delta:** pass 1 (`d39f416`) built a two-skin CSS-variable token system (Refined / Modern Trail)
+  but the rugged skin read as soft/rounded/AI-esque — rounded pills, drop-shadows, generic colors.
+  The user redirected ("less bubbly, finer corners, tactile"). An Opus pass (`d03cfec`) replaced it:
+  0–2 px radius throughout, depth via 1 px hairlines and letterpress insets not shadows, Oswald
+  structural labels + JetBrains Mono for data, blaze-orange as punctuation only, clip-path wipe
+  transition. The skin was then rolled across all content pages (`1211f04`).
+- **Why:** the first pass used defaults and aesthetic conventions from common design systems (rounded,
+  shadow-depth, pastel accents); the target was a deliberate counter-aesthetic (instrument panel,
+  field dossier, USGS topo). Without concrete negative anti-patterns ("no pills, no drop-shadows,
+  edges not depth") a capable-but-vague prompt lands in the safe middle.
+- **Lesson:** subjective design language needs concrete anti-patterns, not just mood words. Validate
+  the design language on one flagship screen with explicit direction — and on a stronger model if the
+  result reads generic — before rolling wide. A second-pass cost is far lower than a full rollout of
+  a rejected aesthetic.
+- **Promoted:** yes — new rule; broadly applicable to any future design-language or major UI work.
+
+### Read the actual artifact, not the agent's summary
+- **Delta:** an agent's report abbreviated the RLS migration with a "...same pattern" comment in its
+  summary; only reading the actual `drizzle/0003_enable_rls_auth.sql` file confirmed it was complete
+  (133 lines, every table covered, policies present).
+- **Why:** agents summarize; summaries elide. A summary can be structurally correct ("RLS enabled on
+  all tables") while omitting that the file actually contains the coverage.
+- **Lesson:** always read the actual artifact (file, output, schema) to confirm it — never rely on an
+  agent's summary of what it produced. This is the agent-facing version of "verify doc claims against
+  the code."
+- **Promoted:** yes — sharpens existing lesson on verifying doc claims; the new angle is specifically
+  about agent-produced summaries of their own artifacts.
+
+### Scope unlock committed as ADR-0009
+- **Delta:** the hard "out of scope" block on image/barcode/military/native-app was lifted per user
+  direction 2026-06-21. ADR-0009 captures the decision; CLAUDE.md and roadmap.md updated in the same
+  commit.
+- **Why:** the prototype constraints (keep it tiny, no extra surface area) no longer bind after Phase 2
+  delivery; the user chose to unlock the backlog while keeping each item individually gated on its own
+  ADR + dep decision.
+- **Lesson:** scope unlock is still a decision — commit it with the same ADR discipline as a scope
+  add. The gating condition (ADR + dep decision per item) stays in CLAUDE.md so it isn't lost.
+- **Promoted:** no (confirms existing "commit decisions as markdown" lesson; no new rule needed).

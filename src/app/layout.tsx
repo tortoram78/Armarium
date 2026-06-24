@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 import { NavShell } from "@/components/NavShell";
 import { SkinController } from "@/components/SkinController";
-import { isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured, getUserIdOrGuest } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 /* ----------------------------------------------------------------
@@ -54,9 +54,12 @@ async function getNavUserEmail(): Promise<string | null> {
   }
 }
 
+/** Auth screens that wear the clean/refined skin. Keep in sync with SkinController. */
+const REFINED_AUTH_PREFIXES = ["/login", "/signup", "/forgot-password", "/update-password"];
+
 /** Determine the initial skin from the request URL so SSR matches client. */
 function getInitialSkin(pathname: string): "rugged" | "refined" {
-  if (pathname.startsWith("/login") || pathname.startsWith("/signup")) {
+  if (REFINED_AUTH_PREFIXES.some((p) => pathname.startsWith(p))) {
     return "refined";
   }
   return "rugged";
@@ -65,6 +68,9 @@ function getInitialSkin(pathname: string): "rugged" | "refined" {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const userEmail = await getNavUserEmail();
   const authConfigured = isAuthConfigured();
+  // Guest = auth configured + no session. Used to swap the nav user block for a Log in / Sign up affordance
+  // and a subtle SAMPLE indicator. (Auth unconfigured/dev → isGuest:false → the chrome is unchanged.)
+  const { isGuest } = await getUserIdOrGuest();
 
   // Read the request pathname (forwarded by middleware) so initial data-skin
   // matches what SkinController will set on the client — no hydration flash.
@@ -81,7 +87,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     >
       <body className="min-h-screen bg-background text-foreground antialiased">
         {/* NavShell is client-only (uses usePathname for active links + skin-aware chrome) */}
-        <NavShell userEmail={userEmail} authConfigured={authConfigured} />
+        <NavShell userEmail={userEmail} authConfigured={authConfigured} isGuest={isGuest} />
 
         {/* SkinController: sets data-skin on <html>, wraps page content
             with framer-motion route-change animation */}

@@ -3,6 +3,402 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (ops hardening) — Pre-deploy hardening bundle: ADR-0017 recorded
+
+Design decision recorded. Code implementation (rate limiter, structured logger, error boundaries,
+degradation wiring) follows — owned by core-reasoning-owner (`src/core/ratelimit.ts`,
+`src/core/logger.ts`), the relevant server-action owners (`src/server/ratelimit-adapter.ts`,
+`src/server/services.ts` usage capture), and web-ui-owner (`src/app/error.tsx`,
+`src/app/global-error.tsx`).
+
+**What this enables:** three cross-cutting safety and visibility improvements with zero new
+dependencies or infrastructure:
+
+1. **Rate limiting** — a token-bucket limiter (`src/core/ratelimit.ts`, injected clock) with a
+   server adapter keyed by userId (or IP for guests). Default budgets: `classify` 10 req/min,
+   `tripParse` 10 req/min, `urlEnrich` 5 req/min — all tunable named constants. Exceeded limits
+   return `{ ok:false, reason:"rate_limited" }` rather than throwing. **Explicitly best-effort and
+   per-instance** (not a global enforcer on Vercel's multi-instance model; resets on cold start).
+   A shared limiter (Upstash/Vercel KV/Redis) is the documented future upgrade — NOT built here;
+   deferred pending its own infra-decision ADR.
+
+2. **Structured logging** — single-line JSON via `console.log` (Vercel captures all serverless
+   function output). Two shapes: action log (`event, action, userId, ok, reason?, durationMs`) and
+   LLM usage log (`event, action, userId, model, inputTokens, outputTokens, durationMs`). The
+   Anthropic SDK `usage` object was previously discarded; it is now captured at the composition
+   root (`src/server/services.ts`) and emitted. Core logger (`src/core/logger.ts`) is a pure
+   JSON-formatting function; `console.log` is called by the server layer only. **NOT built:**
+   Sentry (new dep, deferred), Postgres `llm_usage` table (new migration, deferred — console-JSON
+   is sufficient for v0 on Vercel).
+
+3. **Error boundaries + graceful degradation** — `src/app/error.tsx` (route-segment) and
+   `src/app/global-error.tsx` (root) render a recovery screen instead of a raw 500. LLM/enrichment
+   failures degrade gracefully: `classify` falls back to the offline classifier (confidence `low`,
+   user reviews); `tripParse` falls back to `parseConditionsHeuristic`; `urlEnrich` returns an
+   empty partial overlay with an inline error. Weather degradation is already specified in
+   ADR-0015 §16.5 and is NOT part of this bundle.
+
+**Key design points:**
+
+- Zero new npm dependencies. Zero new infrastructure.
+- `src/core/ratelimit.ts` and `src/core/logger.ts` are pure (no I/O, no `next/*`). The hermetic
+  gauntlet (`pnpm typecheck / lint / test / build`) is unaffected.
+- IP-fallback for guest rate limiting is motivated by ADR-0016: guests can reach `classify` and
+  `tripParse` through the demo funnel and lack a stable `userId`.
+- The degrade-to-unknown contract is aligned with ADR-0004: no failure path fabricates facts or
+  silently passes degraded output as authoritative.
+
+**ADR recorded:** [ADR-0017](../decisions/0017-ops-hardening.md)
+
+**DESIGN.md updated:** status banner (ops hardening added), ADR-0017 added to key decisions
+list, §17 added (full ops contract: limiter budgets, log field shapes, degrade-to-unknown table).
+
+---
+
+## 2026-06-24 (Phase 3 step 1 addendum) — Demo guest funnel: ADR-0016 recorded
+
+Design decision recorded. Code implementation (new `GUEST_USER_ID` constant, `getUserIdOrGuest()`
+helper, in-memory repo selector for guest reads, plan-preview save-wall UI, conditions-as-prefill
+login redirect) follows — owned by core-reasoning-owner (helper + constant), schema-db-owner (repo
+selector), and web-ui-owner (UI wall + prefill wiring).
+
+**What this enables:** an unauthenticated visitor, when Supabase auth IS configured in the build,
+can browse a seeded sample closet (the `SEED_CORPUS` under `GUEST_USER_ID`), open the plan form,
+enter trip conditions, and see a real packing recommendation. Every write surface remains gated by
+the existing `requireUserId()` — no changes to write paths. The "log in to save" button on the
+plan preview carries the entered conditions to `/login?next=/plan&conditions=<encoded>` so the plan
+form is pre-filled after sign-in.
+
+**Key design points:**
+
+- `GUEST_USER_ID` — a reserved constant UUID, distinct from `DEFAULT_USER_ID`. Never touches
+  Postgres; only lives in the in-memory repo. `DEFAULT_USER_ID` (dev passthrough) is unchanged.
+- `getUserIdOrGuest()` — new helper; returns `{ userId, isGuest }`. Returns `GUEST_USER_ID +
+  isGuest:true` only when auth is configured AND there is no session. Returns `DEFAULT_USER_ID +
+  isGuest:false` in dev (unconfigured) mode. `requireUserId()` is unchanged.
+- Guest reads are forced onto the in-memory repo even when `DATABASE_URL` is set — `GUEST_USER_ID`
+  never appears in Postgres. The `user_id` invariant (architecture rule #4, ADR-0008) is fully
+  preserved.
+- The sample closet is `SEED_CORPUS` seeded under `GUEST_USER_ID` — real data reasoned over by
+  the real `planTrip` engine. No hardcoded picks; no special-case logic. Architecture rule #1 holds.
+- **Work survival on login = conditions-as-prefill, not auto-`planAndSave`.** The encoded conditions
+  param is the foundation for a future auto-save bridge, but the bridge itself is deferred: the
+  prefill approach avoids a non-idempotent on-login side-effect and the complexity of surviving the
+  `@supabase/ssr` redirect round-trip reliably.
+- **Guest mode only manifests in a build WITH Supabase env vars.** `NEXT_PUBLIC_*` vars are inlined
+  at build time; in the dev / gauntlet build (no Supabase vars), `isAuthConfigured()` is false and
+  the dev passthrough runs. The hermetic gauntlet is unaffected.
+
+**ADR recorded:** [ADR-0016](../decisions/0016-demo-guest-funnel.md)
+
+---
+
+## 2026-06-24 (Phase 3 step 3) — Weather auto-conditions: design + ADR-0015 recorded
+
+Design and ADR recorded. Code implementation by core-reasoning-owner (pure derivation logic +
+Zod schemas) and web-ui-owner (trip form auto-fill wiring) follows; server-fetcher plumbing by
+schema-db-owner or web-ui-owner depending on task allocation.
+
+**What this enables:** the trip form accepts a location string + start/end dates and
+pre-populates the `TripConditions` fields (`temp_min_c`, `temp_max_c`, `precipitation`, `wind`)
+from a real Open-Meteo forecast. The user sees the derived values, can edit any of them, and
+submits normally. The recommendation engine is completely unchanged — it receives the same
+`TripConditions` shape it always has.
+
+**Provider decision: Open-Meteo** — free, no API key, no new npm dependency, plain HTTPS `fetch`.
+Two APIs: geocoding (place name → lat/lon) and forecast (daily `temperature_2m_max`,
+`temperature_2m_min`, `precipitation_sum`, `precipitation_probability_max`, `wind_speed_10m_max`
+over the date window). Forecast horizon ≈ 16 days; beyond that the form falls back to manual
+entry.
+
+**Derivation contract (`forecastToConditions`) — a pure function:**
+- `temp_min_c` / `temp_max_c`: min/max across the trip's daily temperature arrays.
+- `precipitation`: tiered from max daily probability + total sum (`certain` ≥ 70 %; `likely` ≥ 40 %
+  or sum > 5 mm; `possible` ≥ 15 % or sum > 1 mm; `none` otherwise).
+- `wind`: tiered from max daily `wind_speed_10m_max` in km/h (`extreme` ≥ 62; `strong` ≥ 39;
+  `moderate` ≥ 20; `light` ≥ 6; `calm` otherwise).
+- `sun_exposure`, `duration_days`, `activity`, `exertion` — not derived; remain manual.
+- Failed/missing forecast → leave conditions for manual entry (unknown is first-class; no
+  fabricated conditions).
+
+**Architecture split:**
+- `src/core/weather/forecast-to-conditions.ts` — pure derivation (no I/O).
+- `src/core/weather/open-meteo-schema.ts` — Zod schemas for API responses.
+- `src/server/weather-fetcher.ts` — geocoding + forecast HTTP calls (injected, never imported into
+  core).
+- `src/app/plan/` — trip form wiring; calls the fetcher, passes result to `forecastToConditions`,
+  pre-fills the form.
+
+**Override-always:** auto-fill pre-populates; user can change any field. Manual entry is always
+available. NL description path unchanged.
+
+**Caching:** short-TTL in-memory cache keyed on `(normalized_location, start_date, end_date)`;
+10-minute TTL, 50-entry cap suggested; no persistence in v1.
+
+**Testing posture (same as ADR-0011):** unit tests for `forecastToConditions` use hardcoded
+inputs (no HTTP, ≥ 3 archetypes); integration tests use fixture JSON files (captured API
+responses); live verification on Vercel.
+
+**ADR recorded:** [ADR-0015](../decisions/0015-weather-auto-conditions.md)
+
+**DESIGN.md updated:** status banner (Phase 3 steps 1–3 in delivery), ADR-0015 added to key
+decisions list, §12 updated (weather removed from deferred list with forward pointer to §16),
+§16 added (full weather auto-conditions contract: provider, flow, derivation table, architecture
+split, override-always principle, caching, testing).
+
+---
+
+## 2026-06-24 (Phase 3 — evidence-architecture) — Evidence store + claims LLM: ADR-0014 recorded
+
+**What this records:** the concrete build contracts for ADR-0012 Elements 2 and 4 — the
+`item_evidence` table and the claims-based LLM output. This is the design spec the build will
+implement.
+
+**Context:** Phases 1 (resolver keystone, `src/core/resolve/`) and 2 (cache split, ADR-0013) are
+complete. Phase 3 is the heart of the migration: persisting every competing claim per
+`(item_id, facet_key)` and switching the LLM from emitting a final `ItemClassification` to
+emitting claims + `unresolvedQuestions`.
+
+**The `item_evidence` table (the store):**
+
+- Columns: `id` (uuid PK), `item_id` (uuid FK → `items.id` CASCADE), `facet_key` (text,
+  dot-namespaced: `"universal.warmth"`, `"identity.brand"`, `"multilabel.layering_role"`,
+  `"groups.insulation.fill_power"`), `value` (jsonb — scalar or array), `confidence`
+  (`low|medium|high|unknown`), `source` (the `SOURCE` enum), `source_url` (text null),
+  `extractor_version` (text null, e.g. `"llm-claims-v1"`), `evidence` (text NOT NULL),
+  `observed_at` (timestamptz), `created_at` (timestamptz).
+- Index `(item_id, facet_key)`.
+- RLS via the parent item (subtype-table pattern from `drizzle/0003`): `EXISTS (SELECT 1 FROM
+  items WHERE items.id = item_evidence.item_id AND items.user_id = (SELECT auth.uid()))`. Not
+  globally readable.
+- Multiple competing rows per `(item_id, facet_key)` are the point. The resolved hot columns on
+  `items` remain the RESOLVED snapshot.
+
+**The claims-based LLM contract (`LlmClaimsSchema`):**
+
+- New Zod schema: `{ name, claims: LlmClaim[], unresolvedQuestions: string[] }`.
+- Each `LlmClaim`: `{ facetKey, value, confidence, source: "inferred", evidence }`. Source is
+  locked to `"inferred"` in the schema — the LLM cannot assert manufacturer or user authority.
+- The hard-fact demotion guard (ADR-0004) moves to the claim boundary: an LLM claim with a
+  hard-fact `facetKey` and non-null value has `source:"inferred"` (non-authoritative), so the
+  guard demotes it to `null+unknown` before writing to `item_evidence`. Same protection, moved
+  inward.
+- `unresolvedQuestions` surfaces in the review UI as targeted prompts; not written to
+  `item_evidence`.
+
+**The resolve flow:**
+
+```
+LLM → claims  ┐
+URL enrichment → claims (source:"manufacturer")  ├→ all claims per facet_key
+Material derivation → claims (source:"derived_from_material") │  → resolveFacet() (UNCHANGED)
+User correction → claim (source:"user")  ┘  → assemble ItemClassification (UNCHANGED shape)
+                                          → PERSIST: claims → item_evidence; resolved → items hot columns
+```
+
+`resolveFacet` and `resolveBehavioralFacets` are reused unchanged. `ItemClassification` remains
+the downstream contract for capability gates and recommendations.
+
+**What stays unchanged (explicit ripple boundary):** `ItemClassification` shape,
+`parseClassification`, `Evidence<T>`/`HardFact<T>`, `Claim<V>`/`resolveFacet`/`SOURCE_PRECEDENCE`,
+all capability predicates, the recommendation layer, `llm_draft_cache`/`user_overrides`,
+`pending_facets` (see below), the offline classifier and seed corpus.
+
+**`pending_facets` integration:** novel facet keys the LLM extracts that are not in the registry
+are written to BOTH `item_evidence` (never lost) AND `pending_facets` (the existing review queue),
+preserving the ADR-0004 "never silently drop" guarantee. Novel-key claims are not resolved against
+the registry and do not appear in the assembled `ItemClassification`.
+
+**Offline items / cache hits:** when an item classified by the offline classifier, seed corpus, or
+draft cache is saved after review, its resolved facets are recorded as `source:"inferred"` claims
+in `item_evidence` (extractor_version `"offline-classifier-v1"` or `"seed-v1"`). Every saved item
+gets an evidence trail.
+
+**Migration:** a new Drizzle migration adds `item_evidence` + RLS. No data backfill for existing
+items (they keep their resolved `classification` snapshot). Backfill of existing items' resolved
+facets as historical claims is an optional future step, not part of v1.
+
+**ADR recorded:** [ADR-0014](../decisions/0014-evidence-store-claims-llm.md)
+
+---
+
+## 2026-06-24 (Phase 2 — evidence-architecture) — Cache split: ADR-0013 recorded
+
+**What this records:** the concrete implementation decisions for splitting the single shared
+`classification_cache` into two scoped stores, resolving the cross-tenant correction leakage
+documented as a known trade-off in ADR-0007 and flagged by the Phase 3 step 1 security audit.
+
+**The parent target:** ADR-0012 Element 5 set the architectural target (three-tier cache split).
+This ADR records the *concrete* choices for the Phase 2 implementation of that element.
+
+**The two tables being built:**
+
+- **`llm_draft_cache`** — global, no `user_id`, service-role-only. Holds LLM-emitted and seed
+  classifications as low-authority drafts. A hit here is a starting draft; review still gates
+  saving. Replaces `source:"llm"` and `source:"seed"` rows. `canonical_facts` is explicitly
+  deferred to Phase 4 (requires the canonical products table).
+- **`user_overrides`** — per-user, `user_id` NOT NULL, primary key `(user_id, key)`. Holds a
+  user's confirmed or explicitly corrected classifications, scoped so they never affect another
+  user. RLS: `(select auth.uid()) = user_id` (the ADR-0008 / drizzle-0003 pattern).
+
+**Lookup precedence:** `user_overrides(userId, key)` (authority `user`) first, then
+`llm_draft_cache(key)` (authority `draft`), else miss → LLM. Mirrors the ADR-0012 Element 3
+resolver hierarchy (`user > inferred/llm`).
+
+**Migration of existing rows (the load-bearing choice):** ALL existing `classification_cache`
+rows, including `source:"user"` rows, migrate to `llm_draft_cache` as drafts. Rationale: the
+old `source:"user"` rows were already global/shared with no `user_id` — we cannot attribute them
+to a real identity without fabrication. Demoting them to shared drafts preserves availability;
+users who previously corrected an item re-correct through the normal review flow, and their new
+correction correctly lands in `user_overrides`. `classification_cache` is dropped after migration.
+
+**What this resolves:** the cross-tenant correction leakage identified as an open trade-off in
+ADR-0007 Consequences and as a finding in the Phase 3 step 1 security audit. ADR-0007 is not
+superseded; its open consequence is closed by this ADR.
+
+**ADR recorded:** [ADR-0013](../decisions/0013-cache-split-per-user-overrides.md)
+
+---
+
+## 2026-06-24 (north-star architecture) — Evidence-first classification: ADR-0012 recorded
+
+**What this records:** the target architecture for Armarium's classification pipeline — not a
+single shipped feature, but the direction that individual phases will implement incrementally.
+
+**The principle:** classification is not a one-time answer; it is an auditable argument. Facts are
+claims from identified sources. A deterministic resolver picks the winner by explicit precedence.
+The LLM is one extractor among several, never the authority on the final value.
+
+**Why now:** Phase 3 step 2 (URL enrichment) introduces `source:"manufacturer"` as a second
+significant claim source alongside LLM inference. Material behavior derivation
+(`source:"derived_from_material"`, ADR-0011 §14.6) is the designed-for next step. As claim sources
+accumulate, the current implicit merger (`enrich/merge.ts`) will not scale. The resolver keystone
+(Migration Phase 1) consolidates that logic before the next source lands. The cache split (Phase 2)
+addresses the cross-tenant correction leakage documented as a known trade-off in ADR-0007.
+
+**The 8-element target (summary):**
+1. Canonical products — global product identity table (deferred, Phase 4)
+2. Evidence store — `item_evidence` table: multiple competing claims per `(item_id, facet_key)` (Phase 3)
+3. Resolver layer — `src/core/resolve/` with explicit `resolve(claims[])` and precedence table (**in progress, Phase 1**)
+4. LLM = extractor — LLM emits claims + `unresolvedQuestions`; resolver decides final value (Phase 3)
+5. Cache split — `llm_draft_cache` (global) / `user_overrides` (user-scoped) / `canonical_facts` (Phase 2)
+6. Targeted review — impact-ranked unknowns from capability evaluation output (Phase 6)
+7. Versioned snapshots — `schema_version`/`resolver_version`/`classifier_version` on items (Phase 5)
+8. Layer separation — capability ≠ classification ≠ recommendation: **already done; preserve**
+
+**What already exists (and must be preserved):** `Evidence<T>` / `HardFact<T>` shapes, mechanical
+demotion guard, `Source` union with precedence concepts, `pending_facets` queue, per-facet `*_src`
+columns, lossless `classification` JSONB, three-state capabilities, layer separation. This is
+evolution, not rewrite.
+
+**Relationship to prior ADRs:** extends ADR-0003 (hybrid storage — unchanged), ADR-0004
+(classification contract — demotion guard preserved, promoted), ADR-0007 (cache — split resolves
+cross-tenant trade-off), ADR-0011 (enrichment — resolver absorbs merge.ts). No ADR is superseded.
+
+**ADR recorded:** [ADR-0012](../decisions/0012-evidence-first-classification.md)
+
+**DESIGN.md updated:** status banner pointer added; §15 (new) — evidence-first target architecture
+summary table with phase status per element.
+
+---
+
+## 2026-06-24 (Phase 3 step 2) — Manufacturer URL enrichment: design + ADR complete; implementation begins
+
+Design and ADR recorded. Code implementation by core-reasoning-owner, schema-db-owner, and
+web-ui-owner follows. See [ADR-0011](../decisions/0011-manufacturer-url-enrichment.md) and
+[DESIGN.md §14](../../DESIGN.md).
+
+**What is being built:** paste a manufacturer product URL → server-side SSRF-gated fetch →
+JSON-LD + OpenGraph extraction → `source:"manufacturer"` partial overlay onto `ItemClassification`
+→ merged via existing Zod contract + demotion guard → user reviews in the existing review UI.
+
+**Key design decisions:**
+- Parse strategy: schema.org `Product` JSON-LD + OpenGraph/meta only (no new dependency in v1;
+  DOM parser is an explicit `ask-first` future upgrade).
+- SSRF gate: layered — (1) URL-shape gate + manufacturer allowlist in `src/core/enrich/`
+  (pure, no I/O); (2) DNS/IP resolution check blocks private/loopback/link-local ranges in
+  `src/server/`; (3) redirect cap (3), size cap (2 MB), timeout (10 s).
+- Architecture: parser + URL-shape gate are pure `src/core/enrich/`; network fetch + DNS check are
+  injected from `src/server/`; UI lives in `src/app/`. Enforces the purity invariant unchanged.
+- Provenance precedence: `user` > `manufacturer` > `inferred`/`llm` > `derived_from_material`
+  > `unknown`. A manufacturer fact replaces an inferred value; a user correction still wins.
+- Testing: fixture-based (offline) for all unit + integration tests; live verification on Vercel.
+- Bridge to next initiative: `source:"manufacturer"` composition data is the primary input the
+  material behavior derivation engine (composition → `source:"derived_from_material"` behavioral
+  facets) will consume when built.
+
+**ADR recorded:** [ADR-0011](../decisions/0011-manufacturer-url-enrichment.md)
+
+**DESIGN.md updated:** status banner, §12 (URL enrichment removed from "out of scope" list), §14
+(new section: full enrichment contract — parse strategy, SSRF gate, architecture split, output
+shape, bridge to derivation engine, testing reality).
+
+---
+
+## 2026-06-24 (Phase 2) — Layering-system reasoning: combination-aware capability evaluation
+
+Branch `claude/charming-franklin-441bvj`. Commit `bf116b4`. All gates green: 77 tests passing.
+
+### What was built
+
+**`src/core/recommend/combine.ts`** — combination evaluator activated only when no single item
+already satisfies a derived requirement. Composes over:
+
+- The `layering_role` facet (already `capabilityGate: true`, stored hot as a Postgres array),
+  partitioned into four structural slots: next-to-skin/base (0), active-insulation/mid (1),
+  static-insulation (2), wind/weather-shell (3). `sleep_system` and `accessory` excluded.
+  Items must occupy **distinct slots** to form a system — two items in the same slot do not count
+  as layers.
+- Per-capability `CAPABILITY_COMBINATION` strategy metadata declared in
+  `src/core/capabilities/index.ts` alongside existing per-item predicates. Two strategies:
+  `additive_warmth` (slot warmth ranks sum toward a thermal target derived from `temp_min_c`) and
+  `shell_over_warmth` (conjunctive: one slot satisfies a protective sub-capability AND a distinct
+  slot meets a warmth-base floor — both arms required).
+
+**Output contract extension (backward-compatible).** `CapabilityOutcome` adds
+`satisfiedBySystem?: ItemSystem[]` where `ItemSystem = { items: ItemRef[] }`. `status` is
+`"satisfied"` when `satisfiedBy.length > 0 || satisfiedBySystem.length > 0`. Existing consumers
+compile and render without change.
+
+**Unknown-blocks preserved.** An unknown/low-confidence value on any participating item demotes
+the system outcome to `blocked_unknown`. A fabricated system satisfy is never emitted.
+
+**No registry or schema changes.** All facets read by the combination evaluator are already
+`capabilityGate: true` and stored hot; the strategy metadata is reasoning metadata beside the
+predicates, not a new facet. The registry-gates-hot invariant and the cross-reference test are
+untouched.
+
+**Generality proof.** `test/recommend.layering.test.ts` — ≥3 cross-archetype tests: cold-dry
+additive warmth surfaces correctly; cold-wet conjunctive surfaces correctly and drops when either
+arm is removed (asserted); mild trip does not over-trigger; unknown facet demotes to
+`blocked_unknown`. Per the engineering lesson, ≥3 distinct archetypes are the minimum bar for any
+reasoning feature.
+
+### Open follow-up
+
+`satisfiedBySystem` is present in `CapabilityOutcome` and persisted in `trips.result_snapshot`
+but is not yet displayed in `src/app/trips/[id]/page.tsx`. Wiring that UI surface is the next
+step — until then, system satisfaction is computed correctly but invisible to the user.
+
+### ADR recorded
+
+[ADR-0010](../decisions/0010-layering-system-reasoning.md) captures: the combination strategy
+design, the slot partition, the `additive_warmth` and `shell_over_warmth` strategies, the
+output-contract extension, and the alternatives rejected (outfit templates, category routing,
+combination-without-slot-constraint, materialized combination cache).
+
+### DESIGN.md updated
+
+Section §5 documents that capability satisfaction is now single-item OR combination-of-layers
+(emergent over `layering_role` + strategy metadata). Section §8 (Marcy walkthrough) notes how the
+engine would handle a full three-layer kit. Status banner updated.
+
+### Roadmap updated
+
+"Layering-system reasoning" ticked as done with pointer to ADR-0010 and the open UI follow-up.
+
+---
+
 ## 2026-06-21 (governance) — Scope unlock: image/photo/barcode, military/NSN, native app
 
 The user directed that the three previously hard-blocked items be moved from "do not build; stop

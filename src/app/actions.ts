@@ -1,20 +1,36 @@
 "use server";
 
+import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 // services used indirectly via app-service
 import {
   classifyToDraft,
+  enrichFromUrlToDraft,
   confirmDraft,
   deleteItem,
   updateItemClassification,
   setInventory,
   planAndSave,
+  planPreview,
   parseDescription,
   getItem,
   replanTrip,
+  renameTrip,
+  cloneTrip,
+  deleteTrip,
+  updateTripConditions,
 } from "@/server/app-service";
-import { defaultConditions, PRECIPITATION, WIND, SUN, EXERTION, DURATION, EXPOSURE } from "@/core/conditions";
+import {
+  defaultConditions,
+  PRECIPITATION,
+  WIND,
+  SUN,
+  EXERTION,
+  DURATION,
+  EXPOSURE,
+  type TripConditions,
+} from "@/core/conditions";
 import { safeParseClassification } from "@/core/classification";
 import {
   applyUserCorrections,
@@ -22,7 +38,13 @@ import {
   EDITABLE_GROUPS,
   EDITABLE_MULTILABEL,
 } from "@/core/corrections";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, getUserIdOrGuest } from "@/lib/auth";
+import { encodeConditions } from "@/lib/conditions-codec";
+import { resolveRateKey, checkRateLimit } from "@/server/ratelimit-guard";
+import { timeAndLog } from "@/lib/logger";
+
+/** Friendly user-facing copy for a rate-limit reject on a redirect action. */
+const RATE_LIMITED_MSG = "You're going a bit fast — try again in a moment.";
 
 function numOrNull(v: FormDataEntryValue | null): number | null {
   const s = String(v ?? "").trim();
@@ -36,12 +58,88 @@ function pick<T extends readonly string[]>(v: FormDataEntryValue | null, allowed
   return (allowed as readonly string[]).includes(s) ? (s as T[number]) : def;
 }
 
+/** Build a validated `TripConditions` from the structured-form FormData (shared by plan + preview + edit). */
+function conditionsFromFormData(formData: FormData): TripConditions {
+  return defaultConditions({
+    temp_min_c: numOrNull(formData.get("temp_min_c")),
+    temp_max_c: numOrNull(formData.get("temp_max_c")),
+    precipitation: pick(formData.get("precipitation"), PRECIPITATION, "none"),
+    wind: pick(formData.get("wind"), WIND, "calm"),
+    sun: pick(formData.get("sun"), SUN, "moderate"),
+    exertion: pick(formData.get("exertion"), EXERTION, "moderate"),
+    duration: pick(formData.get("duration"), DURATION, "day"),
+    exposure: pick(formData.get("exposure"), EXPOSURE, "sheltered"),
+    activities: String(formData.get("activities") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  });
+}
+
 export async function replanTripAction(formData: FormData) {
   "use server";
   const userId = await requireUserId();
   const id = String(formData.get("id"));
   await replanTrip(id, userId);
   revalidatePath(`/trips/${id}`);
+}
+
+// ---- trip CRUD (rename / clone / delete / edit-conditions) ----
+
+const RenameTripInput = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1, "Name is required").max(120),
+});
+
+/** Rename a saved trip in place; stays on the dossier. */
+export async function renameTripAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = RenameTripInput.safeParse({
+    id: formData.get("id"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) {
+    const id = String(formData.get("id") ?? "");
+    redirect(`/trips/${id}?renameError=1`);
+  }
+  await renameTrip(parsed.data.id, parsed.data.name, userId);
+  revalidatePath(`/trips/${parsed.data.id}`);
+  revalidatePath("/trips");
+  redirect(`/trips/${parsed.data.id}`);
+}
+
+const TripIdInput = z.object({ id: z.string().min(1) });
+
+/** Clone name + conditions into a NEW unplanned trip, then open it. */
+export async function cloneTripAction(formData: FormData) {
+  const userId = await requireUserId();
+  const { id } = TripIdInput.parse({ id: formData.get("id") });
+  const clone = await cloneTrip(id, userId);
+  revalidatePath("/trips");
+  redirect(`/trips/${clone.id}`);
+}
+
+/** Delete a saved trip and return to the log. */
+export async function deleteTripAction(formData: FormData) {
+  const userId = await requireUserId();
+  const { id } = TripIdInput.parse({ id: formData.get("id") });
+  await deleteTrip(id, userId);
+  revalidatePath("/trips");
+  redirect("/trips");
+}
+
+/**
+ * Edit a trip's structured conditions. Per the port contract this clears the stale result; the dossier
+ * then surfaces the existing "Re-plan" affordance (the trip reads as unplanned until re-planned).
+ */
+export async function updateTripConditionsAction(formData: FormData) {
+  const userId = await requireUserId();
+  const { id } = TripIdInput.parse({ id: formData.get("id") });
+  const conditions = conditionsFromFormData(formData);
+  await updateTripConditions(id, conditions, userId);
+  revalidatePath(`/trips/${id}`);
+  revalidatePath("/trips");
+  redirect(`/trips/${id}`);
 }
 
 export async function addItemAction(formData: FormData) {
@@ -51,15 +149,75 @@ export async function addItemAction(formData: FormData) {
   const inInventory = formData.get("inInventory") != null;
   if (!name) redirect("/items/new?error=" + encodeURIComponent("Please enter an item name."));
 
-  let itemId: string;
-  try {
-    const { item } = await classifyToDraft(name, text, inInventory, userId);
-    itemId = item.id;
-  } catch (e) {
-    redirect("/items/new?error=" + encodeURIComponent((e as Error).message) + "&name=" + encodeURIComponent(name));
+  // Rate-limit the LLM-spendy classify path. On reject, degrade to a friendly redirect (never a 500).
+  const key = await resolveRateKey();
+  if (!checkRateLimit("classify", key).allowed) {
+    redirect("/items/new?error=" + encodeURIComponent(RATE_LIMITED_MSG) + "&name=" + encodeURIComponent(name));
   }
-  revalidatePath("/");
-  redirect(`/items/${itemId}/review`);
+
+  // The destination is computed inside the logged span; the redirect() fires AFTER it so a normal
+  // success logs as ok:true (redirect() throws NEXT_REDIRECT, which timeAndLog would otherwise log as
+  // a spurious error). The classify failure is an EXPECTED outcome (friendly redirect), not a thrown
+  // error, so it is handled inside the span and returns its own destination.
+  const dest = await timeAndLog({ event: "action", action: "addItem", userId }, async () => {
+    try {
+      const { item } = await classifyToDraft(name, text, inInventory, userId);
+      revalidatePath("/");
+      return `/items/${item.id}/review`;
+    } catch (e) {
+      return "/items/new?error=" + encodeURIComponent((e as Error).message) + "&name=" + encodeURIComponent(name);
+    }
+  });
+  redirect(dest);
+}
+
+const SUPPORTED_MFR_HINT =
+  "We can only pull from supported manufacturers right now (Patagonia, Arc'teryx, REI, The North Face, Black Diamond, Marmot).";
+const GENERIC_ENRICH_HINT = "Couldn't read that page automatically — try adding it by name.";
+
+/**
+ * Map an `enrichFromUrlToDraft` failure reason to a friendly, user-facing message. The fetcher prefixes
+ * its reasons (`url-shape:` for a non-allowlisted / malformed URL; `private-ip:`/`http:`/`content-type:`/
+ * `size:`/`timeout:`/`network:`/`redirect:`/`dns:`/`read:` for everything else). A shape/allowlist
+ * rejection means "unsupported manufacturer"; anything else is an opaque read failure → add-by-name.
+ */
+function friendlyEnrichError(reason: string): string {
+  return reason.startsWith("url-shape:") ? SUPPORTED_MFR_HINT : GENERIC_ENRICH_HINT;
+}
+
+const EnrichUrlInput = z.object({
+  url: z.string().trim().min(1, "Please paste a manufacturer product URL."),
+});
+
+/**
+ * Add an item by manufacturer URL: fetch + parse + classify + overlay authoritative facts, then send the
+ * user to review the resulting draft. On any failure, return to /items/new with a friendly ?error=.
+ */
+export async function enrichFromUrlAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = EnrichUrlInput.safeParse({ url: formData.get("url") });
+  if (!parsed.success) {
+    const msg = parsed.error.issues[0]?.message ?? "Please paste a manufacturer product URL.";
+    redirect("/items/new?error=" + encodeURIComponent(msg));
+  }
+
+  // Rate-limit the outbound manufacturer-URL fetch (tightest budget). Reject → friendly redirect.
+  const key = await resolveRateKey();
+  if (!checkRateLimit("enrich", key).allowed) {
+    redirect("/items/new?error=" + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  // Compute the destination inside the logged span, redirect() after (see addItemAction note). An
+  // unsupported/unreadable page is an expected outcome (friendly redirect), handled in-band.
+  const dest = await timeAndLog({ event: "action", action: "enrichFromUrl", userId }, async () => {
+    const result = await enrichFromUrlToDraft(userId, parsed.data.url);
+    if (!result.ok) {
+      return "/items/new?error=" + encodeURIComponent(friendlyEnrichError(result.reason));
+    }
+    revalidatePath("/");
+    return `/items/${result.draftId}/review`;
+  });
+  redirect(dest);
 }
 
 export async function confirmItemAction(formData: FormData) {
@@ -132,33 +290,104 @@ export async function planFromDescriptionAction(formData: FormData) {
   const description = String(formData.get("description") ?? "").trim();
   if (!description) redirect("/plan?error=" + encodeURIComponent("Please enter a trip description."));
 
-  const conditions = await parseDescription(description);
-  const trip = await planAndSave(name, conditions, description, userId);
-  revalidatePath("/trips");
-  redirect(`/trips/${trip.id}`);
+  // Rate-limit the NL trip-parse (LLM-spendy). Reject → friendly redirect back to the planner form.
+  const key = await resolveRateKey();
+  if (!checkRateLimit("parse", key).allowed) {
+    redirect("/plan?error=" + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  // Compute the destination inside the logged span, redirect() after (see addItemAction note).
+  const dest = await timeAndLog({ event: "action", action: "planFromDescription", userId }, async () => {
+    const conditions = await parseDescription(description);
+    const trip = await planAndSave(name, conditions, description, userId);
+    revalidatePath("/trips");
+    return `/trips/${trip.id}`;
+  });
+  redirect(dest);
+}
+
+/**
+ * Result of an auto-conditions lookup. `ok:false` is the first-class manual-entry fallback signal:
+ * an unknown location, an out-of-horizon date window, or any provider/network failure all degrade to
+ * it. The UI leaves the conditions form untouched and the user enters conditions by hand. This action
+ * NEVER throws (the weather fetcher already fails to `null`); the try/catch is belt-and-suspenders so a
+ * transient hiccup can never surface a 500 in the planner.
+ */
+export type WeatherConditionsResult =
+  | { ok: true; conditions: TripConditions; locationLabel: string }
+  | { ok: false };
+
+/**
+ * Pull a forecast for a free-text location + ISO date window and derive a starting `TripConditions`.
+ * The returned conditions PRE-FILL the planner's structured fields; every field stays user-editable
+ * (override-always — the forecast is a starting point, never a lock). On any failure → `{ ok:false }`,
+ * the manual-entry fallback. Heavy lifting lives in the already-built fetcher + pure mapping; this is a
+ * thin action.
+ */
+export async function getWeatherConditionsAction(formData: FormData): Promise<WeatherConditionsResult> {
+  // READ gate, not the write gate: a forecast pull performs NO write (it only derives conditions to
+  // prefill the form), so a guest planning a trip can use it. `getUserIdOrGuest` never redirects; the
+  // save wall stays in planTripAction/planAndSave (still requireUserId). No DB or user data is touched.
+  const { userId } = await getUserIdOrGuest();
+  try {
+    // Rate-limit the forecast pull (loosest budget; cheap/cacheable). A reject degrades to the manual-
+    // entry fallback `{ ok:false }` — the same first-class signal as an unknown location or a provider
+    // failure (the user just enters conditions by hand). NEVER a 500.
+    const key = await resolveRateKey();
+    if (!checkRateLimit("weather", key).allowed) return { ok: false };
+
+    // timeAndLog sits INSIDE the try so its re-throw is still caught below — the never-throws contract
+    // holds. One request/outcome/duration line is emitted for the lookup either way.
+    return await timeAndLog<WeatherConditionsResult>(
+      { event: "action", action: "getWeatherConditions", userId },
+      async () => {
+        const location = String(formData.get("location") ?? "").trim();
+        const startDate = String(formData.get("startDate") ?? "").trim();
+        const endDate = String(formData.get("endDate") ?? "").trim();
+        if (!location || !startDate || !endDate) return { ok: false };
+
+        const { getForecast } = await import("@/server/weather-fetcher");
+        const { forecastToConditions } = await import("@/core/weather");
+        const forecast = await getForecast(location, startDate, endDate);
+        if (!forecast) return { ok: false };
+
+        return {
+          ok: true,
+          conditions: forecastToConditions(forecast),
+          locationLabel: forecast.location.locationLabel,
+        };
+      },
+    );
+  } catch {
+    return { ok: false };
+  }
 }
 
 export async function planTripAction(formData: FormData) {
   const userId = await requireUserId();
   const name = String(formData.get("name") ?? "").trim() || "Untitled trip";
   const description = String(formData.get("description") ?? "").trim() || undefined;
-  const conditions = defaultConditions({
-    temp_min_c: numOrNull(formData.get("temp_min_c")),
-    temp_max_c: numOrNull(formData.get("temp_max_c")),
-    precipitation: pick(formData.get("precipitation"), PRECIPITATION, "none"),
-    wind: pick(formData.get("wind"), WIND, "calm"),
-    sun: pick(formData.get("sun"), SUN, "moderate"),
-    exertion: pick(formData.get("exertion"), EXERTION, "moderate"),
-    duration: pick(formData.get("duration"), DURATION, "day"),
-    exposure: pick(formData.get("exposure"), EXPOSURE, "sheltered"),
-    activities: String(formData.get("activities") ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  });
+  const conditions = conditionsFromFormData(formData);
   const trip = await planAndSave(name, conditions, description, userId);
   revalidatePath("/trips");
   redirect(`/trips/${trip.id}`);
+}
+
+/**
+ * GUEST / preview plan — the READ-ONLY counterpart to `planTripAction`. Resolves the identity via the READ
+ * gate (`getUserIdOrGuest`, never redirects), builds the SAME `TripConditions` from the form, but does NOT
+ * save: it encodes the conditions into the URL and redirects to `/plan/preview`, which re-runs the plan
+ * over the (guest sample or the user's own) closet and renders the result behind the save WALL. This action
+ * NEVER calls `planAndSave` — no write, no DB. It is also safe for an authenticated user who wants a preview
+ * without persisting, but the plan form only wires it for guests (authed users post to planTripAction).
+ *
+ * Note: this does not call `requireUserId()` by design — it is a read action. The save wall is the
+ * /plan/preview "Log in to save" control, which routes to /login (and every actual write stays gated).
+ */
+export async function planPreviewAction(formData: FormData) {
+  await getUserIdOrGuest();
+  const conditions = conditionsFromFormData(formData);
+  redirect(`/plan/preview?conditions=${encodeConditions(conditions)}`);
 }
 
 /** Sign out the current user and redirect to /login. */

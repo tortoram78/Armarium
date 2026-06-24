@@ -9,9 +9,12 @@ import { AnimatePresence, motion } from "framer-motion";
  * "rugged"  = deep pine + blaze orange Modern Trail
  * "refined" = warm paper + evergreen (clean base)
  */
+// Auth screens that stay clean/refined. Keep in sync with layout.tsx.
+const REFINED_AUTH_PREFIXES = ["/login", "/signup", "/forgot-password", "/update-password"];
+
 function getSkin(pathname: string): "rugged" | "refined" {
   // auth screens stay clean/refined
-  if (pathname.startsWith("/login") || pathname.startsWith("/signup")) return "refined";
+  if (REFINED_AUTH_PREFIXES.some((p) => pathname.startsWith(p))) return "refined";
   // gear + planning screens get rugged
   return "rugged";
 }

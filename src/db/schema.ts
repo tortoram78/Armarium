@@ -83,6 +83,9 @@ export const items = pgTable(
   },
   (t) => ({
     userIdx: index("items_user_idx").on(t.userId),
+    // Keyset pagination index: newest-first within a user, with id as a stable tiebreaker so the
+    // (created_at, id) cursor stays index-only. Matches listItemsPage's ORDER BY exactly.
+    userKeysetIdx: index("items_user_keyset_idx").on(t.userId, t.createdAt.desc(), t.id.desc()),
     layeringRoleIdx: index("items_layering_role_idx").using("gin", t.layeringRole),
     functionPurposeIdx: index("items_function_purpose_idx").using("gin", t.functionPurpose),
     facetsIdx: index("items_facets_idx").using("gin", t.facets),
@@ -154,30 +157,86 @@ export const pendingFacets = pgTable("pending_facets", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// ---- trips (user-owned, revisitable) ----
-export const trips = pgTable("trips", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull(),
-  name: text("name").notNull(),
-  rawDescription: text("raw_description"),
-  conditions: jsonb("conditions").$type<Record<string, unknown>>(),
-  resultSnapshot: jsonb("result_snapshot").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+// ---- item evidence store: the per-claim audit log (ADR-0012 Element 2) ----
+// One row per CLAIM (one source's assertion about one facet) — the durable, queryable backing for the
+// resolver's Claim<V> set. A facet may have several rows (one per source); the resolver groups by
+// facet_key and decides the winner via SOURCE_PRECEDENCE (src/core/resolve/resolve-facet.ts). `value`
+// is jsonb (scalar OR array). No user_id column: access is gated through the parent items row (the
+// subtype-table pattern), so RLS mirrors drizzle/0003's EXISTS-on-parent policy. Persisted on save with
+// REPLACE semantics — a re-resolution writes the current full claim set for the item.
+export const itemEvidence = pgTable(
+  "item_evidence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
+    facetKey: text("facet_key").notNull(),
+    value: jsonb("value").notNull(), // scalar or array; the resolved claim value
+    confidence: text("confidence").notNull(), // "low" | "medium" | "high"
+    source: text("source").notNull(), // SOURCE vocab (manufacturer | user | inferred | derived_from_material | ...)
+    sourceUrl: text("source_url"),
+    extractorVersion: text("extractor_version"),
+    evidence: text("evidence").notNull(), // the audit-trail string for this claim
+    observedAt: timestamp("observed_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    itemFacetIdx: index("item_evidence_item_facet_idx").on(t.itemId, t.facetKey),
+  }),
+);
 
-// ---- classification cache (shared reference data — no user_id) ----
-// This is the self-building knowledge base: a normalized item name maps to a validated classification
-// so repeat adds skip the LLM. Like `materials` and `treatments`, it is intentionally global (not
-// user-owned) — a correction by any user improves the cache for all users (source:"user" entries).
-export const classificationCache = pgTable("classification_cache", {
+// ---- trips (user-owned, revisitable) ----
+// `updatedAt` tracks rename / conditions edits / re-plans. The (user_id, created_at, id) index backs
+// keyset pagination of items AND keeps trip lookups user-scoped & cheap; the items keyset index is the
+// one that matters for paging (see items table below) — this one mirrors it for trips listing order.
+export const trips = pgTable(
+  "trips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    name: text("name").notNull(),
+    rawDescription: text("raw_description"),
+    conditions: jsonb("conditions").$type<Record<string, unknown>>(),
+    resultSnapshot: jsonb("result_snapshot").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    userIdx: index("trips_user_idx").on(t.userId),
+  }),
+);
+
+// ---- classification cache: the split store (ADR-0012 Element 5) ----
+// The single shared cache was replaced by two stores so one user's correction can never poison
+// another user's next classification (cross-tenant poisoning). See src/core/cache.ts for the contract.
+
+// 1. llm_draft_cache — GLOBAL, low-authority DRAFTS (LLM-extracted + seed classifications). A hit is a
+//    starting draft for review, NOT authoritative. No user_id; service-role only (RLS-on, no policies),
+//    exactly like the old classification_cache. `source` records draft provenance ("llm" | "seed").
+export const llmDraftCache = pgTable("llm_draft_cache", {
   key: text("key").primaryKey(),
   name: text("name").notNull(),
   classification: jsonb("classification").$type<ItemClassification>().notNull(),
-  source: text("source").notNull(), // "llm" | "user" | "seed"
+  source: text("source").notNull(), // "llm" | "seed"
   modelId: text("model_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// 2. user_overrides — PER-USER corrections/confirmations, RLS-scoped to the owner. PK (user_id, key):
+//    each user has at most one override per normalized name, and a correction by user A is invisible to
+//    user B. user_id is NOT NULL (rule #4); owner policies mirror drizzle/0003 ((select auth.uid())=user_id).
+export const userOverrides = pgTable(
+  "user_overrides",
+  {
+    userId: uuid("user_id").notNull(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    classification: jsonb("classification").$type<ItemClassification>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.userId, t.key] }) }),
+);
 
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;

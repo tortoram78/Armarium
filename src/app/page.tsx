@@ -1,7 +1,8 @@
 import { getCloset } from "@/server/app-service";
 import { GROUPINGS, GROUPING_LABELS, type GroupingKey } from "@/core/closet";
-import { requireUserId } from "@/lib/auth";
+import { getUserIdOrGuest } from "@/lib/auth";
 import { ClosetView } from "@/components/ClosetView";
+import { GuestBanner } from "@/components/GuestBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,9 @@ export default async function ClosetPage({
 }: {
   searchParams: { group?: string };
 }) {
-  const userId = await requireUserId();
+  // READ gate — never redirects. A guest (auth configured, no session) is served the seeded SAMPLE closet
+  // from the in-memory repo; add/edit remain write-gated behind requireUserId() in the actions.
+  const { userId, isGuest } = await getUserIdOrGuest();
   const dimension: GroupingKey = (GROUPINGS as readonly string[]).includes(
     searchParams.group ?? "",
   )
@@ -42,11 +45,14 @@ export default async function ClosetPage({
   }));
 
   return (
-    <ClosetView
-      items={itemSummaries}
-      groups={groupSummaries}
-      dimension={dimension}
-      groupingLinks={groupingLinks}
-    />
+    <div className="space-y-6">
+      {isGuest && <GuestBanner />}
+      <ClosetView
+        items={itemSummaries}
+        groups={groupSummaries}
+        dimension={dimension}
+        groupingLinks={groupingLinks}
+      />
+    </div>
   );
 }

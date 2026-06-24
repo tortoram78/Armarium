@@ -7,6 +7,7 @@
 
 import type { ItemClassification } from "./classification";
 import { UNKNOWN_SOFT, UNKNOWN_HARD, type Evidence, type HardFact } from "./evidence";
+import type { EvidenceClaim } from "./ports";
 import * as L from "./facets/levels";
 import type { GroupKey } from "./facets/levels";
 
@@ -142,4 +143,58 @@ export function applyUserCorrections(
   }
 
   return next;
+}
+
+/**
+ * Turn a flat map of form values (path → raw string, or string[] for multi) into `source:"user"` CLAIMS
+ * for the item_evidence store (ADR-0014 §3 user-correction path). A user is AUTHORITATIVE, so each claim
+ * out-ranks every inferred/derived/manufacturer competitor at the resolver — a corrected hard fact actually
+ * moves a capability outcome.
+ *
+ * - A SET value (non-blank) → one asserting user claim at the facet's dotted path (= its facetKey).
+ * - A BLANK/"unknown" value → NO claim (the store holds only asserting claims; a re-resolve from the
+ *   remaining claims then reflects the next-strongest source, or honest unknown). A HARD clear of a facet
+ *   the user wants forced to null is the direct-classification-write path's job, not this additive one.
+ * - The path doubles as the facetKey (e.g. "universal.warmth", "groups.insulation.fill_power",
+ *   "multilabel.layering_role"); group fields are emitted regardless of whether the item carries the group
+ *   — an unregistered/absent slot is simply skipped by the assembler.
+ *
+ * Pure; never throws. Closed-enum / int validity is enforced downstream by the assembler's parseClassification.
+ */
+export function userCorrectionClaims(
+  values: Record<string, string | string[] | undefined>,
+): EvidenceClaim[] {
+  const out: EvidenceClaim[] = [];
+  const USER = "user" as const;
+
+  for (const f of EDITABLE_SCALAR) {
+    const raw = values[f.path];
+    if (raw === undefined) continue;
+    const str = Array.isArray(raw) ? (raw[0] ?? "") : raw;
+    if (str === "" || str === UNKNOWN) continue; // a clear writes no claim (additive: user assertions only)
+
+    let value: string | number = str;
+    if (f.tier === "soft_num" || f.tier === "hard_num") {
+      const n = Number(str);
+      if (!Number.isFinite(n)) continue;
+      value = n;
+    } else if (f.tier === "hard_int") {
+      const n = Number(str);
+      if (!Number.isFinite(n)) continue;
+      value = Math.round(n);
+    }
+    out.push({ facetKey: f.path, value, confidence: "high", source: USER, evidence: USER_EVIDENCE });
+  }
+
+  for (const m of EDITABLE_MULTILABEL) {
+    const raw = values[m.path];
+    if (raw === undefined) continue;
+    const arr = Array.isArray(raw) ? raw : [raw];
+    const allowed = new Set(m.vocab ?? []);
+    const filtered = arr.filter((v) => allowed.has(v));
+    if (filtered.length === 0) continue; // empty multilabel clear → no claim
+    out.push({ facetKey: m.path, value: filtered, confidence: "high", source: USER, evidence: USER_EVIDENCE });
+  }
+
+  return out;
 }

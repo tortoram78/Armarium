@@ -9,8 +9,18 @@
 //     (id, userId, name, inInventory, draft, rawText, createdAt). No re-assembly from typed columns.
 //   - Cascade deletes on group tables are handled by DB FKs (onDelete: "cascade") — no manual cleanup.
 //   - Every query is user-scoped (WHERE user_id = $userId) — rule #4.
+//
+// TENANT ISOLATION (read before adding any method): the app connects as the table OWNER role
+// (src/db/client.ts). A Postgres owner BYPASSES RLS unless the table sets FORCE ROW LEVEL SECURITY —
+// and none do — so the RLS policies are DORMANT for this connection; they protect only the public
+// PostgREST/anon surface (direct API access). The app-layer `WHERE user_id = $userId` (or a
+// userId-keyed parent-item check) is therefore the SOLE live tenant isolation and is MANDATORY on
+// EVERY query of EVERY method — there is no DB backstop. True DB-level defense-in-depth (FORCE RLS +
+// per-request auth.uid() under a non-owner role) is a future hardening, deliberately not in place.
+// test/repo.cross-tenant.test.ts is the guard that proves the app-layer scope holds across the whole
+// method surface (it runs against the memory repo, which shares this isolation contract).
 
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, lt, desc } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Db } from "@/db/client";
 import { getDb } from "./db";
@@ -21,6 +31,7 @@ import {
   itemShell,
   itemCarry,
   itemFootwear,
+  itemEvidence,
 } from "@/db/schema";
 import type {
   GearRepository,
@@ -28,6 +39,9 @@ import type {
   StoredTrip,
   AddItemInput,
   SaveTripInput,
+  PageOpts,
+  ItemsPage,
+  EvidenceClaim,
 } from "@/core/ports";
 import type { ItemClassification } from "@/core/classification";
 import type { TripConditions } from "@/core/conditions";
@@ -118,6 +132,26 @@ function rowToStoredItem(row: {
     classification: row.classification,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+// ---- keyset pagination cursor (createdAt, id), newest-first ----
+// The cursor encodes the createdAt epoch-ms + id of the last row returned. Comparing on the raw
+// timestamp (not the truncated ISO string) keeps the keyset boundary exact against the DB column.
+
+const DEFAULT_PAGE_LIMIT = 50;
+
+function encodeCursor(createdAt: Date, id: string): string {
+  return Buffer.from(`${createdAt.getTime()} ${id}`, "utf8").toString("base64url");
+}
+function decodeCursor(cursor: string): { createdAt: Date; id: string } | null {
+  try {
+    const [ms, id] = Buffer.from(cursor, "base64url").toString("utf8").split(" ");
+    const t = Number(ms);
+    if (!Number.isFinite(t) || id === undefined) return null;
+    return { createdAt: new Date(t), id };
+  } catch {
+    return null;
+  }
 }
 
 // ---- group table upserts (called after item insert/update) ----
@@ -411,6 +445,39 @@ export const postgresRepository: GearRepository = {
     return rows.map(rowToStoredItem);
   },
 
+  async listItemsPage(userId, opts: PageOpts): Promise<ItemsPage> {
+    const db = getDb();
+    const limit = opts.limit && opts.limit > 0 ? opts.limit : DEFAULT_PAGE_LIMIT;
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+
+    // Keyset on (created_at desc, id desc). The half-open boundary "row strictly older than the
+    // cursor" is (created_at < c.created_at) OR (created_at = c.created_at AND id < c.id). user_id is
+    // ALWAYS in the WHERE — this app-layer scope is the SOLE live tenant isolation: the app connects as
+    // the table OWNER, which bypasses RLS (no table sets FORCE ROW LEVEL SECURITY), so the RLS policies
+    // are dormant for this connection and guard only the public PostgREST/anon surface. Backed by the
+    // (user_id, created_at desc, id desc) index from migration 0004 so it stays index-only.
+    const keyset = cur
+      ? or(
+          lt(items.createdAt, cur.createdAt),
+          and(eq(items.createdAt, cur.createdAt), lt(items.id, cur.id)),
+        )
+      : undefined;
+
+    // Fetch limit + 1 to detect whether a further page exists without a second COUNT query.
+    const rows = await db
+      .select()
+      .from(items)
+      .where(cur ? and(eq(items.userId, userId), keyset) : eq(items.userId, userId))
+      .orderBy(desc(items.createdAt), desc(items.id))
+      .limit(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    const nextCursor = hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
+    return { items: page.map(rowToStoredItem), nextCursor };
+  },
+
   async getItem(userId, id) {
     const db = getDb();
     const rows = await db
@@ -501,11 +568,77 @@ export const postgresRepository: GearRepository = {
 
   async deleteItem(userId, id) {
     const db = getDb();
-    // Group rows are removed by DB cascade (onDelete: "cascade" FKs). Verify the item belongs to
-    // this user before deleting to enforce user-scoping.
+    // Group rows + evidence rows are removed by DB cascade (onDelete: "cascade" FKs). Verify the item
+    // belongs to this user before deleting to enforce user-scoping.
     await db
       .delete(items)
       .where(and(eq(items.userId, userId), eq(items.id, id)));
+  },
+
+  // ---- item evidence (ADR-0012 Element 2) ----
+
+  async replaceItemEvidence(userId, itemId, claims) {
+    const db = getDb();
+    // User-scope via the parent item: the item_evidence rows carry no user_id, so ownership is gated
+    // through the items row — this app-side EXISTS check is the SOLE live isolation (the OWNER
+    // connection bypasses RLS; the matching RLS EXISTS-on-parent policy only protects the public
+    // PostgREST/anon surface). If the item isn't the user's, do nothing — never delete or write
+    // another user's evidence.
+    const owner = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.userId, userId), eq(items.id, itemId)));
+    if (!owner[0]) return;
+
+    const rows = claims.map((c) => ({
+      itemId,
+      facetKey: c.facetKey,
+      value: c.value,
+      confidence: c.confidence,
+      source: c.source,
+      sourceUrl: c.sourceUrl ?? null,
+      extractorVersion: c.extractorVersion ?? null,
+      evidence: c.evidence,
+      // observedAt defaults to now() in the column; set it only when the caller provided one.
+      ...(c.observedAt ? { observedAt: new Date(c.observedAt) } : {}),
+    }));
+
+    // REPLACE semantics: drop the item's existing claim rows, then insert the new full set — atomically
+    // so a re-resolution is never observed half-applied.
+    await db.transaction(async (tx) => {
+      await tx.delete(itemEvidence).where(eq(itemEvidence.itemId, itemId));
+      if (rows.length > 0) await tx.insert(itemEvidence).values(rows);
+    });
+  },
+
+  async getItemEvidence(userId, itemId) {
+    const db = getDb();
+    // User-scope via the parent item; a non-owned/unknown item reads as empty.
+    const owner = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.userId, userId), eq(items.id, itemId)));
+    if (!owner[0]) return [];
+
+    const rows = await db
+      .select()
+      .from(itemEvidence)
+      .where(eq(itemEvidence.itemId, itemId))
+      .orderBy(itemEvidence.facetKey, itemEvidence.createdAt);
+
+    return rows.map(
+      (r): EvidenceClaim => ({
+        facetKey: r.facetKey,
+        value: r.value,
+        // Columns are plain text/jsonb; narrow to the port's union types at this boundary.
+        confidence: r.confidence as EvidenceClaim["confidence"],
+        source: r.source as EvidenceClaim["source"],
+        sourceUrl: r.sourceUrl,
+        extractorVersion: r.extractorVersion,
+        evidence: r.evidence,
+        observedAt: r.observedAt.toISOString(),
+      }),
+    );
   },
 
   // ---- trips ----
@@ -562,5 +695,65 @@ export const postgresRepository: GearRepository = {
     const row = rows[0];
     if (!row) return null;
     return rowToStoredTrip(row);
+  },
+
+  async renameTrip(userId, id, name) {
+    const db = getDb();
+    await db
+      .update(trips)
+      .set({ name, updatedAt: new Date() })
+      .where(and(eq(trips.userId, userId), eq(trips.id, id)));
+  },
+
+  async updateTripConditions(userId, id, conditions) {
+    const db = getDb();
+    // Conditions changed → the stored result is stale. Null the snapshot (do NOT auto-replan): the
+    // trip reads as unplanned until a re-plan runs against the current closet.
+    await db
+      .update(trips)
+      .set({
+        conditions: conditions as unknown as Record<string, unknown>,
+        resultSnapshot: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(trips.userId, userId), eq(trips.id, id)));
+  },
+
+  async cloneTrip(userId, id) {
+    const db = getDb();
+    // Read the source within the user scope; this WHERE is the SOLE live tenant isolation and is
+    // MANDATORY (the OWNER connection bypasses RLS, so the policies are not a live backstop here).
+    const sourceRows = await db
+      .select()
+      .from(trips)
+      .where(and(eq(trips.userId, userId), eq(trips.id, id)));
+    const source = sourceRows[0];
+    if (!source) throw new Error(`trip ${id} not found for user`);
+
+    const newId = randomUUID();
+    const returned = await db
+      .insert(trips)
+      .values({
+        id: newId,
+        userId,
+        name: `${source.name} (copy)`,
+        rawDescription: source.rawDescription,
+        // Copy real stored conditions only; never fabricate. The result snapshot is intentionally
+        // NOT copied — a fresh clone is unplanned until re-planned.
+        conditions: source.conditions,
+        resultSnapshot: null,
+      })
+      .returning();
+
+    const row = returned[0];
+    if (!row) throw new Error(`insert returned no row for cloned trip ${newId}`);
+    return rowToStoredTrip(row);
+  },
+
+  async deleteTrip(userId, id) {
+    const db = getDb();
+    // The result snapshot is a column on the trip row, so deleting the row removes it too — no
+    // separate cleanup needed. User-scoped to enforce ownership.
+    await db.delete(trips).where(and(eq(trips.userId, userId), eq(trips.id, id)));
   },
 };

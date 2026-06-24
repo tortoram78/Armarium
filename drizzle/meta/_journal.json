@@ -29,6 +29,27 @@
       "when": 1782054257850,
       "tag": "0003_enable_rls_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782267009351,
+      "tag": "0004_tidy_warbound",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782304289903,
+      "tag": "0005_absurd_kingpin",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782305170325,
+      "tag": "0006_organic_vertigo",
+      "breakpoints": true
     }
   ]
 }
