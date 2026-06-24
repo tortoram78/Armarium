@@ -35,7 +35,7 @@ export const FACETS = {
   wind_resistance: def({ key: "wind_resistance", label: "Wind resistance", group: "universal", kind: "ordinal", levels: L.WIND_RESISTANCE, scope: "universal", fact: "soft", tier: "column", capabilityGate: true }),
   breathability: def({ key: "breathability", label: "Breathability", group: "universal", kind: "ordinal", levels: L.BREATHABILITY, scope: "universal", fact: "soft", tier: "column", capabilityGate: true }),
   moisture_management: def({ key: "moisture_management", label: "Moisture management", group: "universal", kind: "nominal", levels: L.MOISTURE_MANAGEMENT, scope: "universal", fact: "soft", tier: "column", capabilityGate: true }),
-  dry_speed: def({ key: "dry_speed", label: "Dry speed", group: "universal", kind: "ordinal", levels: L.DRY_SPEED, scope: "universal", fact: "soft", tier: "column", capabilityGate: false }),
+  dry_speed: def({ key: "dry_speed", label: "Dry speed", group: "universal", kind: "ordinal", levels: L.DRY_SPEED, scope: "universal", fact: "soft", tier: "column", capabilityGate: true }),
   warmth_when_wet: def({ key: "warmth_when_wet", label: "Warmth when wet", group: "universal", kind: "ordinal", levels: L.WARMTH_WHEN_WET, scope: "universal", fact: "soft", tier: "column", capabilityGate: true }),
   warmth: def({ key: "warmth", label: "Warmth", group: "universal", kind: "ordinal", levels: L.WARMTH, scope: "universal", fact: "soft", tier: "column", capabilityGate: true }),
   packability: def({ key: "packability", label: "Packability", group: "universal", kind: "ordinal", levels: L.PACKABILITY, scope: "universal", fact: "soft", tier: "column", capabilityGate: true }),
