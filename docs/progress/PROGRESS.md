@@ -3,6 +3,80 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (Phase 3 — evidence-architecture) — Evidence store + claims LLM: ADR-0014 recorded
+
+**What this records:** the concrete build contracts for ADR-0012 Elements 2 and 4 — the
+`item_evidence` table and the claims-based LLM output. This is the design spec the build will
+implement.
+
+**Context:** Phases 1 (resolver keystone, `src/core/resolve/`) and 2 (cache split, ADR-0013) are
+complete. Phase 3 is the heart of the migration: persisting every competing claim per
+`(item_id, facet_key)` and switching the LLM from emitting a final `ItemClassification` to
+emitting claims + `unresolvedQuestions`.
+
+**The `item_evidence` table (the store):**
+
+- Columns: `id` (uuid PK), `item_id` (uuid FK → `items.id` CASCADE), `facet_key` (text,
+  dot-namespaced: `"universal.warmth"`, `"identity.brand"`, `"multilabel.layering_role"`,
+  `"groups.insulation.fill_power"`), `value` (jsonb — scalar or array), `confidence`
+  (`low|medium|high|unknown`), `source` (the `SOURCE` enum), `source_url` (text null),
+  `extractor_version` (text null, e.g. `"llm-claims-v1"`), `evidence` (text NOT NULL),
+  `observed_at` (timestamptz), `created_at` (timestamptz).
+- Index `(item_id, facet_key)`.
+- RLS via the parent item (subtype-table pattern from `drizzle/0003`): `EXISTS (SELECT 1 FROM
+  items WHERE items.id = item_evidence.item_id AND items.user_id = (SELECT auth.uid()))`. Not
+  globally readable.
+- Multiple competing rows per `(item_id, facet_key)` are the point. The resolved hot columns on
+  `items` remain the RESOLVED snapshot.
+
+**The claims-based LLM contract (`LlmClaimsSchema`):**
+
+- New Zod schema: `{ name, claims: LlmClaim[], unresolvedQuestions: string[] }`.
+- Each `LlmClaim`: `{ facetKey, value, confidence, source: "inferred", evidence }`. Source is
+  locked to `"inferred"` in the schema — the LLM cannot assert manufacturer or user authority.
+- The hard-fact demotion guard (ADR-0004) moves to the claim boundary: an LLM claim with a
+  hard-fact `facetKey` and non-null value has `source:"inferred"` (non-authoritative), so the
+  guard demotes it to `null+unknown` before writing to `item_evidence`. Same protection, moved
+  inward.
+- `unresolvedQuestions` surfaces in the review UI as targeted prompts; not written to
+  `item_evidence`.
+
+**The resolve flow:**
+
+```
+LLM → claims  ┐
+URL enrichment → claims (source:"manufacturer")  ├→ all claims per facet_key
+Material derivation → claims (source:"derived_from_material") │  → resolveFacet() (UNCHANGED)
+User correction → claim (source:"user")  ┘  → assemble ItemClassification (UNCHANGED shape)
+                                          → PERSIST: claims → item_evidence; resolved → items hot columns
+```
+
+`resolveFacet` and `resolveBehavioralFacets` are reused unchanged. `ItemClassification` remains
+the downstream contract for capability gates and recommendations.
+
+**What stays unchanged (explicit ripple boundary):** `ItemClassification` shape,
+`parseClassification`, `Evidence<T>`/`HardFact<T>`, `Claim<V>`/`resolveFacet`/`SOURCE_PRECEDENCE`,
+all capability predicates, the recommendation layer, `llm_draft_cache`/`user_overrides`,
+`pending_facets` (see below), the offline classifier and seed corpus.
+
+**`pending_facets` integration:** novel facet keys the LLM extracts that are not in the registry
+are written to BOTH `item_evidence` (never lost) AND `pending_facets` (the existing review queue),
+preserving the ADR-0004 "never silently drop" guarantee. Novel-key claims are not resolved against
+the registry and do not appear in the assembled `ItemClassification`.
+
+**Offline items / cache hits:** when an item classified by the offline classifier, seed corpus, or
+draft cache is saved after review, its resolved facets are recorded as `source:"inferred"` claims
+in `item_evidence` (extractor_version `"offline-classifier-v1"` or `"seed-v1"`). Every saved item
+gets an evidence trail.
+
+**Migration:** a new Drizzle migration adds `item_evidence` + RLS. No data backfill for existing
+items (they keep their resolved `classification` snapshot). Backfill of existing items' resolved
+facets as historical claims is an optional future step, not part of v1.
+
+**ADR recorded:** [ADR-0014](../decisions/0014-evidence-store-claims-llm.md)
+
+---
+
 ## 2026-06-24 (Phase 2 — evidence-architecture) — Cache split: ADR-0013 recorded
 
 **What this records:** the concrete implementation decisions for splitting the single shared

@@ -24,3 +24,4 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0011 — Manufacturer URL enrichment: SSRF-gated fetch, JSON-LD+OG parsing, provenance overlay](0011-manufacturer-url-enrichment.md) — Accepted
 - [0012 — Evidence-first classification: classification as an auditable argument](0012-evidence-first-classification.md) — Accepted
 - [0013 — Cache split: `llm_draft_cache` (global) + `user_overrides` (per-user)](0013-cache-split-per-user-overrides.md) — Accepted
+- [0014 — Evidence store + claims-based LLM (Phase 3 of evidence-architecture migration)](0014-evidence-store-claims-llm.md) — Accepted
