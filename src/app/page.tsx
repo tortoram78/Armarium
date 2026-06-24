@@ -1,5 +1,6 @@
 import { getCloset } from "@/server/app-service";
 import { getSignedItemImageUrls } from "@/server/item-images";
+import { deriveDisplayTags } from "@/core/tags";
 import { GROUPINGS, GROUPING_LABELS, type GroupingKey } from "@/core/closet";
 import { getUserIdOrGuest } from "@/lib/auth";
 import { ClosetView } from "@/components/ClosetView";
@@ -34,7 +35,10 @@ export default async function ClosetPage({
   const itemSummaries = items.map((it) => ({
     id: it.id,
     name: it.name,
-    badges: it.classification.multilabel.function_purpose.slice(0, 3),
+    // Hard professional tags derived from the graded universal facets (waterproof/insulated/wicking/…),
+    // NOT the soft function_purpose labels. Confidence-gated in the deriver, so a guess never shows as a
+    // claim. function_purpose stays the internal facet (it still gates the sun_protection capability).
+    badges: deriveDisplayTags(it.classification.universal).slice(0, 4).map((t) => t.label),
     // The signed photo URL (or null → text card). Looked up by the bucket-relative object path.
     imageUrl: it.imagePath ? (signedUrls.get(it.imagePath) ?? null) : null,
     // Surface "verify" honestly: items whose universal facets are unknown (the recommender's
