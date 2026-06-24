@@ -40,6 +40,11 @@ import {
 } from "@/core/corrections";
 import { requireUserId, getUserIdOrGuest } from "@/lib/auth";
 import { encodeConditions } from "@/lib/conditions-codec";
+import { resolveRateKey, checkRateLimit } from "@/server/ratelimit-guard";
+import { timeAndLog } from "@/lib/logger";
+
+/** Friendly user-facing copy for a rate-limit reject on a redirect action. */
+const RATE_LIMITED_MSG = "You're going a bit fast — try again in a moment.";
 
 function numOrNull(v: FormDataEntryValue | null): number | null {
   const s = String(v ?? "").trim();
@@ -144,15 +149,26 @@ export async function addItemAction(formData: FormData) {
   const inInventory = formData.get("inInventory") != null;
   if (!name) redirect("/items/new?error=" + encodeURIComponent("Please enter an item name."));
 
-  let itemId: string;
-  try {
-    const { item } = await classifyToDraft(name, text, inInventory, userId);
-    itemId = item.id;
-  } catch (e) {
-    redirect("/items/new?error=" + encodeURIComponent((e as Error).message) + "&name=" + encodeURIComponent(name));
+  // Rate-limit the LLM-spendy classify path. On reject, degrade to a friendly redirect (never a 500).
+  const key = await resolveRateKey();
+  if (!checkRateLimit("classify", key).allowed) {
+    redirect("/items/new?error=" + encodeURIComponent(RATE_LIMITED_MSG) + "&name=" + encodeURIComponent(name));
   }
-  revalidatePath("/");
-  redirect(`/items/${itemId}/review`);
+
+  // The destination is computed inside the logged span; the redirect() fires AFTER it so a normal
+  // success logs as ok:true (redirect() throws NEXT_REDIRECT, which timeAndLog would otherwise log as
+  // a spurious error). The classify failure is an EXPECTED outcome (friendly redirect), not a thrown
+  // error, so it is handled inside the span and returns its own destination.
+  const dest = await timeAndLog({ event: "action", action: "addItem", userId }, async () => {
+    try {
+      const { item } = await classifyToDraft(name, text, inInventory, userId);
+      revalidatePath("/");
+      return `/items/${item.id}/review`;
+    } catch (e) {
+      return "/items/new?error=" + encodeURIComponent((e as Error).message) + "&name=" + encodeURIComponent(name);
+    }
+  });
+  redirect(dest);
 }
 
 const SUPPORTED_MFR_HINT =
@@ -185,12 +201,23 @@ export async function enrichFromUrlAction(formData: FormData) {
     redirect("/items/new?error=" + encodeURIComponent(msg));
   }
 
-  const result = await enrichFromUrlToDraft(userId, parsed.data.url);
-  if (!result.ok) {
-    redirect("/items/new?error=" + encodeURIComponent(friendlyEnrichError(result.reason)));
+  // Rate-limit the outbound manufacturer-URL fetch (tightest budget). Reject → friendly redirect.
+  const key = await resolveRateKey();
+  if (!checkRateLimit("enrich", key).allowed) {
+    redirect("/items/new?error=" + encodeURIComponent(RATE_LIMITED_MSG));
   }
-  revalidatePath("/");
-  redirect(`/items/${result.draftId}/review`);
+
+  // Compute the destination inside the logged span, redirect() after (see addItemAction note). An
+  // unsupported/unreadable page is an expected outcome (friendly redirect), handled in-band.
+  const dest = await timeAndLog({ event: "action", action: "enrichFromUrl", userId }, async () => {
+    const result = await enrichFromUrlToDraft(userId, parsed.data.url);
+    if (!result.ok) {
+      return "/items/new?error=" + encodeURIComponent(friendlyEnrichError(result.reason));
+    }
+    revalidatePath("/");
+    return `/items/${result.draftId}/review`;
+  });
+  redirect(dest);
 }
 
 export async function confirmItemAction(formData: FormData) {
@@ -263,10 +290,20 @@ export async function planFromDescriptionAction(formData: FormData) {
   const description = String(formData.get("description") ?? "").trim();
   if (!description) redirect("/plan?error=" + encodeURIComponent("Please enter a trip description."));
 
-  const conditions = await parseDescription(description);
-  const trip = await planAndSave(name, conditions, description, userId);
-  revalidatePath("/trips");
-  redirect(`/trips/${trip.id}`);
+  // Rate-limit the NL trip-parse (LLM-spendy). Reject → friendly redirect back to the planner form.
+  const key = await resolveRateKey();
+  if (!checkRateLimit("parse", key).allowed) {
+    redirect("/plan?error=" + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  // Compute the destination inside the logged span, redirect() after (see addItemAction note).
+  const dest = await timeAndLog({ event: "action", action: "planFromDescription", userId }, async () => {
+    const conditions = await parseDescription(description);
+    const trip = await planAndSave(name, conditions, description, userId);
+    revalidatePath("/trips");
+    return `/trips/${trip.id}`;
+  });
+  redirect(dest);
 }
 
 /**
@@ -291,23 +328,36 @@ export async function getWeatherConditionsAction(formData: FormData): Promise<We
   // READ gate, not the write gate: a forecast pull performs NO write (it only derives conditions to
   // prefill the form), so a guest planning a trip can use it. `getUserIdOrGuest` never redirects; the
   // save wall stays in planTripAction/planAndSave (still requireUserId). No DB or user data is touched.
-  await getUserIdOrGuest();
+  const { userId } = await getUserIdOrGuest();
   try {
-    const location = String(formData.get("location") ?? "").trim();
-    const startDate = String(formData.get("startDate") ?? "").trim();
-    const endDate = String(formData.get("endDate") ?? "").trim();
-    if (!location || !startDate || !endDate) return { ok: false };
+    // Rate-limit the forecast pull (loosest budget; cheap/cacheable). A reject degrades to the manual-
+    // entry fallback `{ ok:false }` — the same first-class signal as an unknown location or a provider
+    // failure (the user just enters conditions by hand). NEVER a 500.
+    const key = await resolveRateKey();
+    if (!checkRateLimit("weather", key).allowed) return { ok: false };
 
-    const { getForecast } = await import("@/server/weather-fetcher");
-    const { forecastToConditions } = await import("@/core/weather");
-    const forecast = await getForecast(location, startDate, endDate);
-    if (!forecast) return { ok: false };
+    // timeAndLog sits INSIDE the try so its re-throw is still caught below — the never-throws contract
+    // holds. One request/outcome/duration line is emitted for the lookup either way.
+    return await timeAndLog<WeatherConditionsResult>(
+      { event: "action", action: "getWeatherConditions", userId },
+      async () => {
+        const location = String(formData.get("location") ?? "").trim();
+        const startDate = String(formData.get("startDate") ?? "").trim();
+        const endDate = String(formData.get("endDate") ?? "").trim();
+        if (!location || !startDate || !endDate) return { ok: false };
 
-    return {
-      ok: true,
-      conditions: forecastToConditions(forecast),
-      locationLabel: forecast.location.locationLabel,
-    };
+        const { getForecast } = await import("@/server/weather-fetcher");
+        const { forecastToConditions } = await import("@/core/weather");
+        const forecast = await getForecast(location, startDate, endDate);
+        if (!forecast) return { ok: false };
+
+        return {
+          ok: true,
+          conditions: forecastToConditions(forecast),
+          locationLabel: forecast.location.locationLabel,
+        };
+      },
+    );
   } catch {
     return { ok: false };
   }
