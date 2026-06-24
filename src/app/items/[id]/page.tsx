@@ -1,8 +1,16 @@
 import { notFound, redirect } from "next/navigation";
 import { getItem, resolveItem } from "@/server/app-service";
+import { getSignedItemImageUrl } from "@/server/item-images";
 import { evaluateCapability, CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/core/capabilities";
-import { setInventoryAction, deleteItemAction, updateFacetsAction } from "@/app/actions";
+import {
+  setInventoryAction,
+  deleteItemAction,
+  updateFacetsAction,
+  setItemImageAction,
+  removeItemImageAction,
+} from "@/app/actions";
 import { FacetEditor } from "@/components/FacetEditor";
+import { ItemImageUploader } from "@/components/ItemImageUploader";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -71,15 +79,21 @@ export default async function ItemDetailPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { facetError?: string; edit?: string };
+  searchParams: { facetError?: string; edit?: string; imageError?: string };
 }) {
   // READ gate — never redirects. A guest views a sample item from the seeded closet; the write affordances
-  // (inventory toggle, delete, facet editor) are hidden for a guest since their actions are write-gated.
+  // (inventory toggle, delete, facet editor, photo upload) are hidden for a guest since their actions are
+  // write-gated.
   const { userId, isGuest } = await getUserIdOrGuest();
   const item = await getItem(params.id, userId);
   if (!item) notFound();
   // If still a draft, send to review
   if (item.draft) redirect(`/items/${params.id}/review`);
+
+  // Sign the item's private photo path (ADR-0018 §D). null when there's no photo, OR storage is
+  // unconfigured (the hermetic build / dev), OR the object is missing — the lead-image block is then
+  // skipped and the spec sheet renders text-first (no broken image).
+  const imageUrl = await getSignedItemImageUrl(item.imagePath ?? null);
 
   const resolved = resolveItem(item);
   const c = item.classification;
@@ -186,7 +200,39 @@ export default async function ItemDetailPage({
             {searchParams.facetError}
           </p>
         )}
+        {searchParams.imageError && (
+          <p className="panel border-l-2 border-l-accent bg-accent/5 px-4 py-3 text-sm leading-relaxed text-accent">
+            That photo couldn&apos;t be saved. Use a JPEG, PNG, or WebP under 5 MB and try again.
+          </p>
+        )}
       </header>
+
+      {/* ── Lead photo (display-only — ADR-0018) + upload control. The hero shows only when a signed URL
+            resolved; otherwise the spec sheet is text-first (graceful, no broken image). The uploader is
+            hidden for a guest (its write action is gated) and self-hides when storage is unconfigured. ── */}
+      {(imageUrl || !isGuest) && (
+        <section className="space-y-4">
+          {imageUrl && (
+            <div className="overflow-hidden rounded-lg border border-border bg-muted/40">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imageUrl}
+                alt={item.name}
+                className="max-h-[28rem] w-full object-cover"
+              />
+            </div>
+          )}
+          {!isGuest && (
+            <ItemImageUploader
+              itemId={item.id}
+              userId={userId}
+              hasImage={Boolean(imageUrl)}
+              setAction={setItemImageAction}
+              removeAction={removeItemImageAction}
+            />
+          )}
+        </section>
+      )}
 
       {/* ── Capabilities — the headline outcome of the facets ── */}
       <section>

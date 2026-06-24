@@ -419,6 +419,20 @@ export async function setInventory(id: string, inInventory: boolean, userId = DE
   return getRepository().setInventory(userId, id, inInventory);
 }
 
+/**
+ * Set or clear an item's display-only photo path (ADR-0018). The bytes are uploaded client-direct to the
+ * private `item-images` bucket; this only persists the resulting object key (or null to remove) on the
+ * item row. User-scoped in the repo (the app-layer WHERE user_id is the sole live isolation) — a non-owned
+ * item is a no-op returning null. Photo is decoration, never a facet/capability input.
+ */
+export async function setItemImagePath(
+  id: string,
+  imagePath: string | null,
+  userId = DEFAULT_USER_ID,
+): Promise<StoredItem | null> {
+  return getRepository().setItemImagePath(userId, id, imagePath);
+}
+
 export async function deleteItem(id: string, userId = DEFAULT_USER_ID) {
   return getRepository().deleteItem(userId, id);
 }

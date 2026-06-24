@@ -569,6 +569,22 @@ export const postgresRepository: GearRepository = {
     return rowToStoredItem(row);
   },
 
+  async setItemImagePath(userId, id, imagePath) {
+    const db = getDb();
+    // UPDATE items SET image_path = $imagePath WHERE id = $id AND user_id = $userId RETURNING *.
+    // The user_id predicate is the SOLE live tenant isolation (the OWNER connection bypasses RLS), so a
+    // non-owned id matches no row → null (no-op). Display-only path (ADR-0018); does not touch the
+    // classification jsonb or any typed facet column.
+    const rows = await db
+      .update(items)
+      .set({ imagePath })
+      .where(and(eq(items.userId, userId), eq(items.id, id)))
+      .returning();
+    const row = rows[0];
+    if (!row) return null;
+    return rowToStoredItem(row);
+  },
+
   async deleteItem(userId, id) {
     const db = getDb();
     // Group rows + evidence rows are removed by DB cascade (onDelete: "cascade" FKs). Verify the item

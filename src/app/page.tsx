@@ -1,4 +1,5 @@
 import { getCloset } from "@/server/app-service";
+import { getSignedItemImageUrls } from "@/server/item-images";
 import { GROUPINGS, GROUPING_LABELS, type GroupingKey } from "@/core/closet";
 import { getUserIdOrGuest } from "@/lib/auth";
 import { ClosetView } from "@/components/ClosetView";
@@ -24,11 +25,18 @@ export default async function ClosetPage({
 
   const { items, groups } = await getCloset(dimension, userId);
 
+  // Batch-sign every item's private photo path in ONE round-trip (ADR-0018 §D). Returns null per path when
+  // storage is unconfigured (the hermetic build / dev) OR the object is missing — the card then falls back
+  // to its clean text layout (no broken image box). Items with no photo never reach the signer.
+  const signedUrls = await getSignedItemImageUrls(items.map((it) => it.imagePath ?? null));
+
   // Map items to the summary shape ClosetView expects — no core imports in the page.
   const itemSummaries = items.map((it) => ({
     id: it.id,
     name: it.name,
     badges: it.classification.multilabel.function_purpose.slice(0, 3),
+    // The signed photo URL (or null → text card). Looked up by the bucket-relative object path.
+    imageUrl: it.imagePath ? (signedUrls.get(it.imagePath) ?? null) : null,
     // Surface "verify" honestly: items whose universal facets are unknown (the recommender's
     // blocked_unknown/uncertain space) — we do not hide them.
     needsVerify:

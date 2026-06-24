@@ -106,6 +106,15 @@ export interface GearRepository {
   setInventory(userId: string, id: string, inInventory: boolean): Promise<StoredItem | null>;
   /** Confirm/unconfirm a draft. Confirming (draft=false) promotes a candidate into the closet. */
   setDraft(userId: string, id: string, draft: boolean): Promise<StoredItem | null>;
+  /**
+   * Set (or clear, with null) an item's display-only photo path — the object key in the PRIVATE
+   * `item-images` bucket (`<user_id>/<item_id>/<uuid>.<ext>`, built by `buildItemImageObjectPath`).
+   * Display decoration only (ADR-0018), NEVER a facet/capability input. User-scoped: the app-layer
+   * `WHERE user_id = $userId` is the SOLE live tenant isolation (the owner connection bypasses RLS), so
+   * setting another user's item is a no-op that returns null. Returns the updated row, or null if the
+   * item isn't the user's.
+   */
+  setItemImagePath(userId: string, id: string, imagePath: string | null): Promise<StoredItem | null>;
   deleteItem(userId: string, id: string): Promise<void>;
 
   /**

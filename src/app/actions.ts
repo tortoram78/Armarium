@@ -15,6 +15,7 @@ import {
   planPreview,
   parseDescription,
   getItem,
+  setItemImagePath,
   replanTrip,
   renameTrip,
   cloneTrip,
@@ -282,6 +283,63 @@ export async function deleteItemAction(formData: FormData) {
   await deleteItem(id, userId);
   revalidatePath("/");
   redirect("/");
+}
+
+// ---- item photo (display-only — ADR-0018) ----
+
+const SetItemImageInput = z.object({
+  id: z.string().min(1),
+  // The bucket-relative object key the browser just uploaded to (buildItemImageObjectPath output):
+  // <user_id>/<item_id>/<uuid>.<ext>. Bounded so a junk/oversized value can't be persisted.
+  path: z.string().trim().min(1).max(512),
+});
+
+/**
+ * Persist the object path of a photo the BROWSER uploaded client-direct to the private `item-images`
+ * bucket (ADR-0018 §C). Write-gated: `requireUserId()` bounces a guest to /login BEFORE any write — a
+ * guest can never attach a photo (the upload control is also hidden for them). Defence-in-depth: the
+ * supplied path MUST begin with `<userId>/<itemId>/` — the same prefix Storage RLS keyed the upload to —
+ * so a forged path for another user's folder (or another item) is rejected and never written. The repo
+ * write is itself user-scoped (a non-owned item is a no-op). Photo is decoration, never a facet input.
+ */
+export async function setItemImageAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = SetItemImageInput.safeParse({
+    id: formData.get("id"),
+    path: formData.get("path"),
+  });
+  if (!parsed.success) {
+    const id = String(formData.get("id") ?? "");
+    redirect(`/items/${id}?imageError=1`);
+  }
+  const { id, path } = parsed.data;
+
+  // The path must live under THIS user's + THIS item's folder (mirrors buildItemImageObjectPath +
+  // Storage RLS). Reject anything else — never persist a key pointing at another user's objects.
+  const expectedPrefix = `${userId}/${id}/`;
+  if (!path.startsWith(expectedPrefix)) {
+    redirect(`/items/${id}?imageError=1`);
+  }
+
+  await setItemImagePath(id, path, userId);
+  revalidatePath(`/items/${id}`);
+  revalidatePath("/");
+  redirect(`/items/${id}`);
+}
+
+/**
+ * Remove an item's photo: null the `image_path` column (ADR-0018 v1 — the column is the source of truth
+ * for display; the stored object is left in place, a deferred cleanup). Write-gated behind
+ * `requireUserId()`; user-scoped in the repo (a non-owned item is a no-op).
+ */
+export async function removeItemImageAction(formData: FormData) {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "");
+  if (!id) redirect("/");
+  await setItemImagePath(id, null, userId);
+  revalidatePath(`/items/${id}`);
+  revalidatePath("/");
+  redirect(`/items/${id}`);
 }
 
 export async function planFromDescriptionAction(formData: FormData) {

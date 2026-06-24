@@ -11,6 +11,8 @@ interface ItemSummary {
   name: string;
   badges: string[];
   needsVerify?: boolean;
+  /** Signed photo URL (ADR-0018), or null/undefined → the clean text card. */
+  imageUrl?: string | null;
 }
 
 interface Group {
@@ -29,35 +31,57 @@ interface Props {
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
-/** A single editorial gear card. */
+/** A single editorial gear card. Image-led when a photo exists (ADR-0018); a clean text card otherwise. */
 function ItemCard({ item }: { item: ItemSummary }) {
+  const hasImage = Boolean(item.imageUrl);
   return (
     <Link
       href={`/items/${item.id}`}
-      className="panel panel-hover group relative flex h-full flex-col gap-3 p-5"
+      className="panel panel-hover group relative flex h-full flex-col overflow-hidden"
     >
-      <div className="flex items-start justify-between gap-3">
-        <h3 className="subhead text-[0.975rem] leading-snug text-foreground transition-colors group-hover:text-primary">
-          {item.name}
-        </h3>
-        {item.needsVerify && (
-          <Badge variant="verify" className="shrink-0">
-            needs review
-          </Badge>
-        )}
-      </div>
-      <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
-        {item.badges.length === 0 ? (
-          <span className="text-xs italic text-muted-foreground/70">
-            no facets yet
-          </span>
-        ) : (
-          item.badges.map((b) => (
-            <Badge key={b} variant="subtle">
-              {b.replace(/_/g, " ")}
+      {hasImage && (
+        // Consistent 4:3 lead image, cover-cropped, rounded to the card top. A plain <img> on a signed
+        // remote URL — no next/image loader (so no remotePatterns config needed). The text card below is
+        // unchanged; an item WITHOUT a photo never renders this block (no broken image box).
+        <div className="relative aspect-[4/3] w-full overflow-hidden border-b border-border bg-muted/40">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={item.imageUrl!}
+            alt={item.name}
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-300 ease-crisp group-hover:scale-[1.03]"
+          />
+          {item.needsVerify && (
+            <Badge variant="verify" className="absolute right-2 top-2 bg-card/90 backdrop-blur-sm">
+              needs review
             </Badge>
-          ))
-        )}
+          )}
+        </div>
+      )}
+      <div className="flex flex-1 flex-col gap-3 p-5">
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="subhead text-[0.975rem] leading-snug text-foreground transition-colors group-hover:text-primary">
+            {item.name}
+          </h3>
+          {item.needsVerify && !hasImage && (
+            <Badge variant="verify" className="shrink-0">
+              needs review
+            </Badge>
+          )}
+        </div>
+        <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
+          {item.badges.length === 0 ? (
+            <span className="text-xs italic text-muted-foreground/70">
+              no facets yet
+            </span>
+          ) : (
+            item.badges.map((b) => (
+              <Badge key={b} variant="subtle">
+                {b.replace(/_/g, " ")}
+              </Badge>
+            ))
+          )}
+        </div>
       </div>
     </Link>
   );
