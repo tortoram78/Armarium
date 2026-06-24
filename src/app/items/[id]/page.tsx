@@ -6,7 +6,6 @@ import { FacetEditor } from "@/components/FacetEditor";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { getUserIdOrGuest } from "@/lib/auth";
 
@@ -16,33 +15,52 @@ function titleize(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** A serif section heading with a hairline rule and an optional mono count — the established
+ *  closet/plan masthead pattern, reused here for the spec-sheet sections. */
+function SectionHead({ title, count }: { title: string; count?: number }) {
+  return (
+    <div className="mb-4 flex items-baseline gap-4">
+      <h2 className="display-md text-foreground">{title}</h2>
+      <span className="h-px flex-1 bg-border" aria-hidden />
+      {count !== undefined && (
+        <span className="data-mono text-xs tabular-nums text-muted-foreground">{count}</span>
+      )}
+    </div>
+  );
+}
+
 type EvidenceAny =
   | { value: string | number | boolean | null; confidence?: string; source?: string; evidence?: string }
   | null
   | undefined;
 
-function renderEvidence(e: EvidenceAny, label: string) {
+/** A single spec row: label · value (mono for data) · quiet provenance, or an honest "unknown". */
+function SpecRow({ e, label }: { e: EvidenceAny; label: string }) {
   if (!e || e.value === null) {
     return (
-      <div className="flex items-start gap-3">
-        <span className="data-mono w-44 shrink-0 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{label}</span>
-        <span className="data-mono text-[0.6875rem] uppercase tracking-wide text-blaze">Unknown — verify</span>
+      <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5 last:border-0">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <span className="text-sm italic text-accent">Unknown — verify</span>
       </div>
     );
   }
-  const displayVal = typeof e.value === "boolean" ? (e.value ? "Yes" : "No") : String(e.value).replace(/_/g, " ");
+  const displayVal =
+    typeof e.value === "boolean" ? (e.value ? "Yes" : "No") : String(e.value).replace(/_/g, " ");
+  const provenance = [
+    e.confidence && e.confidence !== "unknown" ? `${e.confidence} confidence` : "",
+    e.source && e.source !== "unknown" ? e.source : "",
+    e.evidence ?? "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <div className="flex items-start gap-3">
-      <span className="data-mono w-44 shrink-0 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <div className="flex flex-col gap-0.5">
-        <span className="data-mono text-xs font-medium capitalize text-foreground">{displayVal}</span>
-        {(e.confidence && e.confidence !== "unknown") || (e.source && e.source !== "unknown") || e.evidence ? (
-          <span className="data-mono text-[0.625rem] text-muted-foreground/80">
-            {e.confidence && e.confidence !== "unknown" ? `${e.confidence} confidence` : ""}
-            {e.source && e.source !== "unknown" ? ` · ${e.source}` : ""}
-            {e.evidence ? ` · ${e.evidence}` : ""}
-          </span>
-        ) : null}
+    <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5 last:border-0">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <div className="flex flex-col items-end gap-0.5 text-right">
+        <span className="data-mono text-[0.8125rem] capitalize text-foreground">{displayVal}</span>
+        {provenance && (
+          <span className="text-[0.6875rem] leading-snug text-muted-foreground/70">{provenance}</span>
+        )}
       </div>
     </div>
   );
@@ -73,57 +91,70 @@ export default async function ItemDetailPage({
   }));
   const satisfied = capResults.filter((r) => r.result === "satisfies");
   const verify = capResults.filter((r) => r.result === "blocked_unknown");
-
-  const satisfiedCount = satisfied.length;
   const verifyCount = verify.length;
 
+  // A confident brand · model subhead when those identity facts are known (and not just an echo of the
+  // item name) — gives the spec sheet a premium product-page header.
+  const brand = c.identity.brand.value;
+  const model = c.identity.model.value;
+  const identityLine = [brand, model].filter(Boolean).join(" · ");
+  const showIdentityLine = identityLine.length > 0 && identityLine !== item.name;
+
+  const priceDollars =
+    c.identity.price_cents.value !== null ? c.identity.price_cents.value / 100 : null;
+
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="mx-auto max-w-3xl space-y-12">
       {/* Breadcrumb */}
       <Link
         href="/"
-        className="hud-readout inline-flex items-center gap-1.5 text-[0.625rem] tracking-[0.16em] transition-colors hover:text-blaze"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span aria-hidden>&larr;</span> Closet&nbsp;/&nbsp;Index
+        <span aria-hidden>&larr;</span> Closet
       </Link>
 
-      {/* Header — raised dossier plate with ghosted stencil + HUD readout */}
-      <div className="hud-brackets surface-bezel relative overflow-hidden p-5 sm:p-6">
-        <span className="hud-corner-tr" aria-hidden />
-        <span className="hud-corner-bl" aria-hidden />
-        {/* ghosted stencil item code behind the title */}
-        <span
-          className="hud-stencil pointer-events-none absolute -right-1 -top-5 text-[6rem] sm:text-[7rem]"
-          aria-hidden
-        >
-          {item.id.replace(/[^a-z0-9]/gi, "").slice(0, 3).toUpperCase() || "ITM"}
-        </span>
-        <span className="hud-screw absolute right-3 top-3" aria-hidden />
-
-        <div className="relative flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="mb-1.5 flex items-center gap-2">
-              <span className="hud-pip" aria-hidden />
-              <span className="hud-readout text-[0.625rem] tracking-[0.2em]">
-                Item&nbsp;·&nbsp;Facet Dossier
-              </span>
-            </div>
-            <h1 className="heading-display text-stamped text-3xl tracking-legend text-foreground sm:text-4xl">{item.name}</h1>
-            <p className="hud-readout mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.625rem] tracking-[0.15em]">
-              <span>ADD&nbsp;<span className="text-foreground/85">{new Date(item.createdAt).toLocaleDateString()}</span></span>
-              <span className="h-3 w-px bg-seam/60" aria-hidden />
-              <span className={item.inInventory ? "text-foreground/85" : "text-muted-foreground"}>
-                {item.inInventory ? "IN INVENTORY" : "CATALOG ONLY"}
-              </span>
-              <span className="h-3 w-px bg-seam/60" aria-hidden />
-              <span>CAP&nbsp;<span className="text-foreground/85">{String(satisfiedCount).padStart(2, "0")}</span></span>
-              {verifyCount > 0 && (
-                <span className="flex items-center gap-1 text-blaze">
-                  <span className="hud-pip" aria-hidden />{String(verifyCount).padStart(2, "0")}&nbsp;VERIFY
+      {/* ── Masthead — the spec-sheet header ── */}
+      <header className="space-y-5">
+        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+          <div className="min-w-0 max-w-2xl">
+            <p className="eyebrow mb-3">Gear</p>
+            <h1 className="display-xl text-foreground">{item.name}</h1>
+            {showIdentityLine && (
+              <p className="mt-3 text-[0.975rem] text-muted-foreground">{identityLine}</p>
+            )}
+            <p className="mt-4 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.95rem] text-muted-foreground">
+              <span>
+                Added{" "}
+                <span className="data-mono text-foreground">
+                  {new Date(item.createdAt).toLocaleDateString()}
                 </span>
+              </span>
+              <span aria-hidden className="text-muted-foreground/40">·</span>
+              <span className={item.inInventory ? "text-foreground" : "text-muted-foreground"}>
+                {item.inInventory ? "In inventory" : "Catalog only"}
+              </span>
+              <span aria-hidden className="text-muted-foreground/40">·</span>
+              <span>
+                <span className="data-mono text-foreground">{satisfied.length}</span>{" "}
+                {satisfied.length === 1 ? "capability" : "capabilities"}
+              </span>
+              {verifyCount > 0 && (
+                <>
+                  <span aria-hidden className="text-muted-foreground/40">·</span>
+                  <span className="text-accent">
+                    <span className="data-mono">{verifyCount}</span> to verify
+                  </span>
+                </>
+              )}
+              {priceDollars !== null && (
+                <>
+                  <span aria-hidden className="text-muted-foreground/40">·</span>
+                  <span className="data-mono text-foreground">${priceDollars.toFixed(2)}</span>
+                </>
               )}
             </p>
           </div>
+
           {/* Write affordances — hidden for a guest (their actions are write-gated behind requireUserId). */}
           {!isGuest && (
             <div className="flex shrink-0 gap-2">
@@ -136,108 +167,143 @@ export default async function ItemDetailPage({
               </form>
               <form action={deleteItemAction}>
                 <input type="hidden" name="id" value={item.id} />
-                <ConfirmButton message="Delete this item?" type="submit" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+                <ConfirmButton
+                  message="Delete this item?"
+                  type="submit"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                >
                   Delete
                 </ConfirmButton>
               </form>
             </div>
           )}
         </div>
-      </div>
 
-      {searchParams.facetError && (
-        <p className="surface-well border-l-2 border-destructive px-3 py-2 text-xs text-destructive">
-          {searchParams.facetError}
-        </p>
+        {searchParams.facetError && (
+          <p className="panel border-l-2 border-l-accent bg-accent/5 px-4 py-3 text-sm leading-relaxed text-accent">
+            {searchParams.facetError}
+          </p>
+        )}
+      </header>
+
+      {/* ── Capabilities — the headline outcome of the facets ── */}
+      <section>
+        <SectionHead title="Capabilities" count={satisfied.length} />
+        {satisfied.length > 0 && (
+          <div className="mb-4">
+            <p className="eyebrow mb-2.5">Satisfies</p>
+            <div className="flex flex-wrap gap-1.5">
+              {satisfied.map(({ cap, label }) => (
+                <Badge key={cap} variant="success">{label}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+        {verify.length > 0 && (
+          <div>
+            <p className="eyebrow mb-2.5 text-accent">Unknown — verify before relying on</p>
+            <div className="flex flex-wrap gap-1.5">
+              {verify.map(({ cap, label }) => (
+                <Badge key={cap} variant="verify">{label}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+        {satisfied.length === 0 && verify.length === 0 && (
+          <p className="text-[0.95rem] leading-relaxed text-muted-foreground">
+            No capabilities confirmed yet — many facets may be unknown. Correct them below to unlock more.
+          </p>
+        )}
+      </section>
+
+      {/* ── Identity ── */}
+      <section>
+        <SectionHead title="Identity" />
+        <div className="panel px-5 py-1">
+          <SpecRow e={c.identity.brand} label="Brand" />
+          <SpecRow e={c.identity.model} label="Model" />
+          {priceDollars !== null && (
+            <SpecRow
+              e={{ ...c.identity.price_cents, value: `$${priceDollars.toFixed(2)}` }}
+              label="Price"
+            />
+          )}
+          <SpecRow e={c.identity.weight_grams} label="Weight (g)" />
+        </div>
+      </section>
+
+      {/* ── Materials & composition ── */}
+      {(c.materials.length > 0 || c.treatments.length > 0) && (
+        <section>
+          <SectionHead
+            title="Material & composition"
+            count={c.materials.length + c.treatments.length || undefined}
+          />
+          {c.materials.length > 0 && (
+            <div className="panel mb-4 px-5 py-1">
+              {c.materials.map((m, i) => (
+                <div
+                  key={i}
+                  className="border-b border-border/60 py-3 text-sm leading-relaxed text-foreground last:border-0"
+                >
+                  <span className="font-medium capitalize">{m.role}</span>
+                  {m.name ? <span className="text-muted-foreground"> — {m.name}</span> : ""}
+                  {m.fiber_components.length > 0 && (
+                    <span className="data-mono text-[0.8125rem] text-muted-foreground">
+                      {" "}
+                      ({m.fiber_components
+                        .map((fc) => `${fc.fiber}${fc.pct != null ? ` ${fc.pct}%` : ""}`)
+                        .join(", ")})
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {c.treatments.length > 0 && (
+            <div className="panel px-5 py-1">
+              {c.treatments.map((t, i) => (
+                <div
+                  key={i}
+                  className="border-b border-border/60 py-3 text-sm leading-relaxed text-foreground last:border-0"
+                >
+                  <span className="font-medium capitalize">{t.kind.replace(/_/g, " ")}</span>
+                  {t.condition ? (
+                    <span className="text-muted-foreground"> ({t.condition.replace(/_/g, " ")})</span>
+                  ) : (
+                    ""
+                  )}
+                  <span className="text-muted-foreground"> — {t.evidence}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
-      {/* Capabilities — the hero data block, a raised bezel plate */}
-      <Card variant="bezel">
-        <CardHeader>
-          <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-            <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·A</span>
-            Capabilities
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {satisfied.length > 0 && (
-            <div>
-              <p className="data-mono mb-1.5 text-[0.625rem] uppercase tracking-wide text-muted-foreground">Satisfies</p>
-              <div className="flex flex-wrap gap-1.5">
-                {satisfied.map(({ cap, label }) => (
-                  <Badge key={cap} variant="success">{label}</Badge>
-                ))}
-              </div>
-            </div>
-          )}
-          {verify.length > 0 && (
-            <div>
-              <p className="data-mono mb-1.5 text-[0.625rem] uppercase tracking-wide text-blaze">Unknown — verify before relying on</p>
-              <div className="flex flex-wrap gap-1.5">
-                {verify.map(({ cap, label }) => (
-                  <Badge key={cap} variant="verify">{label}</Badge>
-                ))}
-              </div>
-            </div>
-          )}
-          {satisfied.length === 0 && verify.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              No capabilities confirmed. Check facets — many may be unknown.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      {/* ── Universal facets ── */}
+      <section>
+        <SectionHead title="Universal facets" />
+        <div className="panel px-5 py-1">
+          <SpecRow e={c.universal.waterproofness} label="Waterproofness" />
+          <SpecRow e={c.universal.wind_resistance} label="Wind resistance" />
+          <SpecRow e={c.universal.breathability} label="Breathability" />
+          <SpecRow e={c.universal.moisture_management} label="Moisture management" />
+          <SpecRow e={c.universal.dry_speed} label="Dry speed" />
+          <SpecRow e={c.universal.warmth_when_wet} label="Warmth when wet" />
+          <SpecRow e={c.universal.warmth} label="Warmth" />
+          <SpecRow e={c.universal.packability} label="Packability" />
+          <SpecRow e={c.universal.technical_vs_lifestyle} label="Technical vs lifestyle" />
+          <SpecRow e={c.universal.upf} label="UPF" />
+        </div>
+      </section>
 
-      {/* Identity */}
-      <Card variant="well">
-        <CardHeader>
-          <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-            <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·B</span>
-            Identity
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {renderEvidence(c.identity.brand, "Brand")}
-          {renderEvidence(c.identity.model, "Model")}
-          {c.identity.price_cents.value !== null && renderEvidence(
-            { ...c.identity.price_cents, value: `$${(c.identity.price_cents.value / 100).toFixed(2)}` },
-            "Price",
-          )}
-          {renderEvidence(c.identity.weight_grams, "Weight (g)")}
-        </CardContent>
-      </Card>
-
-      {/* Universal soft facets */}
-      <Card variant="well">
-        <CardHeader>
-          <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-            <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·C</span>
-            Universal facets
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {renderEvidence(c.universal.waterproofness, "Waterproofness")}
-          {renderEvidence(c.universal.wind_resistance, "Wind resistance")}
-          {renderEvidence(c.universal.breathability, "Breathability")}
-          {renderEvidence(c.universal.moisture_management, "Moisture management")}
-          {renderEvidence(c.universal.dry_speed, "Dry speed")}
-          {renderEvidence(c.universal.warmth_when_wet, "Warmth when wet")}
-          {renderEvidence(c.universal.warmth, "Warmth")}
-          {renderEvidence(c.universal.packability, "Packability")}
-          {renderEvidence(c.universal.technical_vs_lifestyle, "Technical vs lifestyle")}
-          {renderEvidence(c.universal.upf, "UPF")}
-        </CardContent>
-      </Card>
-
-      {/* Multi-label facets */}
-      <Card variant="well">
-        <CardHeader>
-          <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-            <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·D</span>
-            Multi-label facets
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      {/* ── Multi-label facets ── */}
+      <section>
+        <SectionHead title="Function & fit" />
+        <div className="panel space-y-4 p-5">
           {(
             [
               ["Layering role", c.multilabel.layering_role],
@@ -248,10 +314,10 @@ export default async function ItemDetailPage({
             ] as [string, readonly string[]][]
           ).map(([label, vals]) => (
             <div key={label}>
-              <p className="data-mono mb-1 text-[0.625rem] uppercase tracking-wide text-muted-foreground">{label}</p>
-              <div className="flex flex-wrap gap-1">
+              <p className="eyebrow mb-2">{label}</p>
+              <div className="flex flex-wrap gap-1.5">
                 {vals.length === 0 ? (
-                  <span className="data-mono text-[0.6875rem] uppercase tracking-wide text-blaze">None — verify</span>
+                  <span className="text-sm italic text-accent">None — verify</span>
                 ) : (
                   vals.map((v) => (
                     <Badge key={v} variant="subtle">{titleize(v)}</Badge>
@@ -260,111 +326,54 @@ export default async function ItemDetailPage({
               </div>
             </div>
           ))}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      {/* Domain groups */}
+      {/* ── Domain groups — group-specific specs ── */}
       {c.applicable_groups.length > 0 && (
-        <Card variant="well">
-          <CardHeader>
-            <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-              <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·E</span>
-              Domain groups
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <section>
+          <SectionHead title="Group-specific specs" />
+          <div className="space-y-6">
             {c.applicable_groups.map((gk) => {
               const grp = c.groups[gk as keyof typeof c.groups];
               if (!grp) return null;
               return (
                 <div key={gk}>
-                  <p className="label-structural mb-2 text-[0.625rem] text-muted-foreground">{gk.replace(/_/g, " ")}</p>
-                  <div className="space-y-1.5">
-                    {Object.entries(grp).map(([fk, fv]) =>
-                      renderEvidence(fv as EvidenceAny, titleize(fk)),
-                    )}
+                  <p className="eyebrow mb-2">{titleize(gk)}</p>
+                  <div className="panel px-5 py-1">
+                    {Object.entries(grp).map(([fk, fv]) => (
+                      <SpecRow key={fk} e={fv as EvidenceAny} label={titleize(fk)} />
+                    ))}
                   </div>
                 </div>
               );
             })}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
-      {/* Materials */}
-      {c.materials.length > 0 && (
-        <Card variant="well">
-          <CardHeader>
-            <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-              <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·F</span>
-              Materials
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {c.materials.map((m, i) => (
-              <div key={i} className="border-b border-seam/40 pb-2 text-xs text-foreground last:border-0 last:pb-0">
-                <span className="font-medium capitalize">{m.role}</span>
-                {m.name ? ` — ${m.name}` : ""}
-                {m.fiber_components.length > 0 && (
-                  <span className="data-mono text-muted-foreground">
-                    {" "}({m.fiber_components.map((fc) => `${fc.fiber}${fc.pct != null ? ` ${fc.pct}%` : ""}`).join(", ")})
-                  </span>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Treatments */}
-      {c.treatments.length > 0 && (
-        <Card variant="well">
-          <CardHeader>
-            <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-              <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·G</span>
-              Treatments
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            {c.treatments.map((t, i) => (
-              <div key={i} className="text-xs text-foreground">
-                <span className="font-medium">{t.kind.replace(/_/g, " ")}</span>
-                {t.condition ? ` (${t.condition.replace(/_/g, " ")})` : ""}
-                <span className="text-muted-foreground">{" — "}{t.evidence}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Facet editor — interactive action plate (raised bezel). Hidden for a guest (correction is a write).
-          A guest sees a read-only invitation to log in to correct facets instead. */}
-      {!isGuest ? (
-        <Card variant="bezel">
-          <CardContent className="pt-4">
-            <FacetEditor
-              itemId={item.id}
-              classification={c}
-              action={updateFacetsAction}
-              defaultOpen={searchParams.edit === "1"}
-            />
-          </CardContent>
-        </Card>
-      ) : (
-        <Card variant="well">
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <p className="data-mono text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
-              Correcting facets requires an account.
-            </p>
+      {/* ── Facet editor — correction is a write; hidden for a guest, who gets a log-in invite. ── */}
+      <section>
+        <SectionHead title="Correct facets" />
+        {!isGuest ? (
+          <FacetEditor
+            itemId={item.id}
+            classification={c}
+            action={updateFacetsAction}
+            defaultOpen={searchParams.edit === "1"}
+          />
+        ) : (
+          <div className="panel flex flex-wrap items-center justify-between gap-3 bg-muted/40 p-5">
+            <p className="text-sm text-muted-foreground">Correcting facets requires an account.</p>
             <Link
               href={`/login?next=${encodeURIComponent(`/items/${item.id}`)}`}
-              className="label-structural surface-bezel text-stamped px-4 py-2 text-[0.6875rem] [background-color:hsl(var(--primary))] [color:hsl(var(--primary-foreground))] transition-[filter] duration-150 ease-crisp hover:brightness-110"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92"
             >
               Log in to edit
             </Link>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

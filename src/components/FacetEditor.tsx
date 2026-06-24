@@ -15,6 +15,7 @@ import {
   type EditableFacet,
 } from "@/core/corrections";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 
@@ -53,32 +54,32 @@ function readMultiValue(c: ItemClassification, path: string): string[] {
   return [];
 }
 
-/** Render a single editable scalar facet field. */
+/** Render a single editable scalar facet field — editorial Input / Select. */
 function ScalarField({ facet, value }: { facet: EditableFacet; value: string | number | null }) {
   const isNumeric = facet.tier === "hard_int" || facet.tier === "hard_num" || facet.tier === "soft_num";
   if (isNumeric) {
     return (
-      <div className="space-y-1">
-        <Label className="text-[0.625rem]">{facet.label}</Label>
-        <input
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">{facet.label}</Label>
+        <Input
           type="number"
           name={facet.path}
           defaultValue={value !== null ? String(value) : ""}
           step={facet.tier === "hard_int" ? "1" : "any"}
           placeholder="Unknown"
-          className="h-8 w-full rounded-sm border border-input bg-background px-2 font-mono text-xs text-foreground shadow-press-in transition-[border-color] duration-150 ease-crisp placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+          className="data-mono h-10"
         />
       </div>
     );
   }
   // enum (soft_enum / hard_enum)
   return (
-    <div className="space-y-1">
-      <Label className="text-[0.625rem]">{facet.label}</Label>
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">{facet.label}</Label>
       <Select
         name={facet.path}
         defaultValue={value !== null ? String(value) : "unknown"}
-        className="text-xs h-8"
+        className="h-10"
       >
         <option value="unknown">Unknown</option>
         {(facet.vocab ?? []).map((v) => (
@@ -111,107 +112,98 @@ export function FacetEditor({ itemId, classification, action, defaultOpen }: Fac
     groupSections.set(f.group, arr);
   }
 
+  if (!open) {
+    return (
+      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+        Correct facets
+      </Button>
+    );
+  }
+
   return (
-    <div className="mt-4">
-      {!open ? (
+    <div className="panel bg-muted/40 p-5 sm:p-6">
+      <div className="mb-5 flex items-baseline gap-4 border-b border-border pb-3">
+        <h3 className="display-md text-foreground">Edit facets</h3>
+        <span className="h-px flex-1 bg-border" aria-hidden />
         <button
           type="button"
-          onClick={() => setOpen(true)}
-          className="label-structural surface-rail text-stamped px-2.5 py-1.5 text-[0.625rem] text-foreground transition-[filter] duration-150 ease-crisp hover:brightness-[1.06]"
+          onClick={() => setOpen(false)}
+          className="text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
-          Correct facets
+          Cancel
         </button>
-      ) : (
-        <div className="surface-well relative p-4">
-          <div className="mb-4 flex items-center justify-between border-b border-seam/40 pb-2">
-            <h3 className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-              <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·H</span>
-              Edit facets
-            </h3>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="label-structural text-[0.625rem] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Cancel
-            </button>
+      </div>
+      <form action={action} className="space-y-7">
+        <input type="hidden" name="id" value={itemId} />
+
+        {/* Universal section */}
+        <section>
+          <p className="eyebrow mb-3">Universal</p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {EDITABLE_UNIVERSAL.map((facet) => {
+              const value = readScalarValue(classification, facet.path);
+              return <ScalarField key={facet.path} facet={facet} value={value} />;
+            })}
           </div>
-          <form action={action} className="space-y-5">
-            <input type="hidden" name="id" value={itemId} />
+        </section>
 
-            {/* Universal section */}
-            <section>
-              <h4 className="label-structural mb-2 text-[0.625rem] text-muted-foreground">
-                Universal
-              </h4>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {EDITABLE_UNIVERSAL.map((facet) => {
-                  const value = readScalarValue(classification, facet.path);
-                  return <ScalarField key={facet.path} facet={facet} value={value} />;
-                })}
-              </div>
-            </section>
-
-            {/* Group sections — only for groups this item carries */}
-            {Array.from(groupSections.entries()).map(([groupKey, facets]) => (
-              <section key={groupKey}>
-                <h4 className="label-structural mb-2 text-[0.625rem] text-muted-foreground">
-                  {titleize(groupKey)} specs
-                </h4>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {facets.map((facet) => {
-                    const value = readScalarValue(classification, facet.path);
-                    return <ScalarField key={facet.path} facet={facet} value={value} />;
-                  })}
-                </div>
-              </section>
-            ))}
-
-            {/* Multi-label section */}
-            <section>
-              <h4 className="label-structural mb-2 text-[0.625rem] text-muted-foreground">
-                Multi-label
-              </h4>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {EDITABLE_MULTILABEL.map((facet) => {
-                  const current = readMultiValue(classification, facet.path);
-                  return (
-                    <div key={facet.path}>
-                      <p className="mb-1.5 text-xs font-medium text-foreground">{facet.label}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {(facet.vocab ?? []).map((v) => (
-                          <label key={v} className="flex cursor-pointer items-center gap-1.5 font-mono text-[0.6875rem] text-muted-foreground">
-                            <input
-                              type="checkbox"
-                              name={facet.path}
-                              value={v}
-                              defaultChecked={current.includes(v)}
-                              className="h-3 w-3 rounded-none accent-blaze"
-                            />
-                            {titleize(v)}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <div className="flex gap-2 pt-1">
-              <Button type="submit" size="sm">Save corrections</Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
+        {/* Group sections — only for groups this item carries */}
+        {Array.from(groupSections.entries()).map(([groupKey, facets]) => (
+          <section key={groupKey}>
+            <p className="eyebrow mb-3">{titleize(groupKey)} specs</p>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {facets.map((facet) => {
+                const value = readScalarValue(classification, facet.path);
+                return <ScalarField key={facet.path} facet={facet} value={value} />;
+              })}
             </div>
-          </form>
+          </section>
+        ))}
+
+        {/* Multi-label section */}
+        <section>
+          <p className="eyebrow mb-3">Multi-label</p>
+          <div className="grid gap-5 sm:grid-cols-2">
+            {EDITABLE_MULTILABEL.map((facet) => {
+              const current = readMultiValue(classification, facet.path);
+              return (
+                <div key={facet.path}>
+                  <p className="mb-2 text-sm font-medium text-foreground">{facet.label}</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-2">
+                    {(facet.vocab ?? []).map((v) => (
+                      <label
+                        key={v}
+                        className="flex cursor-pointer items-center gap-2 text-[0.8125rem] text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <input
+                          type="checkbox"
+                          name={facet.path}
+                          value={v}
+                          defaultChecked={current.includes(v)}
+                          className="h-3.5 w-3.5 rounded-sm border-input accent-primary"
+                        />
+                        {titleize(v)}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <div className="flex gap-3 pt-1">
+          <Button type="submit" size="sm">Save corrections</Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
         </div>
-      )}
+      </form>
     </div>
   );
 }
