@@ -175,15 +175,20 @@ export async function addItemAction(formData: FormData) {
 const SUPPORTED_MFR_HINT =
   "We can only pull from supported manufacturers right now (Patagonia, Arc'teryx, REI, The North Face, Black Diamond, Marmot).";
 const GENERIC_ENRICH_HINT = "Couldn't read that page automatically — try adding it by name.";
+const NO_SIGNAL_HINT =
+  "We loaded that page but couldn't find any product details to import — add the item by name instead.";
 
 /**
- * Map an `enrichFromUrlToDraft` failure reason to a friendly, user-facing message. The fetcher prefixes
- * its reasons (`url-shape:` for a non-allowlisted / malformed URL; `private-ip:`/`http:`/`content-type:`/
- * `size:`/`timeout:`/`network:`/`redirect:`/`dns:`/`read:` for everything else). A shape/allowlist
- * rejection means "unsupported manufacturer"; anything else is an opaque read failure → add-by-name.
+ * Map an `enrichFromUrlToDraft` failure reason to a friendly, user-facing message. The reason is prefixed:
+ * `url-shape:` (non-allowlisted / malformed URL) → unsupported manufacturer; `no-signal:` (page reached
+ * but no machine-readable product data — bot-challenge / JS-only catalog / non-product page) → a distinct
+ * "reached it but nothing to import" message; everything else (`private-ip:`/`http:`/`content-type:`/
+ * `size:`/`timeout:`/`network:`/`redirect:`/`dns:`/`read:`) is an opaque read failure → add-by-name.
  */
 function friendlyEnrichError(reason: string): string {
-  return reason.startsWith("url-shape:") ? SUPPORTED_MFR_HINT : GENERIC_ENRICH_HINT;
+  if (reason.startsWith("url-shape:")) return SUPPORTED_MFR_HINT;
+  if (reason.startsWith("no-signal:")) return NO_SIGNAL_HINT;
+  return GENERIC_ENRICH_HINT;
 }
 
 const EnrichUrlInput = z.object({

@@ -99,19 +99,18 @@ describe("enrichFromUrlToDraft — DEGRADED classify path never loses authoritat
   });
 });
 
-describe("enrichFromUrlToDraft — junk page (no product signal) still drafts honestly", () => {
-  it("no manufacturer signal + throwing classifier → an all-unknown draft, nothing fabricated", async () => {
+describe("enrichFromUrlToDraft — page with NO product signal fails honestly, creates NO draft", () => {
+  it("no manufacturer signal → { ok:false, reason:'no-signal…' }, no junk 'Item from host' draft", async () => {
     const userId = randomUUID();
     const result = await enrichFromUrlToDraft(userId, "https://www.patagonia.com/x", {
       fetchHtml: okFetcher(fixture("no-product.html")),
       classify: throwingClassifier,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const item = await getItem(result.draftId, userId);
-    const c = item!.classification;
-    expect(c.identity.brand.value).toBeNull();
-    expect(c.materials).toEqual([]);
-    expect(c.universal.warmth.value).toBeNull();
+    // The "returned zero fields" symptom: a page with nothing machine-readable must NOT silently produce
+    // an all-unknown draft. It fails honestly (ok:false, no draftId) so the action shows an add-by-name
+    // hint instead of redirecting the user to a zero-field review page — never reaching addItem.
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/^no-signal:/);
   });
 });

@@ -257,6 +257,16 @@ export async function enrichFromUrlToDraft(
   const extracted = parseProductHtml(fetched.html);
   const enrichment = toManufacturerEvidence(extracted);
 
+  // HONEST no-signal guard: the page fetched + parsed cleanly but carried NO authoritative product data
+  // — no identity (brand/model/price/weight) and no composition (`hasSignal === false`). This is the
+  // bot-challenge page, the JS-only catalog, or a non-product URL. Do NOT manufacture a junk
+  // "Item from <host>" draft with every field unknown (the "returned zero fields" symptom the user hit);
+  // fail honestly so the action steers them to add-by-name, which classifies a real, typed product name.
+  // (Distinct from DEGRADED classify below: there the manufacturer signal IS present and is preserved.)
+  if (!enrichment.hasSignal) {
+    return { ok: false, reason: "no-signal: the page had no readable product details" };
+  }
+
   // Build the classify input from the manufacturer-stated facts: name = brand + model when present,
   // text = the stated composition / specs so the LLM infers behavioral facets from real evidence.
   const name = manufacturerName(enrichment.identity.brand.value, enrichment.identity.model.value, url);
