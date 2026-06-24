@@ -1,13 +1,14 @@
 // Application service — the thin layer the UI (pages, actions) calls. Ties the repository to the pure
 // core (resolve, group, plan). Pages never import core reasoning directly; they go through here.
 
-import { getRepository, getCacheRepository, getClassifier, getTripParser, DEFAULT_USER_ID, type Classifier } from "./services";
+import { getRepository, getRepositoryFor, getCacheRepository, getClassifier, getTripParser, DEFAULT_USER_ID, type Classifier } from "./services";
 import { fetchManufacturerHtml, type FetcherDeps } from "./enrich-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
 import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
+import type { RecommendationResult } from "@/core/recommend";
 import { deriveFromComposition } from "@/core/materials";
 import {
   resolveBehavioralFacets,
@@ -34,16 +35,18 @@ export function resolveItem(i: StoredItem): ResolvedItem {
 }
 
 export async function getAllItems(userId = DEFAULT_USER_ID): Promise<StoredItem[]> {
-  return getRepository().listItems(userId);
+  return getRepositoryFor(userId).listItems(userId);
 }
 
 export async function getItem(id: string, userId = DEFAULT_USER_ID): Promise<StoredItem | null> {
-  return getRepository().getItem(userId, id);
+  return getRepositoryFor(userId).getItem(userId, id);
 }
 
-/** The closet = owned, confirmed items. Drafts (awaiting review) are excluded. */
+/** The closet = owned, confirmed items. Drafts (awaiting review) are excluded.
+ *  Reads route through `getRepositoryFor(userId)` so a GUEST_USER_ID is served the seeded sample closet
+ *  from the in-memory repo even when DATABASE_URL is set — a guest never reads Postgres. */
 export async function getInventory(userId = DEFAULT_USER_ID): Promise<StoredItem[]> {
-  return (await getRepository().listItems(userId)).filter((i) => i.inInventory && !i.draft);
+  return (await getRepositoryFor(userId).listItems(userId)).filter((i) => i.inInventory && !i.draft);
 }
 
 export async function getInventoryResolved(userId = DEFAULT_USER_ID): Promise<ResolvedItem[]> {
@@ -66,6 +69,26 @@ export async function planAndSave(
   const inv = await getInventoryResolved(userId);
   const result = planTrip(inv, name, conditions, description);
   return getRepository().saveTrip(userId, { name, description, conditions, result });
+}
+
+/**
+ * Plan a trip WITHOUT persisting it — the READ-ONLY path for the demo funnel (a guest, or a logged-in
+ * user previewing before saving). Resolves the userId's inventory through `getInventoryResolved` (which
+ * routes a GUEST_USER_ID to the seeded in-memory closet via `getRepositoryFor`) and returns the same
+ * `RecommendationResult` the real engine produces over that closet — no `saveTrip`, no DB write.
+ *
+ * The reasoning is identical to `planAndSave`'s plan step (same `planTrip` over the same resolved
+ * inventory); only the persistence is dropped. A guest preview therefore runs the REAL engine over the
+ * SEED_CORPUS, surfacing genuine gaps (no hardcoding).
+ */
+export async function planPreview(
+  name: string,
+  conditions: TripConditions,
+  description: string | undefined,
+  userId = DEFAULT_USER_ID,
+): Promise<RecommendationResult> {
+  const inv = await getInventoryResolved(userId);
+  return planTrip(inv, name, conditions, description);
 }
 
 // ---- add-by-name (review-before-save) ----
