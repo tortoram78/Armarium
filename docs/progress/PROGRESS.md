@@ -3,6 +3,44 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (Phase 3 step 1 addendum) — Demo guest funnel: ADR-0016 recorded
+
+Design decision recorded. Code implementation (new `GUEST_USER_ID` constant, `getUserIdOrGuest()`
+helper, in-memory repo selector for guest reads, plan-preview save-wall UI, conditions-as-prefill
+login redirect) follows — owned by core-reasoning-owner (helper + constant), schema-db-owner (repo
+selector), and web-ui-owner (UI wall + prefill wiring).
+
+**What this enables:** an unauthenticated visitor, when Supabase auth IS configured in the build,
+can browse a seeded sample closet (the `SEED_CORPUS` under `GUEST_USER_ID`), open the plan form,
+enter trip conditions, and see a real packing recommendation. Every write surface remains gated by
+the existing `requireUserId()` — no changes to write paths. The "log in to save" button on the
+plan preview carries the entered conditions to `/login?next=/plan&conditions=<encoded>` so the plan
+form is pre-filled after sign-in.
+
+**Key design points:**
+
+- `GUEST_USER_ID` — a reserved constant UUID, distinct from `DEFAULT_USER_ID`. Never touches
+  Postgres; only lives in the in-memory repo. `DEFAULT_USER_ID` (dev passthrough) is unchanged.
+- `getUserIdOrGuest()` — new helper; returns `{ userId, isGuest }`. Returns `GUEST_USER_ID +
+  isGuest:true` only when auth is configured AND there is no session. Returns `DEFAULT_USER_ID +
+  isGuest:false` in dev (unconfigured) mode. `requireUserId()` is unchanged.
+- Guest reads are forced onto the in-memory repo even when `DATABASE_URL` is set — `GUEST_USER_ID`
+  never appears in Postgres. The `user_id` invariant (architecture rule #4, ADR-0008) is fully
+  preserved.
+- The sample closet is `SEED_CORPUS` seeded under `GUEST_USER_ID` — real data reasoned over by
+  the real `planTrip` engine. No hardcoded picks; no special-case logic. Architecture rule #1 holds.
+- **Work survival on login = conditions-as-prefill, not auto-`planAndSave`.** The encoded conditions
+  param is the foundation for a future auto-save bridge, but the bridge itself is deferred: the
+  prefill approach avoids a non-idempotent on-login side-effect and the complexity of surviving the
+  `@supabase/ssr` redirect round-trip reliably.
+- **Guest mode only manifests in a build WITH Supabase env vars.** `NEXT_PUBLIC_*` vars are inlined
+  at build time; in the dev / gauntlet build (no Supabase vars), `isAuthConfigured()` is false and
+  the dev passthrough runs. The hermetic gauntlet is unaffected.
+
+**ADR recorded:** [ADR-0016](../decisions/0016-demo-guest-funnel.md)
+
+---
+
 ## 2026-06-24 (Phase 3 step 3) — Weather auto-conditions: design + ADR-0015 recorded
 
 Design and ADR recorded. Code implementation by core-reasoning-owner (pure derivation logic +
