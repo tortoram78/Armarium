@@ -43,12 +43,15 @@ export default function SignupPage({
 
   return (
     <AuthCard
-      tagline="Create an account to start building your closet."
-      code="UP"
+      heading="Create your closet"
+      tagline="Set up an account to start building your gear closet."
       footer={
         <>
           Already have an account?{" "}
-          <Link href={loginHref} className="font-medium text-blaze underline-offset-4 hover:underline">
+          <Link
+            href={loginHref}
+            className="font-medium text-foreground underline-offset-4 transition-colors hover:text-accent hover:underline"
+          >
             Sign in
           </Link>
         </>

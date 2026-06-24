@@ -69,12 +69,15 @@ async function forgotPasswordAction(formData: FormData): Promise<{ error: string
 export default function ForgotPasswordPage() {
   return (
     <AuthCard
-      tagline="Recover access to your gear closet."
-      code="RX"
+      heading="Reset your password"
+      tagline="Enter your email and we'll send a link to get you back in."
       footer={
         <>
           Remembered it?{" "}
-          <Link href="/login" className="font-medium text-blaze underline-offset-4 hover:underline">
+          <Link
+            href="/login"
+            className="font-medium text-foreground underline-offset-4 transition-colors hover:text-accent hover:underline"
+          >
             Sign in
           </Link>
         </>
