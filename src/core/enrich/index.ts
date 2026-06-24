@@ -25,3 +25,5 @@ export {
   toManufacturerEvidence,
   type ManufacturerEnrichment,
 } from "./to-evidence";
+
+export { applyManufacturerOverlay, unknownBehavioralClassification } from "./merge";

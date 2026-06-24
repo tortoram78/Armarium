@@ -1,12 +1,20 @@
 // Application service — the thin layer the UI (pages, actions) calls. Ties the repository to the pure
 // core (resolve, group, plan). Pages never import core reasoning directly; they go through here.
 
-import { getRepository, getCacheRepository, getClassifier, getTripParser, DEFAULT_USER_ID } from "./services";
+import { getRepository, getCacheRepository, getClassifier, getTripParser, DEFAULT_USER_ID, type Classifier } from "./services";
+import { fetchManufacturerHtml, type FetcherDeps } from "./enrich-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
 import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
+import {
+  parseProductHtml,
+  toManufacturerEvidence,
+  applyManufacturerOverlay,
+  unknownBehavioralClassification,
+  type ExtractedProduct,
+} from "@/core/enrich";
 import type { TripConditions } from "@/core/conditions";
 import type { ItemClassification } from "@/core/classification";
 import type { StoredItem, StoredTrip } from "@/core/ports";
@@ -80,6 +88,102 @@ export async function classifyToDraft(
 
   const item = await getRepository().addItem(userId, { name, inInventory, draft: true, rawText: text, classification });
   return { item, mode: classifierMode(), fromCache: Boolean(cached) };
+}
+
+// ---- add-by-manufacturer-URL (review-before-save; authoritative enrichment) ----
+
+export type EnrichResult = { ok: true; draftId: string } | { ok: false; reason: string };
+
+/** Test seam: the network fetcher + the classifier are injectable so the orchestration is hermetic. */
+export interface EnrichDeps {
+  /** Defaults to the real SSRF-safe `fetchManufacturerHtml`. Passed `deps.fetcher` for a fixture in tests. */
+  fetchHtml?: (url: string) => ReturnType<typeof fetchManufacturerHtml>;
+  /** Defaults to the env-selected classifier from `getClassifier()`. */
+  classify?: Classifier;
+  /** Forwarded to the default fetcher (injected `fetchImpl`/`lookup`) when `fetchHtml` is not overridden. */
+  fetcherDeps?: FetcherDeps;
+}
+
+/**
+ * Add an item by pasting a MANUFACTURER PRODUCT URL: safely fetch + parse the page, classify the item,
+ * then overlay the authoritative manufacturer facts ON TOP of the LLM's inference (manufacturer wins —
+ * rule #2). Stores the result as a DRAFT for review and returns its id.
+ *
+ * Failure modes are returned as `{ ok:false, reason }`, never thrown:
+ *   - the fetcher's prefixed reason (`url-shape:`/`private-ip:`/`http:`/`content-type:`/`size:`/…) is
+ *     surfaced verbatim so the action can map it to a friendly message.
+ *   - DEGRADED CLASSIFY: the offline classifier throws on items outside the prototype corpus (no API
+ *     key). We CATCH that and still build a draft from the manufacturer facts overlaid on an
+ *     all-unknown-behavioral scaffold — authoritative composition is NEVER lost just because the
+ *     behavioral classifier was unavailable. (A *fetch* failure still aborts with no draft; only the
+ *     classify step degrades.)
+ */
+export async function enrichFromUrlToDraft(
+  userId: string,
+  url: string,
+  deps: EnrichDeps = {},
+): Promise<EnrichResult> {
+  const fetchHtml = deps.fetchHtml ?? ((u: string) => fetchManufacturerHtml(u, deps.fetcherDeps));
+
+  const fetched = await fetchHtml(url);
+  if (!fetched.ok) return { ok: false, reason: fetched.reason };
+
+  // Pure extraction → validated manufacturer overlay. Never throws on arbitrary HTML.
+  const extracted = parseProductHtml(fetched.html);
+  const enrichment = toManufacturerEvidence(extracted);
+
+  // Build the classify input from the manufacturer-stated facts: name = brand + model when present,
+  // text = the stated composition / specs so the LLM infers behavioral facets from real evidence.
+  const name = manufacturerName(enrichment.identity.brand.value, enrichment.identity.model.value, url);
+  const text = manufacturerDetailText(extracted);
+
+  const classify = deps.classify ?? getClassifier().classify;
+
+  let classification: ItemClassification;
+  try {
+    classification = await classify({ name, text });
+    classification = applyManufacturerOverlay(classification, enrichment);
+  } catch {
+    // DEGRADED PATH: no behavioral classifier could run (offline + unknown item). Preserve the
+    // authoritative manufacturer facts on an honest all-unknown-behavioral scaffold rather than failing.
+    classification = applyManufacturerOverlay(unknownBehavioralClassification(name), enrichment);
+  }
+
+  const item = await getRepository().addItem(userId, {
+    name,
+    inInventory: true,
+    draft: true,
+    rawText: text,
+    classification,
+  });
+  return { ok: true, draftId: item.id };
+}
+
+/** Prefer "Brand Model"; fall back to model or brand alone; last resort, a label from the URL host. */
+function manufacturerName(brand: string | null, model: string | null, url: string): string {
+  const parts = [brand, model].filter((s): s is string => Boolean(s && s.trim()));
+  if (parts.length > 0) return parts.join(" ");
+  try {
+    return `Item from ${new URL(url).hostname}`;
+  } catch {
+    return "Item from manufacturer URL";
+  }
+}
+
+/** Compose the source-faithful detail string fed to the classifier (composition + weight + price). */
+function manufacturerDetailText(p: ExtractedProduct): string | undefined {
+  const lines: string[] = [];
+  if (p.material_raw) lines.push(`Composition: ${p.material_raw}`);
+  if (p.weight_grams != null) lines.push(`Weight: ${p.weight_grams} g`);
+  if (p.price_cents != null) {
+    lines.push(`Price: ${(p.price_cents / 100).toFixed(2)} ${p.price_currency ?? ""}`.trim());
+  }
+  for (const s of p.specs) {
+    if (s && typeof s.name === "string" && typeof s.value === "string") {
+      lines.push(`${s.name}: ${s.value}`);
+    }
+  }
+  return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
 /** Promote a reviewed draft into the closet. The confirmation endorses its classification into the KB. */

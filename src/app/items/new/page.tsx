@@ -1,4 +1,4 @@
-import { addItemAction } from "@/app/actions";
+import { addItemAction, enrichFromUrlAction } from "@/app/actions";
 import { getClassifier } from "@/server/services";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Input } from "@/components/ui/input";
@@ -81,6 +81,44 @@ export default function NewItemPage({ searchParams }: { searchParams: { error?: 
               </p>
             ) : null}
             <SubmitButton pendingText="Classifying…">Classify &amp; save</SubmitButton>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* ── seam divider with a stencilled "OR" ── */}
+      <div className="flex items-center gap-3" aria-hidden>
+        <span className="h-px flex-1 bg-seam/60" />
+        <span className="hud-readout text-[0.625rem] tracking-[0.2em] text-muted-foreground">OR</span>
+        <span className="h-px flex-1 bg-seam/60" />
+      </div>
+
+      {/* Add-by-manufacturer-URL — pull authoritative specs straight from the source */}
+      <Card variant="bezel">
+        <CardContent className="pt-4">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="hud-pip" aria-hidden />
+            <span className="hud-readout text-[0.625rem] tracking-[0.2em] text-muted-foreground">
+              Intake&nbsp;·&nbsp;Manufacturer&nbsp;URL
+            </span>
+          </div>
+          <form action={enrichFromUrlAction} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="url">Manufacturer product URL</Label>
+              <Input
+                id="url"
+                name="url"
+                type="url"
+                inputMode="url"
+                placeholder="https://www.patagonia.com/product/…"
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                We pull the official composition, brand, model, price and weight from the page — these
+                authoritative facts out-rank inference. Supported manufacturers: Patagonia, Arc&apos;teryx,
+                REI, The North Face, Black Diamond, Marmot.
+              </p>
+            </div>
+            <SubmitButton pendingText="Fetching…">Fetch &amp; classify</SubmitButton>
           </form>
         </CardContent>
       </Card>

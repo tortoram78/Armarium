@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 // services used indirectly via app-service
 import {
   classifyToDraft,
+  enrichFromUrlToDraft,
   confirmDraft,
   deleteItem,
   updateItemClassification,
@@ -136,6 +137,44 @@ export async function addItemAction(formData: FormData) {
   }
   revalidatePath("/");
   redirect(`/items/${itemId}/review`);
+}
+
+const SUPPORTED_MFR_HINT =
+  "We can only pull from supported manufacturers right now (Patagonia, Arc'teryx, REI, The North Face, Black Diamond, Marmot).";
+const GENERIC_ENRICH_HINT = "Couldn't read that page automatically — try adding it by name.";
+
+/**
+ * Map an `enrichFromUrlToDraft` failure reason to a friendly, user-facing message. The fetcher prefixes
+ * its reasons (`url-shape:` for a non-allowlisted / malformed URL; `private-ip:`/`http:`/`content-type:`/
+ * `size:`/`timeout:`/`network:`/`redirect:`/`dns:`/`read:` for everything else). A shape/allowlist
+ * rejection means "unsupported manufacturer"; anything else is an opaque read failure → add-by-name.
+ */
+function friendlyEnrichError(reason: string): string {
+  return reason.startsWith("url-shape:") ? SUPPORTED_MFR_HINT : GENERIC_ENRICH_HINT;
+}
+
+const EnrichUrlInput = z.object({
+  url: z.string().trim().min(1, "Please paste a manufacturer product URL."),
+});
+
+/**
+ * Add an item by manufacturer URL: fetch + parse + classify + overlay authoritative facts, then send the
+ * user to review the resulting draft. On any failure, return to /items/new with a friendly ?error=.
+ */
+export async function enrichFromUrlAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = EnrichUrlInput.safeParse({ url: formData.get("url") });
+  if (!parsed.success) {
+    const msg = parsed.error.issues[0]?.message ?? "Please paste a manufacturer product URL.";
+    redirect("/items/new?error=" + encodeURIComponent(msg));
+  }
+
+  const result = await enrichFromUrlToDraft(userId, parsed.data.url);
+  if (!result.ok) {
+    redirect("/items/new?error=" + encodeURIComponent(friendlyEnrichError(result.reason)));
+  }
+  revalidatePath("/");
+  redirect(`/items/${result.draftId}/review`);
 }
 
 export async function confirmItemAction(formData: FormData) {
