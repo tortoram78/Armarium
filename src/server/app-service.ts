@@ -8,6 +8,8 @@ import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
+import { deriveFromComposition } from "@/core/materials";
+import { resolveBehavioralFacets } from "@/core/resolve";
 import {
   parseProductHtml,
   toManufacturerEvidence,
@@ -63,6 +65,21 @@ export async function planAndSave(
 export type AddMode = "live" | "offline";
 
 /**
+ * The derive → resolve step of the classification pipeline (rule #2: stronger provenance wins).
+ *
+ * After the LLM classifies (and after any manufacturer overlay has set the authoritative composition),
+ * derive the behavioral facets the composition determines and RESOLVE them against the LLM's values by
+ * explicit precedence: `derived_from_material` corrects an `inferred` guess (e.g. cotton the LLM thought
+ * "wicks" → "absorbs_holds"), while a low-confidence derived `warmth` defers to a stronger inference.
+ * The persisted model is unchanged — one classification, its behavioral facets now carrying the winning
+ * source. PURE + offline: derivation reads only the composition, never the network.
+ */
+function deriveAndResolve(classification: ItemClassification): ItemClassification {
+  const derived = deriveFromComposition(classification.materials);
+  return resolveBehavioralFacets(classification, derived);
+}
+
+/**
  * Classify a named item and store it as a DRAFT (not yet in the closet) for review. Checks the
  * self-building knowledge base FIRST: a cache hit reuses a stored classification (no LLM call); a miss
  * classifies live/offline and writes the result back to the cache. The review step still gates it.
@@ -83,6 +100,9 @@ export async function classifyToDraft(
   } else {
     const { classify } = getClassifier();
     classification = await classify({ name, text });
+    // Derive behavioral facets from composition and resolve them against the LLM's inference (stronger
+    // provenance wins). Cache the RESOLVED classification so the knowledge base stores the corrected form.
+    classification = deriveAndResolve(classification);
     await cache.putCached({ key, name, classification, source: "llm", modelId: MODEL_ID });
   }
 
@@ -148,6 +168,11 @@ export async function enrichFromUrlToDraft(
     // authoritative manufacturer facts on an honest all-unknown-behavioral scaffold rather than failing.
     classification = applyManufacturerOverlay(unknownBehavioralClassification(name), enrichment);
   }
+
+  // Derive behavioral facets from the (now manufacturer-authoritative) composition and resolve them. On
+  // the degraded path this fills the all-unknown scaffold straight from the stated composition — so even
+  // with no classifier, a manufacturer-stated fabric yields its chemistry-determined behavior.
+  classification = deriveAndResolve(classification);
 
   const item = await getRepository().addItem(userId, {
     name,
