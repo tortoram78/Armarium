@@ -117,15 +117,17 @@ export function FacetEditor({ itemId, classification, action, defaultOpen }: Fac
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="label-structural rounded-sm border border-border px-2.5 py-1 text-[0.625rem] text-muted-foreground transition-colors duration-150 ease-crisp hover:border-blaze hover:text-blaze"
+          className="label-structural surface-rail text-stamped px-2.5 py-1.5 text-[0.625rem] text-foreground transition-[filter] duration-150 ease-crisp hover:brightness-[1.06]"
         >
           Correct facets
         </button>
       ) : (
-        <div className="relative rounded-none border border-border bg-card p-4 shadow-letterpress">
-          <span className="tick-accent" aria-hidden />
-          <div className="mb-4 flex items-center justify-between border-b border-border pb-2">
-            <h3 className="label-structural text-xs text-foreground">Edit facets</h3>
+        <div className="surface-well relative p-4">
+          <div className="mb-4 flex items-center justify-between border-b border-seam/40 pb-2">
+            <h3 className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
+              <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·H</span>
+              Edit facets
+            </h3>
             <button
               type="button"
               onClick={() => setOpen(false)}

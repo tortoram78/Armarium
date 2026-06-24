@@ -30,6 +30,7 @@ export default function LoginPage() {
   return (
     <AuthCard
       tagline="Sign in to access your gear closet."
+      code="IN"
       footer={
         <>
           No account?{" "}

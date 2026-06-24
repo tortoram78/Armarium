@@ -28,6 +28,7 @@ export default function SignupPage() {
   return (
     <AuthCard
       tagline="Create an account to start building your closet."
+      code="UP"
       footer={
         <>
           Already have an account?{" "}

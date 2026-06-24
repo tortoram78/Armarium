@@ -64,62 +64,98 @@ export default async function TripDetailPage({ params }: { params: { id: string 
   const result = trip.result;
   const conds = trip.conditions;
 
+  const picksCount = result?.picks.length ?? 0;
+  const gapsCount = result?.gaps.length ?? 0;
+  const verifyCount = result?.uncertain.length ?? 0;
+
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-5">
       {/* Breadcrumb */}
       <Link
         href="/trips"
-        className="data-mono text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-blaze"
+        className="hud-readout inline-flex items-center gap-1.5 text-[0.625rem] tracking-[0.16em] transition-colors hover:text-blaze"
       >
-        &larr; Saved trips
+        <span aria-hidden>&larr;</span> Trips&nbsp;/&nbsp;Log
       </Link>
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-        <div>
-          <div className="mb-1.5 flex items-center gap-2">
-            <span className="h-2.5 w-0.5 bg-blaze" aria-hidden />
-            <span className="data-mono text-[0.625rem] uppercase tracking-[0.2em] text-muted-foreground">
-              Trip&nbsp;/&nbsp;Recommendation
-            </span>
+      {/* Header — raised dossier plate with ghosted stencil + HUD readout */}
+      <div className="hud-brackets surface-bezel relative overflow-hidden p-5 sm:p-6">
+        <span className="hud-corner-tr" aria-hidden />
+        <span className="hud-corner-bl" aria-hidden />
+        {/* ghosted stencil trip code behind the title */}
+        <span
+          className="hud-stencil pointer-events-none absolute -right-1 -top-5 text-[6rem] sm:text-[7rem]"
+          aria-hidden
+        >
+          {trip.id.replace(/[^a-z0-9]/gi, "").slice(0, 3).toUpperCase() || "TRP"}
+        </span>
+        <span className="hud-screw absolute right-3 top-3" aria-hidden />
+
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="hud-pip" aria-hidden />
+              <span className="hud-readout text-[0.625rem] tracking-[0.2em]">
+                Trip&nbsp;·&nbsp;Recommendation
+              </span>
+            </div>
+            <h1 className="heading-display text-stamped text-3xl tracking-legend text-foreground sm:text-4xl">{trip.name}</h1>
+            <p className="hud-readout mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.625rem] tracking-[0.15em]">
+              <span>ADD&nbsp;<span className="text-foreground/85">{new Date(trip.createdAt).toLocaleDateString()}</span></span>
+              <span className="h-3 w-px bg-seam/60" aria-hidden />
+              <span>PICKS&nbsp;<span className="text-foreground/85">{String(picksCount).padStart(2, "0")}</span></span>
+              {gapsCount > 0 && (
+                <>
+                  <span className="h-3 w-px bg-seam/60" aria-hidden />
+                  <span>GAPS&nbsp;<span className="text-foreground/85">{String(gapsCount).padStart(2, "0")}</span></span>
+                </>
+              )}
+              {verifyCount > 0 && (
+                <span className="flex items-center gap-1 text-blaze">
+                  <span className="hud-pip" aria-hidden />{String(verifyCount).padStart(2, "0")}&nbsp;VERIFY
+                </span>
+              )}
+            </p>
+            {trip.description && (
+              <p className="relative mt-2 max-w-prose text-sm text-muted-foreground">{trip.description}</p>
+            )}
           </div>
-          <h1 className="heading-display text-3xl tracking-legend text-foreground">{trip.name}</h1>
-          <p className="data-mono mt-2 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
-            {new Date(trip.createdAt).toLocaleDateString()}
-          </p>
-          {trip.description && (
-            <p className="mt-2 text-sm text-muted-foreground">{trip.description}</p>
-          )}
+          <form action={replanTripAction} className="shrink-0">
+            <input type="hidden" name="id" value={trip.id} />
+            <Button type="submit" variant="outline" size="sm">
+              Re-plan with current closet
+            </Button>
+          </form>
         </div>
-        <form action={replanTripAction} className="shrink-0">
-          <input type="hidden" name="id" value={trip.id} />
-          <Button type="submit" variant="outline" size="sm">
-            Re-plan with current closet
-          </Button>
-        </form>
       </div>
 
-      {/* Conditions summary */}
-      <Card>
-        <CardHeader><CardTitle className="label-structural text-xs text-foreground">Trip conditions</CardTitle></CardHeader>
+      {/* Conditions summary — recessed readout well */}
+      <Card variant="well">
+        <CardHeader>
+          <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
+            <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·A</span>
+            Trip conditions
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           <p className="data-mono text-xs leading-relaxed text-muted-foreground">{conditionsSummary(conds)}</p>
         </CardContent>
       </Card>
 
       {!result ? (
-        <Card>
+        <Card variant="well">
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             No recommendation result saved for this trip.
           </CardContent>
         </Card>
       ) : (
         <>
-          {/* Gap analysis — the signature feature, visual centerpiece */}
+          {/* Gap analysis — the signature feature, visual centerpiece (raised plate) */}
           {result.gaps.length > 0 && (
-            <Card className="border-l-2 border-l-destructive">
+            <Card variant="bezel" className="relative overflow-hidden">
+              <span className="absolute inset-y-0 left-0 w-0.5 bg-destructive" aria-hidden />
               <CardHeader>
-                <CardTitle className="label-structural flex items-center gap-2 text-xs text-foreground">
+                <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
                   <span className="h-2 w-2 bg-destructive" aria-hidden />
                   Gap analysis — {result.gaps.length} gap{result.gaps.length !== 1 ? "s" : ""}
                 </CardTitle>
@@ -135,7 +171,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                   .map((gap) => (
                     <div
                       key={gap.capability}
-                      className="flex items-start gap-3 border border-border bg-secondary/40 p-3"
+                      className="surface-well flex items-start gap-3 p-3"
                     >
                       <Badge variant={SEV_VARIANT[gap.severity]} className="mt-0.5 shrink-0">
                         {titleize(gap.severity)}
@@ -156,9 +192,10 @@ export default async function TripDetailPage({ params }: { params: { id: string 
 
           {/* Verify — items that might satisfy but have unknown deciding facets */}
           {result.uncertain.length > 0 && (
-            <Card className="border-l-2 border-l-blaze">
+            <Card variant="bezel" className="relative overflow-hidden">
+              <span className="absolute inset-y-0 left-0 w-0.5 bg-blaze" aria-hidden />
               <CardHeader>
-                <CardTitle className="label-structural flex items-center gap-2 text-xs text-foreground">
+                <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
                   <span className="h-2 w-2 bg-blaze" aria-hidden />
                   Verify — {result.uncertain.length} uncertain
                 </CardTitle>
@@ -181,7 +218,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                     return (
                       <div
                         key={u.capability}
-                        className="flex items-start gap-3 border border-blaze/40 bg-blaze/[0.07] p-3"
+                        className="surface-well flex items-start gap-3 p-3"
                       >
                         <Badge variant="verify" className="mt-0.5 shrink-0">Verify</Badge>
                         <div>
@@ -212,11 +249,12 @@ export default async function TripDetailPage({ params }: { params: { id: string 
             </Card>
           )}
 
-          {/* Picks */}
+          {/* Picks — recessed inventory well */}
           {result.picks.length > 0 ? (
-            <Card>
+            <Card variant="well">
               <CardHeader>
-                <CardTitle className="label-structural text-xs text-foreground">
+                <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
+                  <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·B</span>
                   Picks — {result.picks.length} item{result.picks.length !== 1 ? "s" : ""}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
@@ -224,11 +262,14 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                 </p>
               </CardHeader>
               <CardContent className="space-y-2">
-                {result.picks.map((pick) => (
+                {result.picks.map((pick, idx) => (
                   <div
                     key={pick.id}
-                    className="flex items-start gap-3 border border-border p-3"
+                    className="surface-bezel flex items-start gap-3 p-3"
                   >
+                    <span className="hud-readout mt-0.5 shrink-0 text-[0.5625rem] leading-none text-hud/70">
+                      {String(idx + 1).padStart(2, "0")}
+                    </span>
                     <div className="min-w-0 flex-1">
                       <Link
                         href={`/items/${pick.id}`}
@@ -249,7 +290,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
               </CardContent>
             </Card>
           ) : (
-            <Card>
+            <Card variant="well">
               <CardContent className="p-6 text-center text-sm text-muted-foreground">
                 No items from your inventory satisfy any required capability for this trip.{" "}
                 <Link href="/" className="text-blaze underline-offset-2 hover:underline">
@@ -259,17 +300,20 @@ export default async function TripDetailPage({ params }: { params: { id: string 
             </Card>
           )}
 
-          {/* Full outcomes table */}
-          <Card>
+          {/* Full outcomes table — recessed audit well */}
+          <Card variant="well">
             <CardHeader>
-              <CardTitle className="label-structural text-xs text-foreground">Full capability outcomes</CardTitle>
+              <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
+                <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·C</span>
+                Full capability outcomes
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-px bg-border">
+              <div className="space-y-px bg-seam/40">
                 {result.outcomes.map((o) => (
                   <div
                     key={o.capability}
-                    className="flex items-start gap-3 bg-card p-2.5"
+                    className="flex items-start gap-3 bg-bezel p-2.5"
                   >
                     <div className="w-36 shrink-0">
                       {o.status === "satisfied" && <Badge variant="success">Satisfied</Badge>}
@@ -317,13 +361,13 @@ export default async function TripDetailPage({ params }: { params: { id: string 
           <div className="flex gap-4 pb-8">
             <Link
               href="/plan"
-              className="data-mono text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+              className="hud-readout text-[0.625rem] tracking-[0.16em] underline-offset-2 transition-colors hover:text-blaze hover:underline"
             >
               Plan another trip
             </Link>
             <Link
               href="/"
-              className="data-mono text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+              className="hud-readout text-[0.625rem] tracking-[0.16em] underline-offset-2 transition-colors hover:text-blaze hover:underline"
             >
               Back to closet
             </Link>
