@@ -119,6 +119,7 @@ function rowToStoredItem(row: {
   inInventory: boolean;
   draft: boolean;
   rawText: string | null;
+  imagePath: string | null;
   classification: ItemClassification;
   createdAt: Date;
 }): StoredItem {
@@ -129,6 +130,8 @@ function rowToStoredItem(row: {
     inInventory: row.inInventory,
     draft: row.draft,
     rawText: row.rawText ?? undefined,
+    // Display-only photo path (ADR-0018). Surfaced on reads so the UI wave can sign it; null when no photo.
+    imagePath: row.imagePath ?? null,
     classification: row.classification,
     createdAt: row.createdAt.toISOString(),
   };

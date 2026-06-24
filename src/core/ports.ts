@@ -21,6 +21,14 @@ export interface StoredItem {
   rawText?: string;
   classification: ItemClassification;
   createdAt: string;
+  /**
+   * Display-only photo: the object path in the PRIVATE `item-images` bucket
+   * (`<user_id>/<item_id>/<uuid>.<ext>`), or null/undefined when there is no photo (ADR-0018). This is
+   * decoration, NEVER a facet or capability input. The bucket is private, so this bare path is not a
+   * public URL — the UI signs it via `getSignedItemImageUrl` (src/server/item-images.ts). Reads surface
+   * it; the upload action that writes it is a later wave.
+   */
+  imagePath?: string | null;
 }
 
 export interface StoredTrip {
