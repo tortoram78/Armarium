@@ -7,20 +7,25 @@
    shadcn-convention: all values are HSL channels (no hsl() wrapper),
    consumed as hsl(var(--token)) in Tailwind.
 
-   AESTHETIC: precise rugged instrument / field-manual dossier.
-   Crisp edges, hairline borders, letterpress — NOT soft rounded SaaS.
+   AESTHETIC: tactical instrument — machined metal hardware under hard
+   directional light. Surface hierarchy (deck → recessed wells → raised
+   bezels), hard 0-blur directional shadows, milled bevels, stamped
+   labels + a sparing HUD layer. Crisp/near-square. NOT soft rounded SaaS,
+   NOT a flat outline either — depth reads as CNC'd plate-on-plate.
    ============================================================ */
 
 @layer base {
   /* -----------------------------------------------------------
      REFINED skin  (warm paper, professional) — :root default
+     Stays the lighter "browse" side; gains subtle machined depth so
+     it no longer reads plain, but never goes dark.
      ----------------------------------------------------------- */
   :root,
   [data-skin="refined"] {
-    --background:        40 30% 96%;   /* warm paper */
+    --background:        40 24% 93%;   /* warm paper — a touch deeper so wells/bezels separate */
     --foreground:       220 20% 14%;   /* near-black ink */
 
-    --card:              42 28% 99%;
+    --card:              42 26% 98%;
     --card-foreground:  220 20% 14%;
 
     --popover:           42 28% 99%;
@@ -29,10 +34,10 @@
     --primary:          158 44% 18%;   /* deep evergreen */
     --primary-foreground: 40 33% 98%;
 
-    --secondary:         40 16% 91%;
+    --secondary:         40 16% 89%;
     --secondary-foreground: 220 18% 20%;
 
-    --muted:             40 14% 90%;
+    --muted:             40 14% 88%;
     --muted-foreground: 220 10% 38%;
 
     --accent:            22 88% 50%;   /* blaze orange — sharp punctuation */
@@ -41,7 +46,7 @@
     --destructive:        2 70% 46%;
     --destructive-foreground: 0 0% 100%;
 
-    --border:            38 16% 80%;   /* hairline — slightly stronger for crispness */
+    --border:            38 18% 76%;   /* hairline — slightly stronger for crispness */
     --input:             38 16% 78%;
     --ring:              22 88% 50%;   /* orange focus, sharp */
 
@@ -49,52 +54,94 @@
     --blaze:             22 88% 50%;
 
     /* hairline + letterpress tokens (replace soft drop-shadows) */
-    --hairline:          38 16% 80%;
-    --letterpress:        0  0% 100% / 0.5;
-    --inkpress:         220 20% 14% / 0.06;
+    --hairline:          38 18% 76%;
+    --letterpress:        0  0% 100% / 0.7;
+    --inkpress:         220 20% 14% / 0.07;
+
+    /* --- machined surface hierarchy (paper side, subtle) --- */
+    --deck:              40 22% 91%;   /* base plate */
+    --well:              40 18% 87%;   /* recessed group — sits below the deck */
+    --well-foreground:  220 20% 14%;
+    --bezel:             42 28% 99%;   /* raised plate — proud of the deck */
+    --bezel-foreground: 220 20% 14%;
+    /* milled bevel: bright top-left edge, dark bottom-right edge */
+    --bevel-light:        0  0% 100% / 0.9;
+    --bevel-dark:       220 22% 28% / 0.18;
+    /* hard directional cast shadow (0 blur) for raised plates */
+    --cast:             220 25% 20% / 0.16;
+    /* seam: a solid machined groove line for inline dividers/ticks */
+    --seam:             220 16% 64%;
+    /* HUD ink — faint mono readouts / brackets on the paper side */
+    --hud:              220 12% 46%;
+    --hud-ghost:        220 16% 30% / 0.05;   /* big ghosted stencil numerals */
 
     --radius: 0.125rem;                /* ~2px on interactive; panels override to 0 */
   }
 
   /* -----------------------------------------------------------
-     RUGGED "Modern Trail" skin — [data-skin="rugged"]
-     deep pine + warm sand + blaze-orange (palette unchanged)
+     RUGGED skin — [data-skin="rugged"]
+     Tactical evolution: ranger green / olive-drab deck, gunmetal/charcoal
+     machined wells + bezels (cool near-neutral, faint green cast), coyote /
+     FDE tan as the warm structural accent, blaze orange / amber for active.
+     Reads "tactical gear," not "forest."
      ----------------------------------------------------------- */
   [data-skin="rugged"] {
-    --background:       158 33% 15%;   /* deep forest pine — clearly green, not near-black */
-    --foreground:        40 32% 89%;   /* warm sand */
+    --background:       100 15% 18%;   /* ranger green / olive drab — the deck (greener, lifted) */
+    --foreground:        44 30% 88%;   /* FDE-warm bone, not pure sand */
 
-    --card:             158 27% 18%;
-    --card-foreground:   40 32% 89%;
+    --card:             170 6% 22%;    /* gunmetal w/ faint green cast (panel ground) */
+    --card-foreground:   44 30% 88%;
 
-    --popover:          158 29% 17%;
-    --popover-foreground: 40 32% 89%;
+    --popover:          170 7% 20%;
+    --popover-foreground: 44 30% 88%;
 
-    --primary:           22 92% 53%;   /* blaze orange CTA */
-    --primary-foreground: 158 45% 8%;
+    --primary:           23 92% 53%;   /* blaze orange CTA */
+    --primary-foreground: 30 45% 9%;
 
-    --secondary:        158 23% 24%;
-    --secondary-foreground: 40 32% 89%;
+    --secondary:        160 6% 28%;    /* lifted gunmetal — chips, hover */
+    --secondary-foreground: 44 30% 88%;
 
-    --muted:            158 21% 22%;
-    --muted-foreground:  90 16% 66%;   /* sage — lifted to hold AA on the lighter ground */
+    --muted:            165 6% 24%;
+    --muted-foreground:  72 13% 64%;   /* olive sage — holds AA on the drab ground */
 
-    --accent:            40 38% 72%;   /* sand */
-    --accent-foreground: 158 45% 8%;
+    --accent:            32 36% 62%;   /* coyote / FDE tan — warm structural accent */
+    --accent-foreground: 30 45% 9%;
 
-    --destructive:        2 64% 50%;
-    --destructive-foreground: 40 32% 89%;
+    --destructive:        4 64% 51%;
+    --destructive-foreground: 44 30% 88%;
 
-    --border:           158 16% 31%;   /* hairline on pine — lifted to stay visible */
-    --input:            158 21% 23%;
-    --ring:              22 92% 53%;
+    --border:           165 8% 32%;    /* hairline on gunmetal — visible, machined */
+    --input:            170 7% 23%;
+    --ring:              23 92% 55%;
 
-    /* blaze = sharp orange punctuation (same family, tuned for pine ground) */
-    --blaze:             22 92% 55%;
+    /* blaze = sharp orange punctuation (tuned for the drab/gunmetal ground) */
+    --blaze:             25 95% 57%;
+    /* amber = a secondary tactical signal (status, lower-key than blaze) */
+    --amber:             40 86% 57%;
 
-    --hairline:         158 16% 33%;
-    --letterpress:       40 32% 89% / 0.05;
-    --inkpress:           0  0%  0% / 0.30;
+    /* --- machined surface hierarchy (the core of the tactical depth) ---
+       Value spread is deliberate: deck 18% → well 11% (recessed, darker) →
+       bezel 25% (raised, cooler gunmetal). Wide enough that the milled
+       edges + casts read as real plate-on-plate, not a flat tonal wash. */
+    --deck:             100 15% 18%;   /* olive-drab base plate (== bg) */
+    --well:             175 9% 11%;    /* recessed group — near-black charcoal, BELOW deck */
+    --well-foreground:   44 28% 86%;
+    --bezel:            168 6% 25%;    /* raised gunmetal plate — clearly PROUD of the deck */
+    --bezel-foreground:  44 30% 88%;
+    /* milled bevel: a 1px bright machined top-left edge + 1px dark bottom-right */
+    --bevel-light:       66 22% 82% / 0.14;
+    --bevel-dark:         0  0%  0% / 0.62;
+    /* hard directional cast shadow (0 blur) thrown down-right by raised plates */
+    --cast:               0  0%  0% / 0.55;
+    /* seam: a solid machined groove line for inline dividers/ticks */
+    --seam:             170 8% 9%;
+    /* HUD ink — faint olive mono readouts / registration brackets */
+    --hud:               74 16% 58%;
+    --hud-ghost:         66 24% 72% / 0.05;   /* big ghosted stencil numerals */
+
+    --hairline:         165 9% 34%;
+    --letterpress:       66 22% 82% / 0.10;
+    --inkpress:           0  0%  0% / 0.48;
 
     --radius: 0.125rem;
   }
@@ -146,10 +193,10 @@
   }
 
   /* -----------------------------------------------------------
-     RUGGED SKIN — topographic contour overlay
-     A deliberate USGS-style contour line field (not random noise).
-     Layered: contour strokes + a faint canvas tooth, low opacity so
-     text stays legible. Fixed to the viewport, behind content.
+     RUGGED SKIN — engineering grid + reticle field (machined deck)
+     A faint blueprint/HUD grid: fine cross-hatch with a coarser major
+     grid and small reticle crosses at the major intersections. Reads
+     "instrument deck under glass," not "topo map." Low opacity, fixed.
      ----------------------------------------------------------- */
   [data-skin="rugged"] body::before {
     content: "";
@@ -157,23 +204,23 @@
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    opacity: 0.05;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420' viewBox='0 0 420 420'%3E%3Cg fill='none' stroke='%23f0e6d2' stroke-width='1'%3E%3Cpath d='M-20 90 C 70 60 140 130 230 100 S 400 60 460 110'/%3E%3Cpath d='M-20 150 C 60 130 150 200 240 165 S 390 130 460 175'/%3E%3Cpath d='M-20 215 C 80 200 130 260 235 230 S 400 200 460 245'/%3E%3Cpath d='M-20 285 C 70 270 150 320 245 295 S 380 265 460 310'/%3E%3Cpath d='M-20 355 C 60 345 140 395 235 365 S 400 335 460 380'/%3E%3Cpath d='M120 30 C 150 70 130 120 165 160 S 210 250 180 320 S 150 390 175 440'/%3E%3Cpath d='M300 20 C 330 80 305 140 335 200 S 380 300 350 380'/%3E%3C/g%3E%3C/svg%3E");
+    opacity: 0.5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cg stroke='%23cfd6b8' stroke-width='1'%3E%3Cg opacity='0.05'%3E%3Cpath d='M0 40H160M0 80H160M0 120H160M40 0V160M80 0V160M120 0V160'/%3E%3C/g%3E%3Cg opacity='0.10'%3E%3Cpath d='M0 0H160M0 160H160M0 0V160M160 0V160'/%3E%3C/g%3E%3Cg opacity='0.12'%3E%3Cpath d='M76 80h8M80 76v8M76 0h8M80 -4v8M-4 80h8M156 80h8M80 156v8'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
     background-repeat: repeat;
-    background-size: 420px 420px;
+    background-size: 160px 160px;
   }
 
-  /* Fine canvas/anodized tooth on top of the contours (very subtle grain) */
+  /* Fine anodized/sandblasted tooth over the grid (very subtle metal grain) */
   [data-skin="rugged"] body::after {
     content: "";
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    opacity: 0.035;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23t)'/%3E%3C/svg%3E");
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23t)'/%3E%3C/svg%3E");
     background-repeat: repeat;
-    background-size: 180px 180px;
+    background-size: 200px 200px;
   }
 
   /* -----------------------------------------------------------
@@ -221,6 +268,23 @@
     letter-spacing: 0.01em;
   }
 
+  /* Stamped / engraved metal label: 1px dark below + 1px light above, like a
+     stenciled or debossed plate marking. Pair with .label-structural. */
+  .text-stamped {
+    text-shadow:
+      0 1px 0 hsl(var(--bevel-dark)),
+      0 -1px 0 hsl(var(--bevel-light));
+  }
+
+  /* Faint mono HUD readout — corner coordinates / status codes. */
+  .hud-readout {
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+    font-feature-settings: "tnum" 1;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: hsl(var(--hud));
+  }
+
   /* -----------------------------------------------------------
      FOCUS VISIBLE — square, crisp ring using --ring token
      ----------------------------------------------------------- */
@@ -240,33 +304,125 @@
 }
 
 /* ============================================================
-   COMPONENT UTILITIES — hairline edges + letterpress depth
-   (replace the soft drop-shadow "card/card-hover/glow" tells)
+   COMPONENT UTILITIES
+   Machined-depth surface system + a sparing tactical HUD layer.
+   Depth = hard 0-blur directional shadows + 1px milled bevels +
+   recessed wells / raised bezels. NOT soft drop-shadow blur.
    ============================================================ */
 @layer components {
-  /* A 1px inset top-highlight + bottom ink-line: a letterpress/anodized
-     edge that reads as a precise physical surface, not a floating blur. */
+  /* --- legacy hairline/letterpress edges (kept; still used widely) --- */
   .edge-letterpress {
     box-shadow:
       inset 0 1px 0 0 hsl(var(--letterpress)),
       inset 0 -1px 0 0 hsl(var(--inkpress));
   }
-
-  /* Inset hairline frame — a recessed, machined panel */
   .edge-inset {
     box-shadow: inset 0 0 0 1px hsl(var(--hairline));
   }
+  .rule-x { border-bottom: 1px solid hsl(var(--hairline)); }
+  .rule-y { border-right: 1px solid hsl(var(--hairline)); }
 
-  /* Hairline rules (dossier dividers) */
-  .rule-x {
-    border-bottom: 1px solid hsl(var(--hairline));
-  }
-  .rule-y {
-    border-right: 1px solid hsl(var(--hairline));
+  /* ----------------------------------------------------------------
+     SURFACE HIERARCHY — the machined plate-on-plate system
+     ---------------------------------------------------------------- */
+
+  /* WELL — a recessed inset panel. Content groups sit DOWN in the deck:
+     a darker surface + a hard inset shadow on the top/left (lip catches the
+     overhead light's shadow) and a 1px bright lip on the bottom/right. */
+  .surface-well {
+    background-color: hsl(var(--well));
+    color: hsl(var(--well-foreground));
+    box-shadow:
+      inset 2px 2px 0 0 hsl(var(--bevel-dark)),
+      inset 0 0 0 1px hsl(var(--bevel-dark)),
+      inset -1px -1px 0 0 hsl(var(--bevel-light));
   }
 
-  /* Corner ticks — registration marks for the field-instrument feel.
-     Drawn as tiny L-brackets via layered gradients, accent-colored. */
+  /* BEZEL — a raised machined plate. Sits PROUD of the deck: a 1px bright
+     milled edge top/left, a 1px dark cut edge bottom/right, and a hard
+     0-blur cast shadow thrown down-right (plate under hard overhead light). */
+  .surface-bezel {
+    background-color: hsl(var(--bezel));
+    color: hsl(var(--bezel-foreground));
+    box-shadow:
+      inset 1px 1px 0 0 hsl(var(--bevel-light)),
+      inset -1px -1px 0 0 hsl(var(--bevel-dark)),
+      2px 2px 0 0 hsl(var(--cast));
+  }
+
+  /* RAIL — a thin raised strip (headers, status bars). Same milled bevel,
+     a shallower cast so it reads as a low ridge, not a full plate. */
+  .surface-rail {
+    background-color: hsl(var(--bezel));
+    color: hsl(var(--bezel-foreground));
+    box-shadow:
+      inset 1px 1px 0 0 hsl(var(--bevel-light)),
+      inset -1px -1px 0 0 hsl(var(--bevel-dark)),
+      1px 1px 0 0 hsl(var(--cast));
+  }
+
+  /* A pressed/active inset — for the depressed state of a raised control. */
+  .surface-pressed {
+    box-shadow:
+      inset 2px 2px 0 0 hsl(var(--bevel-dark)),
+      inset -1px -1px 0 0 hsl(var(--bevel-light));
+  }
+
+  /* ----------------------------------------------------------------
+     TACTICAL HUD LAYER — sparing, precise
+     ---------------------------------------------------------------- */
+
+  /* 4-corner registration brackets on a major panel. Thin L-brackets at
+     all four corners via two layered conic-free linear gradients per side.
+     Uses --hud ink so it's a faint instrument mark, not loud chrome. */
+  .hud-brackets {
+    position: relative;
+  }
+  .hud-brackets::before,
+  .hud-brackets::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  /* top-left + bottom-right via ::before (two corners) */
+  .hud-brackets::before {
+    top: 4px;
+    left: 4px;
+    border-top: 1px solid hsl(var(--hud));
+    border-left: 1px solid hsl(var(--hud));
+  }
+  .hud-brackets::after {
+    bottom: 4px;
+    right: 4px;
+    border-bottom: 1px solid hsl(var(--hud));
+    border-right: 1px solid hsl(var(--hud));
+  }
+  /* the other diagonal (top-right + bottom-left) — separate marker el */
+  .hud-brackets > .hud-corner-tr,
+  .hud-brackets > .hud-corner-bl {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .hud-brackets > .hud-corner-tr {
+    top: 4px;
+    right: 4px;
+    border-top: 1px solid hsl(var(--hud));
+    border-right: 1px solid hsl(var(--hud));
+  }
+  .hud-brackets > .hud-corner-bl {
+    bottom: 4px;
+    left: 4px;
+    border-bottom: 1px solid hsl(var(--hud));
+    border-left: 1px solid hsl(var(--hud));
+  }
+
+  /* A single accent corner tick (kept for compat; now blaze, all 4 optional) */
   .tick-accent::before {
     content: "";
     position: absolute;
@@ -274,8 +430,54 @@
     left: 0;
     width: 8px;
     height: 8px;
-    border-top: 2px solid hsl(var(--accent));
-    border-left: 2px solid hsl(var(--accent));
+    border-top: 2px solid hsl(var(--blaze));
+    border-left: 2px solid hsl(var(--blaze));
     pointer-events: none;
+  }
+
+  /* Big ghosted stencil — a large section number/code behind a header.
+     Condensed, near-invisible, clipped behind content. */
+  .hud-stencil {
+    font-family: var(--font-display), var(--font-inter), ui-sans-serif, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: -0.02em;
+    line-height: 0.8;
+    color: hsl(var(--hud-ghost));
+    pointer-events: none;
+    user-select: none;
+  }
+
+  /* Recessed hex/Phillips screw dot — sparing hardware at panel corners.
+     A small inset disc with a faint cross slot. */
+  .hud-screw {
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background:
+      linear-gradient(135deg, hsl(var(--bevel-dark)), transparent 60%),
+      hsl(var(--well));
+    box-shadow:
+      inset 0 1px 1px 0 hsl(var(--bevel-dark)),
+      inset 0 -1px 0 0 hsl(var(--bevel-light)),
+      0 0 0 1px hsl(var(--bevel-dark));
+    position: relative;
+  }
+  .hud-screw::after {
+    /* phillips cross slot */
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(to right, transparent 45%, hsl(var(--bevel-dark)) 45% 55%, transparent 55%),
+      linear-gradient(to bottom, transparent 45%, hsl(var(--bevel-dark)) 45% 55%, transparent 55%);
+    opacity: 0.7;
+  }
+
+  /* A blaze status pip (small filled square) — punctuation for the HUD rail. */
+  .hud-pip {
+    width: 5px;
+    height: 5px;
+    background-color: hsl(var(--blaze));
   }
 }

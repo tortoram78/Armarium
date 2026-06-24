@@ -49,6 +49,25 @@ const config: Config = {
 
         /* sharp orange punctuation — consistent across both skins */
         blaze:              "hsl(var(--blaze))",
+        /* secondary tactical signal (status), lower-key than blaze */
+        amber:              "hsl(var(--amber))",
+
+        /* machined surface hierarchy: base deck → recessed well → raised bezel */
+        deck: {
+          DEFAULT:          "hsl(var(--deck))",
+        },
+        well: {
+          DEFAULT:          "hsl(var(--well))",
+          foreground:       "hsl(var(--well-foreground))",
+        },
+        bezel: {
+          DEFAULT:          "hsl(var(--bezel))",
+          foreground:       "hsl(var(--bezel-foreground))",
+        },
+        /* faint mono HUD ink (registration brackets, coordinate readouts) */
+        hud:                "hsl(var(--hud))",
+        /* solid machined groove line — inline dividers / ticks */
+        seam:               "hsl(var(--seam))",
       },
 
       /* -------------------------------------------------------
@@ -114,14 +133,31 @@ const config: Config = {
       },
 
       /* -------------------------------------------------------
-         Box shadow: hairline edges + letterpress depth.
-         NO soft blur drop-shadows — surfaces sit flat + defined.
+         Box shadow: MACHINED DEPTH — hard 0-blur directional casts +
+         1px milled bevels + recessed wells / raised bezels.
+         NO soft blur glows: a plate-on-plate under hard overhead light.
          ------------------------------------------------------- */
       boxShadow: {
         none:        "none",
         hairline:    "inset 0 0 0 1px hsl(var(--hairline))",
         letterpress: "inset 0 1px 0 0 hsl(var(--letterpress)), inset 0 -1px 0 0 hsl(var(--inkpress))",
         "press-in":  "inset 0 1px 2px 0 hsl(var(--inkpress))",
+
+        /* raised machined plate: bright TL edge, dark BR edge, hard cast DR */
+        bezel:
+          "inset 1px 1px 0 0 hsl(var(--bevel-light)), inset -1px -1px 0 0 hsl(var(--bevel-dark)), 2px 2px 0 0 hsl(var(--cast))",
+        /* a taller raised plate — heavier cast for primary CTAs */
+        "bezel-lg":
+          "inset 1px 1px 0 0 hsl(var(--bevel-light)), inset -1px -1px 0 0 hsl(var(--bevel-dark)), 3px 3px 0 0 hsl(var(--cast))",
+        /* low raised ridge (rails, chips) */
+        rail:
+          "inset 1px 1px 0 0 hsl(var(--bevel-light)), inset -1px -1px 0 0 hsl(var(--bevel-dark)), 1px 1px 0 0 hsl(var(--cast))",
+        /* recessed inset panel (content wells) */
+        well:
+          "inset 2px 2px 0 0 hsl(var(--bevel-dark)), inset 0 0 0 1px hsl(var(--bevel-dark)), inset -1px -1px 0 0 hsl(var(--bevel-light))",
+        /* pressed/depressed control */
+        pressed:
+          "inset 2px 2px 0 0 hsl(var(--bevel-dark)), inset -1px -1px 0 0 hsl(var(--bevel-light))",
       },
     },
   },
