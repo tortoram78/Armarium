@@ -1,11 +1,12 @@
 # Armarium — DESIGN (Phase 0 synthesis)
 
-> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 in delivery.** This document began as the Phase 0
-> design synthesis (9 investigation agents → 3 competing architectures → 3 adversarial audits) and is
-> updated as each phase lands. Phase 1 (core + schema), Phase 2 (usable web app + NL parser + review
-> lifecycle + Postgres + self-building cache + layering-system reasoning), Phase 3 step 1 (real
-> auth + multi-user), Phase 3 step 2 (manufacturer URL enrichment), and Phase 3 step 3 (weather
-> auto-conditions) are all reflected below.
+> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 + ops hardening in delivery.** This document
+> began as the Phase 0 design synthesis (9 investigation agents → 3 competing architectures → 3
+> adversarial audits) and is updated as each phase lands. Phase 1 (core + schema), Phase 2 (usable
+> web app + NL parser + review lifecycle + Postgres + self-building cache + layering-system
+> reasoning), Phase 3 step 1 (real auth + multi-user), Phase 3 step 2 (manufacturer URL enrichment),
+> Phase 3 step 3 (weather auto-conditions), and the ops-hardening bundle (rate limiting + structured
+> logging + error boundaries) are all reflected below.
 > Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
 > [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
 > [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
@@ -15,7 +16,8 @@
 > [ADR-0010](docs/decisions/0010-layering-system-reasoning.md),
 > [ADR-0011](docs/decisions/0011-manufacturer-url-enrichment.md),
 > [ADR-0012](docs/decisions/0012-evidence-first-classification.md) *(north-star: evidence-first classification)*,
-> [ADR-0015](docs/decisions/0015-weather-auto-conditions.md) *(weather auto-conditions: Open-Meteo + override-always)*.
+> [ADR-0015](docs/decisions/0015-weather-auto-conditions.md) *(weather auto-conditions: Open-Meteo + override-always)*,
+> [ADR-0017](docs/decisions/0017-ops-hardening.md) *(ops hardening: rate limiter + structured logs + error boundaries)*.
 
 ## 0. TL;DR
 
@@ -841,3 +843,89 @@ This is an incremental evolution of what is already built. The evidence shapes (
 `HardFact<T>`), the demotion guard, the provenance concepts, and the layer separation are the
 foundation. No phase requires a big-bang rewrite or a breaking change to the capability or
 recommendation contracts.
+
+---
+
+## 17. Ops hardening (pre-deploy bundle)
+
+A zero-new-dependency hardening bundle across three cross-cutting concerns. See
+[ADR-0017](docs/decisions/0017-ops-hardening.md) for full rationale, alternatives rejected, and
+the "best-effort" caveats.
+
+### 17.1 Rate limiting: in-process token bucket (best-effort, per-instance)
+
+A dependency-free token bucket in `src/core/ratelimit.ts` (pure, injected clock, no I/O). A
+server adapter in `src/server/ratelimit-adapter.ts` holds per-operation limiter instances keyed
+by identity.
+
+**Identity resolution:**
+- Authenticated user → keyed on `userId` (UUID).
+- Guest (ADR-0016 `isGuest: true`) → keyed on request IP (`x-forwarded-for` header, falling
+  back to `"guest"` sentinel).
+- `urlEnrich` always requires `requireUserId()`; no guest path.
+
+**Default budgets (tunable named constants in `src/server/ratelimit-adapter.ts`):**
+
+| Operation | Constant | Default |
+|-----------|----------|---------|
+| `classify` | `CLASSIFY_RATE_LIMIT` | 10 req / min per identity |
+| `tripParse` | `TRIP_PARSE_RATE_LIMIT` | 10 req / min per identity |
+| `urlEnrich` | `URL_ENRICH_RATE_LIMIT` | 5 req / min per identity |
+
+When a limit is exceeded the server action returns `{ ok: false, reason: "rate_limited" }`
+(not an unhandled throw); the UI surfaces an inline message.
+
+**Best-effort caveat:** the limiter is in-process and per-instance. On Vercel's multi-instance
+model, each function instance holds its own bucket; a cold start resets it. This does NOT enforce
+a true global per-user budget. It is an abuse speed-bump adequate for v0 volume. A production-
+grade shared limiter (Upstash, Vercel KV, Redis) is the documented upgrade path — it is NOT
+built here and requires its own infra-decision ADR before implementation.
+
+### 17.2 Structured logging: console-emitted single-line JSON (no new dep)
+
+Vercel captures `console.log` output from all serverless function invocations. Two event shapes
+are emitted; `console.log` is called by the server layer only — `src/core/logger.ts` is a pure
+JSON-formatting function with no side effects.
+
+**Action log** (one per server action invocation):
+```
+{ event:"action", action, userId, ok, reason?, durationMs }
+```
+
+**LLM usage log** (one per Anthropic API call, emitted from `src/server/services.ts`):
+```
+{ event:"llm_usage", action, userId, model, inputTokens, outputTokens, durationMs }
+```
+
+The `usage` object in the Anthropic SDK response (`response.usage.input_tokens`,
+`response.usage.output_tokens`) was previously discarded; it is captured at the composition root
+and emitted here.
+
+**Deferred (NOT built):**
+- Sentry / external error sink — new npm dependency; deferred pending an ask-first decision.
+- Postgres `llm_usage` table — new schema/migration; console-JSON is sufficient for v0;
+  deferred to if SQL-query analytics over usage are required.
+
+### 17.3 Error boundaries and graceful degradation
+
+**App Router error surfaces:**
+- `src/app/error.tsx` — route-segment error boundary; renders a "Something went wrong / Try
+  again" screen. Required to be `"use client"` (uses `reset()` callback + `onClick`).
+- `src/app/global-error.tsx` — root-level boundary for failures in the root layout; must include
+  its own `<html>/<body>` tags.
+
+Both boundaries emit a structured `console.error` log line (`event:"error"`) before rendering.
+
+**LLM/enrichment degrade-to-unknown contract:**
+
+| Path | Failure mode | Degraded response |
+|------|-------------|-------------------|
+| `classify` | Anthropic timeout / 5xx / SDK error | `{ ok:false, reason:"llm_error", classification: offlineClassify(name) }` — offline classifier result, all facets `confidence:low`, user reviews before save |
+| `tripParse` | Anthropic timeout / 5xx / SDK error | `{ ok:false, reason:"llm_error", conditions: heuristicConditions }` — `parseConditionsHeuristic` best-effort parse; user can adjust via structured form |
+| `urlEnrich` | Fetch error / parse error / LLM error | `{ ok:false, reason:"fetch_error" \| "parse_error" \| "llm_error" }` — empty partial overlay; item retains existing classification; UI surfaces error with retry |
+
+This contract is aligned with the "unknown is first-class" principle (ADR-0004): a failure never
+fabricates facts or silently passes a degraded classification as authoritative.
+
+**Out of scope for this bundle (weather degradation is ADR-0015 §16.5's domain; not-found polish
+is a separate UI task; a global maintenance-mode banner is not built).**

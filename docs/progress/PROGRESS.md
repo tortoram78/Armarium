@@ -3,6 +3,58 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (ops hardening) — Pre-deploy hardening bundle: ADR-0017 recorded
+
+Design decision recorded. Code implementation (rate limiter, structured logger, error boundaries,
+degradation wiring) follows — owned by core-reasoning-owner (`src/core/ratelimit.ts`,
+`src/core/logger.ts`), the relevant server-action owners (`src/server/ratelimit-adapter.ts`,
+`src/server/services.ts` usage capture), and web-ui-owner (`src/app/error.tsx`,
+`src/app/global-error.tsx`).
+
+**What this enables:** three cross-cutting safety and visibility improvements with zero new
+dependencies or infrastructure:
+
+1. **Rate limiting** — a token-bucket limiter (`src/core/ratelimit.ts`, injected clock) with a
+   server adapter keyed by userId (or IP for guests). Default budgets: `classify` 10 req/min,
+   `tripParse` 10 req/min, `urlEnrich` 5 req/min — all tunable named constants. Exceeded limits
+   return `{ ok:false, reason:"rate_limited" }` rather than throwing. **Explicitly best-effort and
+   per-instance** (not a global enforcer on Vercel's multi-instance model; resets on cold start).
+   A shared limiter (Upstash/Vercel KV/Redis) is the documented future upgrade — NOT built here;
+   deferred pending its own infra-decision ADR.
+
+2. **Structured logging** — single-line JSON via `console.log` (Vercel captures all serverless
+   function output). Two shapes: action log (`event, action, userId, ok, reason?, durationMs`) and
+   LLM usage log (`event, action, userId, model, inputTokens, outputTokens, durationMs`). The
+   Anthropic SDK `usage` object was previously discarded; it is now captured at the composition
+   root (`src/server/services.ts`) and emitted. Core logger (`src/core/logger.ts`) is a pure
+   JSON-formatting function; `console.log` is called by the server layer only. **NOT built:**
+   Sentry (new dep, deferred), Postgres `llm_usage` table (new migration, deferred — console-JSON
+   is sufficient for v0 on Vercel).
+
+3. **Error boundaries + graceful degradation** — `src/app/error.tsx` (route-segment) and
+   `src/app/global-error.tsx` (root) render a recovery screen instead of a raw 500. LLM/enrichment
+   failures degrade gracefully: `classify` falls back to the offline classifier (confidence `low`,
+   user reviews); `tripParse` falls back to `parseConditionsHeuristic`; `urlEnrich` returns an
+   empty partial overlay with an inline error. Weather degradation is already specified in
+   ADR-0015 §16.5 and is NOT part of this bundle.
+
+**Key design points:**
+
+- Zero new npm dependencies. Zero new infrastructure.
+- `src/core/ratelimit.ts` and `src/core/logger.ts` are pure (no I/O, no `next/*`). The hermetic
+  gauntlet (`pnpm typecheck / lint / test / build`) is unaffected.
+- IP-fallback for guest rate limiting is motivated by ADR-0016: guests can reach `classify` and
+  `tripParse` through the demo funnel and lack a stable `userId`.
+- The degrade-to-unknown contract is aligned with ADR-0004: no failure path fabricates facts or
+  silently passes degraded output as authoritative.
+
+**ADR recorded:** [ADR-0017](../decisions/0017-ops-hardening.md)
+
+**DESIGN.md updated:** status banner (ops hardening added), ADR-0017 added to key decisions
+list, §17 added (full ops contract: limiter budgets, log field shapes, degrade-to-unknown table).
+
+---
+
 ## 2026-06-24 (Phase 3 step 1 addendum) — Demo guest funnel: ADR-0016 recorded
 
 Design decision recorded. Code implementation (new `GUEST_USER_ID` constant, `getUserIdOrGuest()`
