@@ -177,8 +177,12 @@ The `hardFact` Zod preprocessor (`src/core/evidence.ts`) currently runs when the
 
 - An LLM claim with `facetKey = "identity.brand"` and a non-null `value` carries `source:
   "inferred"`. Brand is a hard fact; `source:"inferred"` is not authoritative. The demotion guard
-  writes this claim to `item_evidence` with `value: null`, `confidence: "unknown"`, and an
-  evidence string recording the demotion reason.
+  **drops this claim at ingestion — it is never written to `item_evidence`.** (The locked
+  `EvidenceClaim` port type stores only asserting claims — `value` non-null, `confidence` ∈
+  low|medium|high — so a null/"unknown" demotion row has nowhere to live, and its audit value is
+  nil: there is nothing to adjudicate. The net effect on the resolved view is identical to writing a
+  null row — the facet stays `null + unknown`, re-confirmed by `parseClassification` as
+  defense-in-depth.)
 - The same claim with `source: "manufacturer"` (arriving via the URL enrichment extractor, not the
   LLM) passes the guard — `"manufacturer"` is authoritative for hard facts.
 
