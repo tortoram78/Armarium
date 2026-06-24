@@ -75,6 +75,68 @@
     --inkpress:            28 18% 20% / 0.05;
   }
 
+  /* ============================================================
+     DARK MODE — the SAME editorial language at night.
+     Warm espresso near-black (never pure black, never tactical
+     olive/gunmetal), warm bone ink, evergreen + terracotta LIFTED
+     so they read on dark. Activated by `.dark` on <html> (set before
+     first paint by the inline theme script in layout.tsx). Fraunces
+     serif, generous air and every utility are unchanged — only the
+     palette flips. Values tuned for WCAG AA on the warm surfaces.
+     ============================================================ */
+  .dark {
+    /* --- warm espresso surfaces --- */
+    --background:          28 10% 10%;   /* warm near-black espresso — NOT pure black, NOT olive */
+    --foreground:          40 22% 90%;   /* warm bone / off-white ink */
+
+    --card:                30  9% 13%;   /* a hair lifted, warm */
+    --card-foreground:     40 22% 90%;
+
+    --popover:             30  9% 14%;
+    --popover-foreground:  40 22% 90%;
+
+    --primary:            152 32% 46%;   /* evergreen LIFTED to read on dark */
+    --primary-foreground:  30 12%  8%;   /* deep near-black on the lifted green */
+
+    --secondary:           30  8% 18%;   /* warm quiet fill */
+    --secondary-foreground: 40 18% 82%;
+
+    --muted:               30  8% 18%;
+    --muted-foreground:    38  8% 60%;   /* warm grey — AA on espresso */
+
+    --accent:              17 64% 58%;   /* terracotta lifted for dark */
+    --accent-foreground:   30 12%  8%;
+
+    --destructive:          4 62% 56%;   /* lifted so red reads on dark */
+    --destructive-foreground: 30 12%  8%;
+
+    --border:              34  8% 22%;   /* subtle warm hairline */
+    --input:               34  8% 24%;
+    --ring:               152 30% 50%;   /* evergreen focus, lifted to match */
+
+    /* --- elevation reads on dark: a deeper soft shadow + faint
+           warm hairline-lift so cards separate from the espresso bg --- */
+    --shadow-soft:          0  0%  0% / 0.40;
+    --shadow-lift:          0  0%  0% / 0.55;
+
+    /* --- back-compat aliases tracked to the dark palette so any
+           not-yet-migrated surface stays in the editorial language --- */
+    --blaze:               17 64% 58%;
+    --amber:               38 46% 56%;
+    --hairline:            34  8% 22%;
+    --seam:                34  8% 26%;
+    --hud:                 38  8% 58%;
+    --deck:                28 10% 10%;
+    --well:                30  8% 15%;
+    --well-foreground:     40 22% 90%;
+    --bezel:               30  9% 13%;
+    --bezel-foreground:    40 22% 90%;
+    --letterpress:          0  0% 100% / 0.04;
+    --inkpress:             0  0%  0% / 0.30;
+
+    color-scheme: dark;
+  }
+
   /* -----------------------------------------------------------
      BASE ELEMENT STYLES
      ----------------------------------------------------------- */
@@ -129,7 +191,8 @@
   /* -----------------------------------------------------------
      SCROLLBAR — thin, unobtrusive
      ----------------------------------------------------------- */
-  :root {
+  :root,
+  .dark {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--border)) transparent;
   }

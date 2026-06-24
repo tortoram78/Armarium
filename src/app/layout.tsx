@@ -45,6 +45,15 @@ export const metadata: Metadata = {
   description: "A faceted gear closet that reasons about what to pack for a trip.",
 };
 
+/* ----------------------------------------------------------------
+   No-flash theme init. Runs before first paint (in <head>, before the
+   body renders) so the correct theme is on <html> immediately — no flash
+   of the wrong palette. Resolution order: stored choice > system pref >
+   light. Keep STORAGE_KEY in sync with ThemeToggle.tsx. Hand-rolled and
+   dependency-free; <html suppressHydrationWarning> covers the class diff.
+   ---------------------------------------------------------------- */
+const THEME_INIT_SCRIPT = `(function(){try{var k="armarium-theme";var s=localStorage.getItem(k);var d=s?s==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;if(d)document.documentElement.classList.add("dark");}catch(e){}})();`;
+
 async function getNavUserEmail(): Promise<string | null> {
   if (!isAuthConfigured()) return null;
   try {
@@ -74,6 +83,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       className={`${fraunces.variable} ${inter.variable} ${plexMono.variable}`}
       suppressHydrationWarning
     >
+      <head>
+        {/* No-flash theme init — must run before the body paints. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <NavShell userEmail={userEmail} authConfigured={authConfigured} isGuest={isGuest} />
 

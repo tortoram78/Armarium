@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { NavUser } from "@/components/NavUser";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface Props {
   userEmail: string | null;
@@ -72,6 +73,11 @@ export function NavShell({ userEmail, authConfigured, isGuest = false }: Props) 
               );
             })}
           </nav>
+
+          {/* Theme toggle — a calm sun/moon control, separated by a hairline. */}
+          <span className="ml-1 flex items-center border-l border-border pl-1 sm:pl-2">
+            <ThemeToggle />
+          </span>
 
           {authConfigured && !isGuest && (
             <span className="ml-2 flex items-center border-l border-border pl-3">

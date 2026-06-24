@@ -2,6 +2,10 @@ import type { Config } from "tailwindcss";
 
 const config: Config = {
   content: ["./src/**/*.{ts,tsx,mdx}"],
+  // Class strategy: the `.dark` class on <html> drives the token swap (globals.css)
+  // and any `dark:` variants. Set before first paint by the inline theme script in
+  // layout.tsx so there is no flash of the wrong theme.
+  darkMode: "class",
   theme: {
     extend: {
       /* -------------------------------------------------------
