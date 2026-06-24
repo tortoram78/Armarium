@@ -26,4 +26,7 @@ yarn-error.log*
 # test coverage
 /coverage
 
+# scratch / throwaway working artifacts (screenshot harnesses, dev logs, etc.)
+/scratchpad/
+
 # drizzle (keep migrations; ignore nothing here by default)
