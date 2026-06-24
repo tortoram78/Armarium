@@ -1,16 +1,18 @@
 # Armarium — DESIGN (Phase 0 synthesis)
 
-> **Status: LIVE — Phase 2 complete; Phase 3 step 1 in delivery.** This document began as the Phase 0
+> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–2 in delivery.** This document began as the Phase 0
 > design synthesis (9 investigation agents → 3 competing architectures → 3 adversarial audits) and is
 > updated as each phase lands. Phase 1 (core + schema), Phase 2 (usable web app + NL parser + review
-> lifecycle + Postgres + self-building cache + layering-system reasoning), and Phase 3 step 1 (real
-> auth + multi-user) are all reflected below. Source artifacts: [`docs/phase0/`](docs/phase0/). Key
-> decisions: [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
+> lifecycle + Postgres + self-building cache + layering-system reasoning), Phase 3 step 1 (real
+> auth + multi-user), and Phase 3 step 2 (manufacturer URL enrichment) are all reflected below.
+> Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
+> [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
 > [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
 > [ADR-0006](docs/decisions/0006-phase2-nl-parser-draft-lifecycle-postgres.md),
 > [ADR-0007](docs/decisions/0007-classification-cache.md),
 > [ADR-0008](docs/decisions/0008-auth-multi-user.md),
-> [ADR-0010](docs/decisions/0010-layering-system-reasoning.md).
+> [ADR-0010](docs/decisions/0010-layering-system-reasoning.md),
+> [ADR-0011](docs/decisions/0011-manufacturer-url-enrichment.md).
 
 ## 0. TL;DR
 
@@ -494,10 +496,15 @@ derived from facets (C‑F3).
 
 ---
 
-## 12. Out of scope for v0 (unchanged)
+## 12. Out of scope for v0 (updated as Phase 3 lands)
 
-Barcode/photo/URL enrichment; weather API; real multi-user auth/sharing; military/NSN; native app;
-image upload; catalog suggestions to fill gaps. (If a task needs one of these, STOP and ask.)
+**Real auth + multi-user** and **manufacturer URL enrichment** have moved out of this list — they
+are now designed and being built (Phase 3 steps 1–2; see §13 and §14).
+
+Still out of scope / deferred: barcode enrichment (deferred until after Phase 3 step 2 and better
+suited to a native app — ADR-0009); photo/image enrichment; weather API (Phase 3 step 3);
+military/NSN domain; native app; catalog gap-fill suggestions (Phase 3 step 4). Each requires its
+own `DESIGN.md` update + ADR(s) before any implementation.
 
 ---
 
@@ -592,3 +599,107 @@ when Supabase env vars are absent, `isAuthConfigured()` returns false and the ap
 - **Seeded data re-attribution:** rows seeded under `DEFAULT_USER_ID` are not automatically migrated
   to a new auth UUID when switching from open dev mode to a real Supabase Auth session. A one-time
   re-attribution step is required for that transition.
+
+---
+
+## 14. Manufacturer URL enrichment (Phase 3 step 2)
+
+A user pastes a product URL; the server fetches the page; structured data is extracted and merged
+as `source:"manufacturer"` facts onto the item classification. See
+[ADR-0011](docs/decisions/0011-manufacturer-url-enrichment.md) for full rationale and rejected
+alternatives. This section documents the contract that code owners implement against.
+
+### 14.1 Why this matters: the provenance hierarchy
+
+The existing `Source` union is:
+
+```ts
+type Source = 'manufacturer' | 'user' | 'inferred' | 'derived_from_material' | 'unknown';
+```
+
+Precedence (highest to lowest): `user` > `manufacturer` > `inferred`/`llm` > `derived_from_material` > `unknown`.
+
+Before URL enrichment, the only way to satisfy the demotion guard's "stated source" precondition
+for hard facts (fill power, composition %, UPF, crampon compatibility, EN temp standard) was a
+manual user correction. URL enrichment makes `source:"manufacturer"` reachable without user data
+entry — the most significant quality improvement to the classification pipeline since Phase 1.
+
+A user correction still outranks a manufacturer fact. The merger does not overwrite `source:"user"`
+values.
+
+### 14.2 Parse strategy: JSON-LD + OpenGraph/meta; no new dependency in v1
+
+**What is extracted:**
+
+- **Schema.org `Product` JSON-LD** (`<script type="application/ld+json">` blocks with
+  `@type:"Product"` or inside a `@graph` array): `name`, `brand`, `description`, `weight`,
+  `material`, `color`, `offers.price`.
+- **OpenGraph and HTML meta tags** (`<meta property="og:*">`, `<meta name="*">`): product name
+  and description as fallback.
+
+**How:** defensive regex to locate the JSON-LD script block, then `JSON.parse`. A failed parse is
+silently discarded (not a hard error); extraction continues with the next block. Results are Zod-
+validated before any value is used. Anything that does not parse cleanly is treated as absent.
+
+**A DOM/HTML-parser library (cheerio, node-html-parser) is not used in v1.** It is explicitly
+deferred as an `ask-first` future upgrade if JSON-LD+OG coverage proves insufficient post-rollout.
+
+### 14.3 SSRF gate: mandatory, layered
+
+SSRF protection is non-negotiable. The gate is layered:
+
+**Layer 1 — URL-shape gate (pure, `src/core/enrich/url-gate.ts`):**
+- `https:` only; other schemes rejected before any network activity.
+- Hostname must exactly match or be a subdomain of an entry on the **manufacturer allowlist**
+  (hardcoded in `src/core/enrich/url-gate.ts`; additions require a code change — deliberate
+  friction).
+- No credentials (`user:password@host`). No non-standard ports (443 only). No IP-literal
+  hostnames.
+
+**Layer 2 — DNS/IP resolution check (`src/server/enrich-fetcher.ts`):**
+- After the URL passes the shape gate, resolve the hostname and block any returned IP in:
+  loopback, RFC 1918 private, link-local/APIPA, multicast, reserved, IPv6 unspecified.
+- Guards against DNS rebinding and allowlist entries with unexpected DNS resolution.
+
+**Layer 3 — Network fetch caps:**
+- Max 3 redirects; each redirect target is re-checked against the URL-shape gate and allowlist.
+- Max 2 MB response size; 10-second total timeout.
+
+Both Layer 1 and Layer 2 are mandatory. Neither is redundant.
+
+### 14.4 Architecture split (enforces the purity invariant)
+
+| What | Where |
+|------|-------|
+| URL-shape gate + allowlist | `src/core/enrich/url-gate.ts` — pure predicate, no I/O |
+| JSON-LD + OG parser | `src/core/enrich/parse-product-page.ts` — pure function on a string |
+| Enrichment merger (overlay onto `ItemClassification`) | `src/core/enrich/merge.ts` — pure |
+| Network fetch + DNS/IP check | `src/server/enrich-fetcher.ts` — injected into core as `(url) => Promise<string>` |
+| "Enrich by URL" UI and route handler | `src/app/items/enrich/` |
+
+Core receives the page body as a plain string; it never calls `fetch` or DNS. This mirrors the
+existing injection pattern for the Anthropic client and the database.
+
+### 14.5 Output: partial overlay, existing Zod contract applies unchanged
+
+The parser emits `Partial<ItemClassification>`. The merger writes only fields that are explicitly
+stated on the page; absent fields are left at their existing values (no `null`-writing for missing
+specs). The merged object then passes through the existing Zod validation and demotion guard
+(ADR-0004) — manufacturer-sourced data gets no special path.
+
+### 14.6 Bridge to the material behavior derivation engine
+
+Composition percentage extracted with `source:"manufacturer"` is the highest-confidence input the
+material behavior derivation engine could receive. When that engine is built — deriving behavioral
+facets (breathability, dry speed, warmth-when-wet) from authoritative material composition +
+construction type as `source:"derived_from_material"` — it will consume `source:"manufacturer"`
+composition facts as its primary signal. URL enrichment supplies the ingredient; derivation
+consumes it.
+
+### 14.7 Testing reality
+
+The cloud sandbox cannot initiate outbound HTTPS to arbitrary manufacturer hosts. Enrichment tests
+use **fixture HTML files** (saved snapshots of real manufacturer pages) injected as page-body
+strings. The SSRF gate and the parser are pure functions and are covered by unit tests that run
+completely offline. Live end-to-end verification (paste a real URL; confirm extracted specs appear
+in the review UI) is performed on Vercel after deployment.

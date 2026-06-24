@@ -3,6 +3,39 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (Phase 3 step 2) — Manufacturer URL enrichment: design + ADR complete; implementation begins
+
+Design and ADR recorded. Code implementation by core-reasoning-owner, schema-db-owner, and
+web-ui-owner follows. See [ADR-0011](../decisions/0011-manufacturer-url-enrichment.md) and
+[DESIGN.md §14](../../DESIGN.md).
+
+**What is being built:** paste a manufacturer product URL → server-side SSRF-gated fetch →
+JSON-LD + OpenGraph extraction → `source:"manufacturer"` partial overlay onto `ItemClassification`
+→ merged via existing Zod contract + demotion guard → user reviews in the existing review UI.
+
+**Key design decisions:**
+- Parse strategy: schema.org `Product` JSON-LD + OpenGraph/meta only (no new dependency in v1;
+  DOM parser is an explicit `ask-first` future upgrade).
+- SSRF gate: layered — (1) URL-shape gate + manufacturer allowlist in `src/core/enrich/`
+  (pure, no I/O); (2) DNS/IP resolution check blocks private/loopback/link-local ranges in
+  `src/server/`; (3) redirect cap (3), size cap (2 MB), timeout (10 s).
+- Architecture: parser + URL-shape gate are pure `src/core/enrich/`; network fetch + DNS check are
+  injected from `src/server/`; UI lives in `src/app/`. Enforces the purity invariant unchanged.
+- Provenance precedence: `user` > `manufacturer` > `inferred`/`llm` > `derived_from_material`
+  > `unknown`. A manufacturer fact replaces an inferred value; a user correction still wins.
+- Testing: fixture-based (offline) for all unit + integration tests; live verification on Vercel.
+- Bridge to next initiative: `source:"manufacturer"` composition data is the primary input the
+  material behavior derivation engine (composition → `source:"derived_from_material"` behavioral
+  facets) will consume when built.
+
+**ADR recorded:** [ADR-0011](../decisions/0011-manufacturer-url-enrichment.md)
+
+**DESIGN.md updated:** status banner, §12 (URL enrichment removed from "out of scope" list), §14
+(new section: full enrichment contract — parse strategy, SSRF gate, architecture split, output
+shape, bridge to derivation engine, testing reality).
+
+---
+
 ## 2026-06-24 (Phase 2) — Layering-system reasoning: combination-aware capability evaluation
 
 Branch `claude/charming-franklin-441bvj`. Commit `bf116b4`. All gates green: 77 tests passing.
