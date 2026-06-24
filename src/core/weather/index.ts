@@ -12,3 +12,13 @@ export {
 } from "./forecast";
 
 export { forecastToConditions } from "./forecast-to-conditions";
+
+export {
+  type RawOpenMeteoForecast,
+  type RawOpenMeteoGeocoding,
+  RawOpenMeteoForecastSchema,
+  RawOpenMeteoGeocodingSchema,
+  adaptOpenMeteoForecast,
+  adaptOpenMeteoGeocoding,
+  buildForecast,
+} from "./open-meteo";
