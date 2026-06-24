@@ -3,6 +3,44 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (Phase 2 — evidence-architecture) — Cache split: ADR-0013 recorded
+
+**What this records:** the concrete implementation decisions for splitting the single shared
+`classification_cache` into two scoped stores, resolving the cross-tenant correction leakage
+documented as a known trade-off in ADR-0007 and flagged by the Phase 3 step 1 security audit.
+
+**The parent target:** ADR-0012 Element 5 set the architectural target (three-tier cache split).
+This ADR records the *concrete* choices for the Phase 2 implementation of that element.
+
+**The two tables being built:**
+
+- **`llm_draft_cache`** — global, no `user_id`, service-role-only. Holds LLM-emitted and seed
+  classifications as low-authority drafts. A hit here is a starting draft; review still gates
+  saving. Replaces `source:"llm"` and `source:"seed"` rows. `canonical_facts` is explicitly
+  deferred to Phase 4 (requires the canonical products table).
+- **`user_overrides`** — per-user, `user_id` NOT NULL, primary key `(user_id, key)`. Holds a
+  user's confirmed or explicitly corrected classifications, scoped so they never affect another
+  user. RLS: `(select auth.uid()) = user_id` (the ADR-0008 / drizzle-0003 pattern).
+
+**Lookup precedence:** `user_overrides(userId, key)` (authority `user`) first, then
+`llm_draft_cache(key)` (authority `draft`), else miss → LLM. Mirrors the ADR-0012 Element 3
+resolver hierarchy (`user > inferred/llm`).
+
+**Migration of existing rows (the load-bearing choice):** ALL existing `classification_cache`
+rows, including `source:"user"` rows, migrate to `llm_draft_cache` as drafts. Rationale: the
+old `source:"user"` rows were already global/shared with no `user_id` — we cannot attribute them
+to a real identity without fabrication. Demoting them to shared drafts preserves availability;
+users who previously corrected an item re-correct through the normal review flow, and their new
+correction correctly lands in `user_overrides`. `classification_cache` is dropped after migration.
+
+**What this resolves:** the cross-tenant correction leakage identified as an open trade-off in
+ADR-0007 Consequences and as a finding in the Phase 3 step 1 security audit. ADR-0007 is not
+superseded; its open consequence is closed by this ADR.
+
+**ADR recorded:** [ADR-0013](../decisions/0013-cache-split-per-user-overrides.md)
+
+---
+
 ## 2026-06-24 (north-star architecture) — Evidence-first classification: ADR-0012 recorded
 
 **What this records:** the target architecture for Armarium's classification pipeline — not a
