@@ -6,24 +6,33 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { MODEL_ID, CLASSIFY_MAX_TOKENS } from "../config";
+import { toLlmUsage, type LlmUsage } from "../obs/log";
 import { safeParseLlmClaims, type LlmClaimsOutput } from "./claims";
 import { buildClassifyPrompt, type ClassifyInput } from "./prompt";
 
 export interface ClassifyDeps {
   anthropic: Anthropic;
   model?: string;
+  /**
+   * Optional usage sink. When set, it is invoked once per LLM call with the model + token counts so the
+   * server can log/meter spend WITHOUT core importing a console. Core never logs; it only reports. The
+   * offline/mock paths never construct this dep (no usage to report), so absent usage is the clean default.
+   */
+  onUsage?: (usage: LlmUsage) => void;
 }
 
 export class ClaimsClassificationError extends Error {}
 
 export async function classifyItemClaims(input: ClassifyInput, deps: ClassifyDeps): Promise<LlmClaimsOutput> {
   const { system, user } = buildClassifyPrompt(input);
+  const model = deps.model ?? MODEL_ID;
   const msg = await deps.anthropic.messages.create({
-    model: deps.model ?? MODEL_ID,
+    model,
     max_tokens: CLASSIFY_MAX_TOKENS,
     system,
     messages: [{ role: "user", content: user }],
   });
+  deps.onUsage?.(toLlmUsage(model, msg.usage));
 
   const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   const json = extractJson(text);

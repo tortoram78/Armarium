@@ -8,6 +8,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { MODEL_ID } from "../config";
+import { toLlmUsage, type LlmUsage } from "../obs/log";
 import {
   TripConditionsSchema, defaultConditions, fToC,
   PRECIPITATION, WIND, SUN, EXERTION, DURATION, EXPOSURE,
@@ -17,6 +18,12 @@ import {
 export interface ParseConditionsDeps {
   anthropic: Anthropic;
   model?: string;
+  /**
+   * Optional usage sink (mirrors the classify path). Invoked once per LLM call with model + token counts so
+   * the server can meter spend without core importing a console. The offline heuristic never calls the LLM
+   * and never reports usage, so absent usage is the clean default.
+   */
+  onUsage?: (usage: LlmUsage) => void;
 }
 
 const PARSE_MAX_TOKENS = 1024;
@@ -79,12 +86,14 @@ function extractJson(text: string): unknown {
 
 /** Live LLM parse: model emits a partial envelope, Zod-validated, merged onto defaults. */
 export async function parseTripConditions(description: string, deps: ParseConditionsDeps): Promise<TripConditions> {
+  const model = deps.model ?? MODEL_ID;
   const msg = await deps.anthropic.messages.create({
-    model: deps.model ?? MODEL_ID,
+    model,
     max_tokens: PARSE_MAX_TOKENS,
     system: buildParsePrompt(),
     messages: [{ role: "user", content: `Trip description: ${description}\n\nReturn the JSON now.` }],
   });
+  deps.onUsage?.(toLlmUsage(model, msg.usage));
   const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   const parsed = PartialConditionsSchema.safeParse(extractJson(text));
   if (!parsed.success) throw new ConditionsParseError("Trip conditions failed validation.");
