@@ -156,3 +156,30 @@ export async function replanTrip(id: string, userId = DEFAULT_USER_ID): Promise<
   const result = planTrip(inv, trip.name, trip.conditions, trip.description);
   return repo.updateTripResult(userId, id, result);
 }
+
+/** Rename a saved trip (user-scoped; no-op if it isn't theirs). */
+export async function renameTrip(id: string, name: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().renameTrip(userId, id, name);
+}
+
+/** Clone a trip's name + conditions into a NEW unplanned trip; returns it (for redirect). */
+export async function cloneTrip(id: string, userId = DEFAULT_USER_ID): Promise<StoredTrip> {
+  return getRepository().cloneTrip(userId, id);
+}
+
+/** Delete a saved trip (and its result snapshot), user-scoped. */
+export async function deleteTrip(id: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().deleteTrip(userId, id);
+}
+
+/**
+ * Replace a trip's conditions. Per the port contract this drops the stale result (does NOT auto-replan)
+ * — the trip reads as unplanned until re-planned against the current closet.
+ */
+export async function updateTripConditions(
+  id: string,
+  conditions: TripConditions,
+  userId = DEFAULT_USER_ID,
+): Promise<void> {
+  return getRepository().updateTripConditions(userId, id, conditions);
+}

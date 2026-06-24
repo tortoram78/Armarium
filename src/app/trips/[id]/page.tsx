@@ -1,13 +1,20 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getTrip } from "@/server/app-service";
-import { replanTripAction } from "@/app/actions";
+import {
+  replanTripAction,
+  renameTripAction,
+  cloneTripAction,
+  deleteTripAction,
+  updateTripConditionsAction,
+} from "@/app/actions";
 import { CAPABILITY_LABELS } from "@/core/capabilities";
 import type { CapabilityKey } from "@/core/capabilities";
 import type { Severity } from "@/core/recommend";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { TripControls } from "@/components/TripControls";
 import { requireUserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +63,13 @@ function conditionsSummary(c: {
   return parts.join(" · ");
 }
 
-export default async function TripDetailPage({ params }: { params: { id: string } }) {
+export default async function TripDetailPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: Record<string, string | undefined>;
+}) {
   const userId = await requireUserId();
   const trip = await getTrip(params.id, userId);
   if (!trip) notFound();
@@ -67,6 +80,10 @@ export default async function TripDetailPage({ params }: { params: { id: string 
   const picksCount = result?.picks.length ?? 0;
   const gapsCount = result?.gaps.length ?? 0;
   const verifyCount = result?.uncertain.length ?? 0;
+  // Capabilities covered by a multi-item layering SYSTEM (vs. a single item) — surfaced distinctly.
+  const systemOutcomes = (result?.outcomes ?? []).filter(
+    (o) => o.satisfiedBy.length === 0 && o.satisfiedBySystem.length > 0,
+  );
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -126,6 +143,24 @@ export default async function TripDetailPage({ params }: { params: { id: string 
               Re-plan with current closet
             </Button>
           </form>
+        </div>
+
+        {/* ── Trip controls (rename / edit conditions / clone / delete) — recessed action rail ── */}
+        <div className="surface-well relative mt-4 p-2.5">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">CTRL</span>
+            <span className="h-px flex-1 bg-seam/40" aria-hidden />
+          </div>
+          <TripControls
+            tripId={trip.id}
+            tripName={trip.name}
+            conditions={conds}
+            renameAction={renameTripAction}
+            cloneAction={cloneTripAction}
+            deleteAction={deleteTripAction}
+            editConditionsAction={updateTripConditionsAction}
+            renameError={searchParams.renameError === "1"}
+          />
         </div>
       </div>
 
@@ -300,6 +335,66 @@ export default async function TripDetailPage({ params }: { params: { id: string 
             </Card>
           )}
 
+          {/* Layering systems — capabilities NO single item covers, satisfied by items worn TOGETHER.
+              Rendered distinctly from single-item picks: a stacked set, not three separate picks. */}
+          {systemOutcomes.length > 0 && (
+            <Card variant="well">
+              <CardHeader>
+                <CardTitle className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
+                  <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·B+</span>
+                  Layering systems — {systemOutcomes.length} combination
+                  {systemOutcomes.length !== 1 ? "s" : ""}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  No single item covers these, but items from your closet handle them{" "}
+                  <span className="font-medium text-foreground">together</span> as a worn layering system.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {systemOutcomes.map((o) =>
+                  // A capability may surface more than one viable system; show each as its own stack.
+                  o.satisfiedBySystem.map((sys, sysIdx) => (
+                    <div
+                      key={`${o.capability}-${sysIdx}`}
+                      className="surface-bezel relative overflow-hidden p-3"
+                    >
+                      <span className="absolute inset-y-0 left-0 w-0.5 bg-emerald-600/70" aria-hidden />
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-foreground">
+                          {CAPABILITY_LABELS[o.capability as CapabilityKey]}
+                        </p>
+                        <Badge variant="success" className="shrink-0">
+                          {sys.items.length}-piece system
+                        </Badge>
+                      </div>
+                      {/* The stacked members, read as one combined system (mono readout, + joined). */}
+                      <div className="surface-well mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 p-2">
+                        {sys.items.map((m, i) => (
+                          <span key={m.id} className="flex items-center gap-1.5">
+                            {i > 0 && (
+                              <span className="data-mono text-[0.6875rem] text-muted-foreground" aria-hidden>
+                                +
+                              </span>
+                            )}
+                            <Link
+                              href={`/items/${m.id}`}
+                              className="data-mono text-[0.6875rem] uppercase tracking-wide text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+                            >
+                              {m.name}
+                            </Link>
+                          </span>
+                        ))}
+                        <span className="data-mono ml-1 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+                          — handled together
+                        </span>
+                      </div>
+                    </div>
+                  )),
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Full outcomes table — recessed audit well */}
           <Card variant="well">
             <CardHeader>
@@ -334,6 +429,16 @@ export default async function TripDetailPage({ params }: { params: { id: string 
                           {o.satisfiedBy.map((r) => r.name).join(", ")}
                         </p>
                       )}
+                      {/* System satisfier (only when no single item covers it): show the worn set, + joined. */}
+                      {o.satisfiedBy.length === 0 &&
+                        o.satisfiedBySystem.map((sys, i) => (
+                          <p
+                            key={i}
+                            className="data-mono mt-0.5 text-[0.6875rem] text-emerald-700 dark:text-emerald-400"
+                          >
+                            System: {sys.items.map((m) => m.name).join(" + ")}
+                          </p>
+                        ))}
                       {o.blockedBy.length > 0 && (
                         <p className="data-mono mt-0.5 text-[0.6875rem] text-blaze">
                           Possible (verify):{" "}

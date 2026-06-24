@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { getTrips } from "@/server/app-service";
+import { cloneTripAction, deleteTripAction } from "@/app/actions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { SubmitButton } from "@/components/SubmitButton";
+import { ConfirmButton } from "@/components/ConfirmButton";
 import { cn } from "@/lib/utils";
 import { requireUserId } from "@/lib/auth";
 
@@ -120,51 +123,81 @@ export default async function TripsPage() {
                 const gaps = result?.gaps.length ?? 0;
                 const uncertain = result?.uncertain.length ?? 0;
                 return (
-                  <Link key={trip.id} href={`/trips/${trip.id}`} className="group">
-                    <Card
-                      variant="bezel"
-                      className="relative flex h-full flex-col transition-[filter] duration-150 ease-crisp group-hover:brightness-[1.06]"
-                    >
-                      {gaps > 0 && (
-                        <span className="absolute inset-y-0 left-0 w-0.5 bg-destructive" aria-hidden />
-                      )}
-                      <CardHeader>
-                        <div className="flex items-start justify-between gap-2">
-                          <CardTitle className="text-sm text-foreground">{trip.name}</CardTitle>
-                          <span className="hud-readout shrink-0 text-[0.5625rem] leading-none text-hud/70">
-                            {String(idx + 1).padStart(2, "0")}
-                          </span>
-                        </div>
-                        <CardDescription className="data-mono text-[0.625rem] uppercase tracking-wide">
-                          {new Date(trip.createdAt).toLocaleDateString()} ·{" "}
-                          {trip.conditions.duration} ·{" "}
-                          {trip.conditions.exposure}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="mt-auto">
-                        <div className="flex flex-wrap gap-1.5">
-                          {result ? (
-                            <>
-                              <Badge variant="success">{picks} pick{picks !== 1 ? "s" : ""}</Badge>
-                              {gaps > 0 && (
-                                <Badge variant="critical">{gaps} gap{gaps !== 1 ? "s" : ""}</Badge>
-                              )}
-                              {uncertain > 0 && (
-                                <Badge variant="verify">{uncertain} verify</Badge>
-                              )}
-                            </>
-                          ) : (
-                            <Badge variant="subtle">No result</Badge>
-                          )}
-                        </div>
-                        {trip.description && (
-                          <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                            {trip.description}
-                          </p>
+                  // Card is a container (not a link) so the per-row CRUD forms aren't nested in an <a>.
+                  // A stretched-link overlay makes the whole body navigate; the action rail sits above it.
+                  <Card
+                    key={trip.id}
+                    variant="bezel"
+                    className="group relative flex h-full flex-col transition-[filter] duration-150 ease-crisp hover:brightness-[1.06]"
+                  >
+                    {gaps > 0 && (
+                      <span className="absolute inset-y-0 left-0 w-0.5 bg-destructive" aria-hidden />
+                    )}
+                    <CardHeader>
+                      <div className="flex items-start justify-between gap-2">
+                        <CardTitle className="text-sm text-foreground">
+                          <Link
+                            href={`/trips/${trip.id}`}
+                            className="relative z-[1] underline-offset-2 after:absolute after:inset-0 after:content-[''] hover:underline"
+                          >
+                            {trip.name}
+                          </Link>
+                        </CardTitle>
+                        <span className="hud-readout relative z-[1] shrink-0 text-[0.5625rem] leading-none text-hud/70">
+                          {String(idx + 1).padStart(2, "0")}
+                        </span>
+                      </div>
+                      <CardDescription className="data-mono text-[0.625rem] uppercase tracking-wide">
+                        {new Date(trip.createdAt).toLocaleDateString()} ·{" "}
+                        {trip.conditions.duration} ·{" "}
+                        {trip.conditions.exposure}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="mt-auto">
+                      <div className="flex flex-wrap gap-1.5">
+                        {result ? (
+                          <>
+                            <Badge variant="success">{picks} pick{picks !== 1 ? "s" : ""}</Badge>
+                            {gaps > 0 && (
+                              <Badge variant="critical">{gaps} gap{gaps !== 1 ? "s" : ""}</Badge>
+                            )}
+                            {uncertain > 0 && (
+                              <Badge variant="verify">{uncertain} verify</Badge>
+                            )}
+                          </>
+                        ) : (
+                          <Badge variant="subtle">No result</Badge>
                         )}
-                      </CardContent>
-                    </Card>
-                  </Link>
+                      </div>
+                      {trip.description && (
+                        <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                          {trip.description}
+                        </p>
+                      )}
+                    </CardContent>
+
+                    {/* Per-row CRUD rail — above the stretched link (z-index) so the controls stay clickable. */}
+                    <div className="relative z-[1] flex items-center gap-1 border-t border-seam/40 px-3 py-1.5">
+                      <form action={cloneTripAction} className="contents">
+                        <input type="hidden" name="id" value={trip.id} />
+                        <SubmitButton pendingText="…" className="h-7 px-2 text-[0.625rem]">
+                          Clone
+                        </SubmitButton>
+                      </form>
+                      <form action={deleteTripAction} className="contents">
+                        <input type="hidden" name="id" value={trip.id} />
+                        <ConfirmButton
+                          message={`Delete "${trip.name}"? This removes the trip and its recommendation.`}
+                          type="submit"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[0.625rem] text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          Delete
+                        </ConfirmButton>
+                      </form>
+                    </div>
+                  </Card>
                 );
               })}
           </div>

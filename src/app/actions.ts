@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 // services used indirectly via app-service
@@ -13,6 +14,10 @@ import {
   parseDescription,
   getItem,
   replanTrip,
+  renameTrip,
+  cloneTrip,
+  deleteTrip,
+  updateTripConditions,
 } from "@/server/app-service";
 import { defaultConditions, PRECIPITATION, WIND, SUN, EXERTION, DURATION, EXPOSURE } from "@/core/conditions";
 import { safeParseClassification } from "@/core/classification";
@@ -42,6 +47,77 @@ export async function replanTripAction(formData: FormData) {
   const id = String(formData.get("id"));
   await replanTrip(id, userId);
   revalidatePath(`/trips/${id}`);
+}
+
+// ---- trip CRUD (rename / clone / delete / edit-conditions) ----
+
+const RenameTripInput = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1, "Name is required").max(120),
+});
+
+/** Rename a saved trip in place; stays on the dossier. */
+export async function renameTripAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = RenameTripInput.safeParse({
+    id: formData.get("id"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) {
+    const id = String(formData.get("id") ?? "");
+    redirect(`/trips/${id}?renameError=1`);
+  }
+  await renameTrip(parsed.data.id, parsed.data.name, userId);
+  revalidatePath(`/trips/${parsed.data.id}`);
+  revalidatePath("/trips");
+  redirect(`/trips/${parsed.data.id}`);
+}
+
+const TripIdInput = z.object({ id: z.string().min(1) });
+
+/** Clone name + conditions into a NEW unplanned trip, then open it. */
+export async function cloneTripAction(formData: FormData) {
+  const userId = await requireUserId();
+  const { id } = TripIdInput.parse({ id: formData.get("id") });
+  const clone = await cloneTrip(id, userId);
+  revalidatePath("/trips");
+  redirect(`/trips/${clone.id}`);
+}
+
+/** Delete a saved trip and return to the log. */
+export async function deleteTripAction(formData: FormData) {
+  const userId = await requireUserId();
+  const { id } = TripIdInput.parse({ id: formData.get("id") });
+  await deleteTrip(id, userId);
+  revalidatePath("/trips");
+  redirect("/trips");
+}
+
+/**
+ * Edit a trip's structured conditions. Per the port contract this clears the stale result; the dossier
+ * then surfaces the existing "Re-plan" affordance (the trip reads as unplanned until re-planned).
+ */
+export async function updateTripConditionsAction(formData: FormData) {
+  const userId = await requireUserId();
+  const { id } = TripIdInput.parse({ id: formData.get("id") });
+  const conditions = defaultConditions({
+    temp_min_c: numOrNull(formData.get("temp_min_c")),
+    temp_max_c: numOrNull(formData.get("temp_max_c")),
+    precipitation: pick(formData.get("precipitation"), PRECIPITATION, "none"),
+    wind: pick(formData.get("wind"), WIND, "calm"),
+    sun: pick(formData.get("sun"), SUN, "moderate"),
+    exertion: pick(formData.get("exertion"), EXERTION, "moderate"),
+    duration: pick(formData.get("duration"), DURATION, "day"),
+    exposure: pick(formData.get("exposure"), EXPOSURE, "sheltered"),
+    activities: String(formData.get("activities") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  });
+  await updateTripConditions(id, conditions, userId);
+  revalidatePath(`/trips/${id}`);
+  revalidatePath("/trips");
+  redirect(`/trips/${id}`);
 }
 
 export async function addItemAction(formData: FormData) {
