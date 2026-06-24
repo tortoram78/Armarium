@@ -1,8 +1,15 @@
 // Postgres ClassificationCacheRepository — Drizzle ORM over the split store (ADR-0012 Element 5):
 //   - llm_draft_cache  — GLOBAL low-authority drafts (PK key).
-//   - user_overrides   — PER-USER corrections/confirmations (PK (user_id, key)), RLS-scoped.
+//   - user_overrides   — PER-USER corrections/confirmations (PK (user_id, key)).
 // This module is safe to import with no DATABASE_URL: `getDb()` throws only on first query, never at
 // module load. Importing this file has ZERO connection side effects.
+//
+// TENANT ISOLATION: the app connects as the table OWNER role, which BYPASSES RLS (no table sets FORCE
+// ROW LEVEL SECURITY), so the user_overrides RLS policy is DORMANT for this connection — it guards only
+// the public PostgREST/anon surface. The `WHERE user_id = $userId` filter in `lookup`/`putUserOverride`
+// (below) is the SOLE live per-user scoping and is MANDATORY; there is no DB backstop. DB-level
+// defense-in-depth (FORCE RLS + per-request auth.uid()) is a future hardening, deliberately not yet in
+// place. The cross-tenant guard test (test/repo.cross-tenant.test.ts) pins the lookup-isolation contract.
 //
 // Design:
 //   - `lookup(userId, key)` — point-select the per-user override FIRST (authority "user"); else the

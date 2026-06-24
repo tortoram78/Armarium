@@ -9,6 +9,16 @@
 //     (id, userId, name, inInventory, draft, rawText, createdAt). No re-assembly from typed columns.
 //   - Cascade deletes on group tables are handled by DB FKs (onDelete: "cascade") — no manual cleanup.
 //   - Every query is user-scoped (WHERE user_id = $userId) — rule #4.
+//
+// TENANT ISOLATION (read before adding any method): the app connects as the table OWNER role
+// (src/db/client.ts). A Postgres owner BYPASSES RLS unless the table sets FORCE ROW LEVEL SECURITY —
+// and none do — so the RLS policies are DORMANT for this connection; they protect only the public
+// PostgREST/anon surface (direct API access). The app-layer `WHERE user_id = $userId` (or a
+// userId-keyed parent-item check) is therefore the SOLE live tenant isolation and is MANDATORY on
+// EVERY query of EVERY method — there is no DB backstop. True DB-level defense-in-depth (FORCE RLS +
+// per-request auth.uid() under a non-owner role) is a future hardening, deliberately not in place.
+// test/repo.cross-tenant.test.ts is the guard that proves the app-layer scope holds across the whole
+// method surface (it runs against the memory repo, which shares this isolation contract).
 
 import { eq, and, or, lt, desc } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -442,7 +452,9 @@ export const postgresRepository: GearRepository = {
 
     // Keyset on (created_at desc, id desc). The half-open boundary "row strictly older than the
     // cursor" is (created_at < c.created_at) OR (created_at = c.created_at AND id < c.id). user_id is
-    // ALWAYS in the WHERE (app-layer scoping; RLS is the second layer). Backed by the
+    // ALWAYS in the WHERE — this app-layer scope is the SOLE live tenant isolation: the app connects as
+    // the table OWNER, which bypasses RLS (no table sets FORCE ROW LEVEL SECURITY), so the RLS policies
+    // are dormant for this connection and guard only the public PostgREST/anon surface. Backed by the
     // (user_id, created_at desc, id desc) index from migration 0004 so it stays index-only.
     const keyset = cur
       ? or(
@@ -568,8 +580,10 @@ export const postgresRepository: GearRepository = {
   async replaceItemEvidence(userId, itemId, claims) {
     const db = getDb();
     // User-scope via the parent item: the item_evidence rows carry no user_id, so ownership is gated
-    // through the items row (RLS does the same with an EXISTS-on-parent policy). If the item isn't the
-    // user's, do nothing — never delete or write another user's evidence.
+    // through the items row — this app-side EXISTS check is the SOLE live isolation (the OWNER
+    // connection bypasses RLS; the matching RLS EXISTS-on-parent policy only protects the public
+    // PostgREST/anon surface). If the item isn't the user's, do nothing — never delete or write
+    // another user's evidence.
     const owner = await db
       .select({ id: items.id })
       .from(items)
@@ -707,7 +721,8 @@ export const postgresRepository: GearRepository = {
 
   async cloneTrip(userId, id) {
     const db = getDb();
-    // Read the source within the user scope (RLS is the second layer; this WHERE is mandatory).
+    // Read the source within the user scope; this WHERE is the SOLE live tenant isolation and is
+    // MANDATORY (the OWNER connection bypasses RLS, so the policies are not a live backstop here).
     const sourceRows = await db
       .select()
       .from(trips)
