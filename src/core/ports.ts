@@ -102,8 +102,9 @@ export interface GearRepository {
 
   /**
    * REPLACE an item's full evidence claim set (item_evidence store — ADR-0012 Element 2): delete the
-   * item's existing claim rows, then insert `claims`. User-scoped (the item must belong to `userId`; RLS
-   * is the second layer). A re-resolution writes the current full set, so this is replace, not append.
+   * item's existing claim rows, then insert `claims`. User-scoped — the app-layer `userId` check is the
+   * SOLE live tenant isolation (the owner connection bypasses RLS; the RLS policy guards only the public
+   * PostgREST/anon surface). A re-resolution writes the current full set, so this is replace, not append.
    * No-op if the item isn't the user's. Transactional where the backend supports it.
    */
   replaceItemEvidence(userId: string, itemId: string, claims: EvidenceClaim[]): Promise<void>;
