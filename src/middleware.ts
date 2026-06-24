@@ -3,7 +3,9 @@ import { isAuthConfigured } from "@/lib/auth";
 import { updateSession } from "@/lib/supabase/middleware";
 
 // Paths that are always public — never redirect to /login.
-const PUBLIC_PATHS = ["/login", "/signup", "/auth"];
+// /forgot-password and /update-password must be reachable while logged-out so
+// an unauthenticated user following a recovery link isn't bounced to /login.
+const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/forgot-password", "/update-password"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));

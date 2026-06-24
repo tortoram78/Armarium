@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +13,16 @@ interface Props {
 export function LoginForm({ action }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+
+  // Surface the post-reset confirmation when redirected from /update-password.
+  // Read from window rather than useSearchParams so this route needs no extra
+  // Suspense boundary; the banner is a progressive enhancement either way.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("reset") === "success") {
+      setResetDone(true);
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -28,6 +39,11 @@ export function LoginForm({ action }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {resetDone && (
+        <p className="rounded-sm border-l-2 border-primary bg-primary/10 px-3 py-2 text-sm text-primary">
+          Password updated. Sign in with your new password.
+        </p>
+      )}
       <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
@@ -41,7 +57,15 @@ export function LoginForm({ action }: Props) {
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="password">Password</Label>
+        <div className="flex items-baseline justify-between">
+          <Label htmlFor="password">Password</Label>
+          <Link
+            href="/forgot-password"
+            className="data-mono text-[0.625rem] uppercase tracking-wide text-muted-foreground underline-offset-4 hover:text-blaze hover:underline"
+          >
+            Forgot?
+          </Link>
+        </div>
         <Input
           id="password"
           name="password"

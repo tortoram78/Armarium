@@ -54,9 +54,12 @@ async function getNavUserEmail(): Promise<string | null> {
   }
 }
 
+/** Auth screens that wear the clean/refined skin. Keep in sync with SkinController. */
+const REFINED_AUTH_PREFIXES = ["/login", "/signup", "/forgot-password", "/update-password"];
+
 /** Determine the initial skin from the request URL so SSR matches client. */
 function getInitialSkin(pathname: string): "rugged" | "refined" {
-  if (pathname.startsWith("/login") || pathname.startsWith("/signup")) {
+  if (REFINED_AUTH_PREFIXES.some((p) => pathname.startsWith(p))) {
     return "refined";
   }
   return "rugged";
