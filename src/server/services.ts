@@ -5,9 +5,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { GearRepository, ClassificationCacheRepository } from "@/core/ports";
 import type { ItemClassification } from "@/core/classification";
+import type { LlmClaimsOutput } from "@/core/classify/claims";
 import type { ClassifyInput } from "@/core/classify/prompt";
 import type { TripConditions } from "@/core/conditions";
-import { classifyItem } from "@/core/classify/classify";
+import { classifyItemClaims } from "@/core/classify/classify-claims";
 import { classifyOffline } from "@/core/classify/offline";
 import { parseTripConditions, parseConditionsHeuristic } from "@/core/recommend/parse-conditions";
 import { memoryRepository } from "./memory-repo";
@@ -43,20 +44,27 @@ export function getCacheRepository(): ClassificationCacheRepository {
   return cacheRepo;
 }
 
-export type Classifier = (input: ClassifyInput) => Promise<ItemClassification>;
+// The classify abstraction is a DISCRIMINATED handle (ADR-0014 §3/§4): the ONLINE (LLM) classifier emits
+// claims (`LlmClaimsOutput`, resolved downstream by the assembler); the OFFLINE classifier emits a resolved
+// `ItemClassification` directly (seed/corpus — never claims). `kind` lets app-service branch; `mode` is the
+// UI-facing live/offline flag (unchanged). The test mock constructs whichever handle a path needs.
+export type ClaimsClassifier = (input: ClassifyInput) => Promise<LlmClaimsOutput>;
+export type ResolvedClassifier = (input: ClassifyInput) => Promise<ItemClassification>;
 
-export interface ClassifierHandle {
-  classify: Classifier;
-  mode: "live" | "offline";
-}
+/** Back-compat alias: a classifier that yields the resolved classification (the offline shape). */
+export type Classifier = ResolvedClassifier;
+
+export type ClassifierHandle =
+  | { kind: "claims"; classify: ClaimsClassifier; mode: "live" }
+  | { kind: "resolved"; classify: ResolvedClassifier; mode: "offline" };
 
 export function getClassifier(): ClassifierHandle {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey) {
     const anthropic = new Anthropic({ apiKey, timeout: 30_000, maxRetries: 1 });
-    return { classify: (input) => classifyItem(input, { anthropic }), mode: "live" };
+    return { kind: "claims", classify: (input) => classifyItemClaims(input, { anthropic }), mode: "live" };
   }
-  return { classify: async (input) => classifyOffline(input), mode: "offline" };
+  return { kind: "resolved", classify: async (input) => classifyOffline(input), mode: "offline" };
 }
 
 export type TripParser = (description: string) => Promise<TripConditions>;

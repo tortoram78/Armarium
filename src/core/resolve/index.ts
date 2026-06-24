@@ -17,3 +17,33 @@ export {
 } from "./resolve-facet";
 
 export { resolveBehavioralFacets, BEHAVIORAL_KEYS } from "./behavioral";
+
+// Phase 3 (ADR-0014): the claims pipeline — facet-key paths, the claim→classification assembler + the
+// classification→claims decomposer, the LLM-claim ingestion boundary, and the non-LLM claim producers.
+export {
+  FACET_PATHS,
+  FACET_PATH_BY_KEY,
+  isHardFactKey,
+  isRegistryFacetKey,
+  type FacetPathDef,
+} from "./facet-paths";
+
+export {
+  assembleClassification,
+  decomposeToClaims,
+  MATERIALS_FACET_KEY,
+} from "./assemble";
+
+export {
+  ingestLlmClaims,
+  LLM_CLAIMS_EXTRACTOR_VERSION,
+  type IngestedClaims,
+  type PendingFacet,
+} from "./ingest-claims";
+
+export {
+  manufacturerClaims,
+  derivedClaims,
+  MANUFACTURER_EXTRACTOR_VERSION,
+  MATERIAL_DERIVE_EXTRACTOR_VERSION,
+} from "./source-claims";
