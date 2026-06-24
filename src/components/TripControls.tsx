@@ -1,6 +1,6 @@
 "use client";
 
-// Trip dossier header controls — rename / clone / delete / edit-conditions, in the machined style.
+// Trip dossier header controls — rename / clone / delete / edit-conditions, as refined editorial buttons.
 // "use client" because the rename + edit-conditions panels toggle open (useState); the actual mutation
 // is a SERVER ACTION passed in as a prop and bound to each <form action={…}>, so no event handler ever
 // crosses the server→client boundary (the RSC-safe idiom used by FacetEditor). Clone is a SubmitButton
@@ -50,40 +50,32 @@ export function TripControls({
 
   return (
     <div className="relative w-full">
-      {/* Action rail — machined keys: rename / edit / clone / delete. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <button
+      {/* Action rail — refined editorial buttons: rename / edit / clone / delete. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
           type="button"
+          variant={panel === "rename" ? "subtle" : "ghost"}
+          size="sm"
           onClick={() => setPanel((p) => (p === "rename" ? "none" : "rename"))}
           aria-expanded={panel === "rename"}
-          className={
-            panel === "rename"
-              ? "label-structural surface-rail text-stamped px-2.5 py-1.5 text-[0.625rem] text-foreground transition-[filter] duration-150 ease-crisp hover:brightness-[1.06]"
-              : "label-structural px-2.5 py-1.5 text-[0.625rem] text-muted-foreground transition-colors hover:text-foreground"
-          }
         >
           Rename
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant={panel === "conditions" ? "subtle" : "ghost"}
+          size="sm"
           onClick={() => setPanel((p) => (p === "conditions" ? "none" : "conditions"))}
           aria-expanded={panel === "conditions"}
-          className={
-            panel === "conditions"
-              ? "label-structural surface-rail text-stamped px-2.5 py-1.5 text-[0.625rem] text-foreground transition-[filter] duration-150 ease-crisp hover:brightness-[1.06]"
-              : "label-structural px-2.5 py-1.5 text-[0.625rem] text-muted-foreground transition-colors hover:text-foreground"
-          }
         >
           Edit conditions
-        </button>
+        </Button>
 
-        <span className="mx-0.5 h-4 w-px bg-seam/50" aria-hidden />
+        <span className="mx-1 h-5 w-px bg-border" aria-hidden />
 
         <form action={cloneAction} className="contents">
           <input type="hidden" name="id" value={tripId} />
-          <SubmitButton pendingText="Cloning…" className="h-8 px-3 text-[0.6875rem]">
-            Clone
-          </SubmitButton>
+          <SubmitButton pendingText="Cloning…">Clone</SubmitButton>
         </form>
 
         <form action={deleteAction} className="contents">
@@ -100,15 +92,13 @@ export function TripControls({
         </form>
       </div>
 
-      {/* Rename panel — recessed well, inline. */}
+      {/* Rename panel — a quiet inline editorial sub-section. */}
       {panel === "rename" && (
-        <div className="surface-well mt-3 p-3">
-          <form action={renameAction} className="flex flex-wrap items-end gap-2">
+        <div className="panel mt-4 bg-muted/40 p-5">
+          <form action={renameAction} className="flex flex-wrap items-end gap-3">
             <input type="hidden" name="id" value={tripId} />
-            <div className="flex-1 space-y-1.5" style={{ minWidth: "12rem" }}>
-              <Label htmlFor="trip-rename" className="text-[0.625rem]">
-                Trip name
-              </Label>
+            <div className="flex-1 space-y-2" style={{ minWidth: "12rem" }}>
+              <Label htmlFor="trip-rename">Trip name</Label>
               <Input
                 id="trip-rename"
                 name="name"
@@ -118,14 +108,10 @@ export function TripControls({
                 autoFocus
               />
             </div>
-            <SubmitButton pendingText="Saving…" className="h-10">
-              Save name
-            </SubmitButton>
+            <SubmitButton pendingText="Saving…">Save name</SubmitButton>
           </form>
           {renameError && (
-            <p className="data-mono mt-2 text-[0.625rem] uppercase tracking-wide text-destructive">
-              A trip name is required.
-            </p>
+            <p className="mt-3 text-sm text-destructive">A trip name is required.</p>
           )}
         </div>
       )}
@@ -133,21 +119,16 @@ export function TripControls({
       {/* Edit-conditions panel — reuses the structured-conditions fields. Saving clears the stale
           result; the dossier then shows the Re-plan affordance (the trip is unplanned until re-planned). */}
       {panel === "conditions" && (
-        <div className="surface-well mt-3 p-4">
-          <div className="mb-3 flex items-center justify-between border-b border-seam/40 pb-2">
-            <h3 className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-              <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">SEC·E</span>
-              Edit conditions
-            </h3>
-            <span className="data-mono text-[0.625rem] uppercase tracking-wide text-blaze">
-              Saving clears the result — re-plan after
-            </span>
+        <div className="panel mt-4 bg-muted/40 p-5">
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-3">
+            <h3 className="subhead text-[0.95rem] text-foreground">Edit conditions</h3>
+            <span className="text-sm text-accent">Saving clears the result — re-plan after.</span>
           </div>
-          <form action={editConditionsAction} className="space-y-4">
+          <form action={editConditionsAction} className="space-y-5">
             <input type="hidden" name="id" value={tripId} />
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
                 <Label htmlFor="edit-temp_min_c">Temp min (°C)</Label>
                 <Input
                   id="edit-temp_min_c"
@@ -155,9 +136,10 @@ export function TripControls({
                   type="number"
                   placeholder="e.g. 3"
                   defaultValue={conditions.temp_min_c ?? ""}
+                  className="data-mono"
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label htmlFor="edit-temp_max_c">Temp max (°C)</Label>
                 <Input
                   id="edit-temp_max_c"
@@ -165,12 +147,13 @@ export function TripControls({
                   type="number"
                   placeholder="e.g. 18"
                   defaultValue={conditions.temp_max_c ?? ""}
+                  className="data-mono"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
                 <Label>Precipitation</Label>
                 <Select name="precipitation" defaultValue={conditions.precipitation}>
                   {PRECIPITATION.map((v) => (
@@ -178,7 +161,7 @@ export function TripControls({
                   ))}
                 </Select>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Wind</Label>
                 <Select name="wind" defaultValue={conditions.wind}>
                   {WIND.map((v) => (
@@ -186,7 +169,7 @@ export function TripControls({
                   ))}
                 </Select>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Sun</Label>
                 <Select name="sun" defaultValue={conditions.sun}>
                   {SUN.map((v) => (
@@ -194,7 +177,7 @@ export function TripControls({
                   ))}
                 </Select>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Exertion</Label>
                 <Select name="exertion" defaultValue={conditions.exertion}>
                   {EXERTION.map((v) => (
@@ -202,7 +185,7 @@ export function TripControls({
                   ))}
                 </Select>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Duration</Label>
                 <Select name="duration" defaultValue={conditions.duration}>
                   {DURATION.map((v) => (
@@ -210,7 +193,7 @@ export function TripControls({
                   ))}
                 </Select>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Exposure</Label>
                 <Select name="exposure" defaultValue={conditions.exposure}>
                   {EXPOSURE.map((v) => (
@@ -220,7 +203,7 @@ export function TripControls({
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="edit-activities">Activities (comma-separated)</Label>
               <Input
                 id="edit-activities"
@@ -230,15 +213,9 @@ export function TripControls({
               />
             </div>
 
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-3 pt-1">
               <SubmitButton pendingText="Saving…">Save conditions</SubmitButton>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-10"
-                onClick={() => setPanel("none")}
-              >
+              <Button type="button" variant="outline" onClick={() => setPanel("none")}>
                 Cancel
               </Button>
             </div>
