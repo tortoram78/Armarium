@@ -11,6 +11,39 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
+/**
+ * Guest-READABLE routes — the demo → "log in to save" funnel. A logged-out visitor may GET these to
+ * browse the sample closet, open a sample item, plan (preview), and view a saved-trip surface. They are
+ * NOT public (an authenticated user sees their own data here); they simply don't bounce a guest at the
+ * edge. The actual save WALL is inside the server actions on these pages: every write calls
+ * `requireUserId()`, which redirects a guest to /login. So a guest can read here but cannot persist.
+ *
+ * Matched PRECISELY so no write route leaks:
+ *   - "/"                exact closet root only.
+ *   - "/plan"            the planner + "/plan/preview" (guest preview result) — read/preview, never saves.
+ *   - "/items/:id"       a single item detail. Deliberately EXCLUDES "/items/new" (the add form, a write
+ *     entry) and "/items/:id/review" (a draft-review write surface) — both stay gated.
+ *   - "/trips/:id"       a single saved-trip dossier. EXCLUDES "/trips" (the user's own trip log).
+ *
+ * Only safe (GET/HEAD) requests are allowed through; a POST / server-action invocation to any of these
+ * paths is NOT exempted here and still reaches the action's `requireUserId()`. Belt-and-suspenders: the
+ * action gate is the real wall, this matcher just avoids an unhelpful pre-emptive redirect on reads.
+ */
+function isGuestReadablePath(pathname: string): boolean {
+  if (pathname === "/" || pathname === "/plan" || pathname === "/plan/preview") return true;
+  // "/items/<id>" but NOT "/items/new" and NOT "/items/<id>/<sub>" (e.g. /review).
+  const itemMatch = /^\/items\/([^/]+)$/.exec(pathname);
+  if (itemMatch && itemMatch[1] !== "new") return true;
+  // "/trips/<id>" but NOT "/trips" itself and NOT deeper sub-routes.
+  if (/^\/trips\/[^/]+$/.test(pathname)) return true;
+  return false;
+}
+
+/** GET/HEAD only — never exempt a mutating method (server actions POST). */
+function isSafeMethod(method: string): boolean {
+  return method === "GET" || method === "HEAD";
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -31,6 +64,13 @@ export async function middleware(req: NextRequest) {
 
   // Public pages always pass through even when authenticated.
   if (isPublicPath(pathname)) {
+    return response;
+  }
+
+  // Guest funnel: a logged-out visitor may READ the sample closet / planner / a single item or trip.
+  // Allow only SAFE methods (a server-action POST to these paths is NOT exempt — it still hits the
+  // action's requireUserId(), which is the real save wall). The header was already set above.
+  if (!user && isGuestReadablePath(pathname) && isSafeMethod(req.method)) {
     return response;
   }
 

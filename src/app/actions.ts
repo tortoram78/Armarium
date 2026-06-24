@@ -12,6 +12,7 @@ import {
   updateItemClassification,
   setInventory,
   planAndSave,
+  planPreview,
   parseDescription,
   getItem,
   replanTrip,
@@ -37,7 +38,8 @@ import {
   EDITABLE_GROUPS,
   EDITABLE_MULTILABEL,
 } from "@/core/corrections";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, getUserIdOrGuest } from "@/lib/auth";
+import { encodeConditions } from "@/lib/conditions-codec";
 
 function numOrNull(v: FormDataEntryValue | null): number | null {
   const s = String(v ?? "").trim();
@@ -49,6 +51,24 @@ function numOrNull(v: FormDataEntryValue | null): number | null {
 function pick<T extends readonly string[]>(v: FormDataEntryValue | null, allowed: T, def: T[number]): T[number] {
   const s = String(v ?? "");
   return (allowed as readonly string[]).includes(s) ? (s as T[number]) : def;
+}
+
+/** Build a validated `TripConditions` from the structured-form FormData (shared by plan + preview + edit). */
+function conditionsFromFormData(formData: FormData): TripConditions {
+  return defaultConditions({
+    temp_min_c: numOrNull(formData.get("temp_min_c")),
+    temp_max_c: numOrNull(formData.get("temp_max_c")),
+    precipitation: pick(formData.get("precipitation"), PRECIPITATION, "none"),
+    wind: pick(formData.get("wind"), WIND, "calm"),
+    sun: pick(formData.get("sun"), SUN, "moderate"),
+    exertion: pick(formData.get("exertion"), EXERTION, "moderate"),
+    duration: pick(formData.get("duration"), DURATION, "day"),
+    exposure: pick(formData.get("exposure"), EXPOSURE, "sheltered"),
+    activities: String(formData.get("activities") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  });
 }
 
 export async function replanTripAction(formData: FormData) {
@@ -110,20 +130,7 @@ export async function deleteTripAction(formData: FormData) {
 export async function updateTripConditionsAction(formData: FormData) {
   const userId = await requireUserId();
   const { id } = TripIdInput.parse({ id: formData.get("id") });
-  const conditions = defaultConditions({
-    temp_min_c: numOrNull(formData.get("temp_min_c")),
-    temp_max_c: numOrNull(formData.get("temp_max_c")),
-    precipitation: pick(formData.get("precipitation"), PRECIPITATION, "none"),
-    wind: pick(formData.get("wind"), WIND, "calm"),
-    sun: pick(formData.get("sun"), SUN, "moderate"),
-    exertion: pick(formData.get("exertion"), EXERTION, "moderate"),
-    duration: pick(formData.get("duration"), DURATION, "day"),
-    exposure: pick(formData.get("exposure"), EXPOSURE, "sheltered"),
-    activities: String(formData.get("activities") ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  });
+  const conditions = conditionsFromFormData(formData);
   await updateTripConditions(id, conditions, userId);
   revalidatePath(`/trips/${id}`);
   revalidatePath("/trips");
@@ -281,7 +288,10 @@ export type WeatherConditionsResult =
  * thin action.
  */
 export async function getWeatherConditionsAction(formData: FormData): Promise<WeatherConditionsResult> {
-  await requireUserId();
+  // READ gate, not the write gate: a forecast pull performs NO write (it only derives conditions to
+  // prefill the form), so a guest planning a trip can use it. `getUserIdOrGuest` never redirects; the
+  // save wall stays in planTripAction/planAndSave (still requireUserId). No DB or user data is touched.
+  await getUserIdOrGuest();
   try {
     const location = String(formData.get("location") ?? "").trim();
     const startDate = String(formData.get("startDate") ?? "").trim();
@@ -307,23 +317,27 @@ export async function planTripAction(formData: FormData) {
   const userId = await requireUserId();
   const name = String(formData.get("name") ?? "").trim() || "Untitled trip";
   const description = String(formData.get("description") ?? "").trim() || undefined;
-  const conditions = defaultConditions({
-    temp_min_c: numOrNull(formData.get("temp_min_c")),
-    temp_max_c: numOrNull(formData.get("temp_max_c")),
-    precipitation: pick(formData.get("precipitation"), PRECIPITATION, "none"),
-    wind: pick(formData.get("wind"), WIND, "calm"),
-    sun: pick(formData.get("sun"), SUN, "moderate"),
-    exertion: pick(formData.get("exertion"), EXERTION, "moderate"),
-    duration: pick(formData.get("duration"), DURATION, "day"),
-    exposure: pick(formData.get("exposure"), EXPOSURE, "sheltered"),
-    activities: String(formData.get("activities") ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  });
+  const conditions = conditionsFromFormData(formData);
   const trip = await planAndSave(name, conditions, description, userId);
   revalidatePath("/trips");
   redirect(`/trips/${trip.id}`);
+}
+
+/**
+ * GUEST / preview plan — the READ-ONLY counterpart to `planTripAction`. Resolves the identity via the READ
+ * gate (`getUserIdOrGuest`, never redirects), builds the SAME `TripConditions` from the form, but does NOT
+ * save: it encodes the conditions into the URL and redirects to `/plan/preview`, which re-runs the plan
+ * over the (guest sample or the user's own) closet and renders the result behind the save WALL. This action
+ * NEVER calls `planAndSave` — no write, no DB. It is also safe for an authenticated user who wants a preview
+ * without persisting, but the plan form only wires it for guests (authed users post to planTripAction).
+ *
+ * Note: this does not call `requireUserId()` by design — it is a read action. The save wall is the
+ * /plan/preview "Log in to save" control, which routes to /login (and every actual write stays gated).
+ */
+export async function planPreviewAction(formData: FormData) {
+  await getUserIdOrGuest();
+  const conditions = conditionsFromFormData(formData);
+  redirect(`/plan/preview?conditions=${encodeConditions(conditions)}`);
 }
 
 /** Sign out the current user and redirect to /login. */

@@ -8,9 +8,11 @@ import { Label } from "@/components/ui/label";
 
 interface Props {
   action: (formData: FormData) => Promise<{ error: string } | undefined>;
+  /** Optional same-origin redirect target carried through as a hidden field (the save-wall prefill bridge). */
+  next?: string;
 }
 
-export function LoginForm({ action }: Props) {
+export function LoginForm({ action, next }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [resetDone, setResetDone] = useState(false);
@@ -39,6 +41,7 @@ export function LoginForm({ action }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {next && <input type="hidden" name="next" value={next} />}
       {resetDone && (
         <p className="rounded-sm border-l-2 border-primary bg-primary/10 px-3 py-2 text-sm text-primary">
           Password updated. Sign in with your new password.

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
-import { requireUserId } from "@/lib/auth";
+import { getUserIdOrGuest } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +55,9 @@ export default async function ItemDetailPage({
   params: { id: string };
   searchParams: { facetError?: string; edit?: string };
 }) {
-  const userId = await requireUserId();
+  // READ gate — never redirects. A guest views a sample item from the seeded closet; the write affordances
+  // (inventory toggle, delete, facet editor) are hidden for a guest since their actions are write-gated.
+  const { userId, isGuest } = await getUserIdOrGuest();
   const item = await getItem(params.id, userId);
   if (!item) notFound();
   // If still a draft, send to review
@@ -122,21 +124,24 @@ export default async function ItemDetailPage({
               )}
             </p>
           </div>
-          <div className="flex shrink-0 gap-2">
-            <form action={setInventoryAction}>
-              <input type="hidden" name="id" value={item.id} />
-              <input type="hidden" name="inInventory" value={item.inInventory ? "false" : "true"} />
-              <Button type="submit" variant="outline" size="sm">
-                {item.inInventory ? "Remove from inventory" : "Add to inventory"}
-              </Button>
-            </form>
-            <form action={deleteItemAction}>
-              <input type="hidden" name="id" value={item.id} />
-              <ConfirmButton message="Delete this item?" type="submit" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive">
-                Delete
-              </ConfirmButton>
-            </form>
-          </div>
+          {/* Write affordances — hidden for a guest (their actions are write-gated behind requireUserId). */}
+          {!isGuest && (
+            <div className="flex shrink-0 gap-2">
+              <form action={setInventoryAction}>
+                <input type="hidden" name="id" value={item.id} />
+                <input type="hidden" name="inInventory" value={item.inInventory ? "false" : "true"} />
+                <Button type="submit" variant="outline" size="sm">
+                  {item.inInventory ? "Remove from inventory" : "Add to inventory"}
+                </Button>
+              </form>
+              <form action={deleteItemAction}>
+                <input type="hidden" name="id" value={item.id} />
+                <ConfirmButton message="Delete this item?" type="submit" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+                  Delete
+                </ConfirmButton>
+              </form>
+            </div>
+          )}
         </div>
       </div>
 
@@ -332,17 +337,34 @@ export default async function ItemDetailPage({
         </Card>
       )}
 
-      {/* Facet editor — interactive action plate (raised bezel) */}
-      <Card variant="bezel">
-        <CardContent className="pt-4">
-          <FacetEditor
-            itemId={item.id}
-            classification={c}
-            action={updateFacetsAction}
-            defaultOpen={searchParams.edit === "1"}
-          />
-        </CardContent>
-      </Card>
+      {/* Facet editor — interactive action plate (raised bezel). Hidden for a guest (correction is a write).
+          A guest sees a read-only invitation to log in to correct facets instead. */}
+      {!isGuest ? (
+        <Card variant="bezel">
+          <CardContent className="pt-4">
+            <FacetEditor
+              itemId={item.id}
+              classification={c}
+              action={updateFacetsAction}
+              defaultOpen={searchParams.edit === "1"}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card variant="well">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <p className="data-mono text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+              Correcting facets requires an account.
+            </p>
+            <Link
+              href={`/login?next=${encodeURIComponent(`/items/${item.id}`)}`}
+              className="label-structural surface-bezel text-stamped px-4 py-2 text-[0.6875rem] [background-color:hsl(var(--primary))] [color:hsl(var(--primary-foreground))] transition-[filter] duration-150 ease-crisp hover:brightness-110"
+            >
+              Log in to edit
+            </Link>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

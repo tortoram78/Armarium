@@ -9,6 +9,8 @@ import { NavUser } from "@/components/NavUser";
 interface Props {
   userEmail: string | null;
   authConfigured: boolean;
+  /** True when auth is configured but no session — a guest browsing the sample closet (demo funnel). */
+  isGuest?: boolean;
 }
 
 const NAV_LINKS = [
@@ -24,7 +26,7 @@ const NAV_LINKS = [
  * a faint mono coordinate readout, a stamped wordmark, and a blaze active tick.
  * Depth is the milled edge + cast, never a soft drop-shadow.
  */
-export function NavShell({ userEmail, authConfigured }: Props) {
+export function NavShell({ userEmail, authConfigured, isGuest = false }: Props) {
   const pathname = usePathname();
 
   function isActive(href: string) {
@@ -100,9 +102,32 @@ export function NavShell({ userEmail, authConfigured }: Props) {
               </Link>
             );
           })}
-          {authConfigured && (
+          {authConfigured && !isGuest && (
             <span className="ml-1 flex items-center border-l border-seam/40 pl-2 pr-1">
               <NavUser email={userEmail} />
+            </span>
+          )}
+          {authConfigured && isGuest && (
+            <span className="ml-1 flex items-center gap-1 border-l border-seam/40 pl-2 pr-1">
+              {/* subtle SAMPLE indicator — guest is reading the demo closet */}
+              <span
+                className="hud-readout hidden text-[0.5rem] tracking-[0.22em] text-blaze sm:inline"
+                aria-label="Viewing sample closet"
+              >
+                sample
+              </span>
+              <Link
+                href="/login"
+                className="label-structural rounded-sm px-2.5 py-1 text-[0.625rem] text-foreground transition-colors duration-150 ease-crisp hover:text-blaze"
+              >
+                Log in
+              </Link>
+              <Link
+                href="/signup"
+                className="label-structural surface-bezel text-stamped rounded-sm px-2.5 py-1 text-[0.625rem] [background-color:hsl(var(--primary))] [color:hsl(var(--primary-foreground))] transition-[filter] duration-150 ease-crisp hover:brightness-110"
+              >
+                Sign up
+              </Link>
             </span>
           )}
         </nav>

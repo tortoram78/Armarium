@@ -1,7 +1,9 @@
-import { planTripAction, planFromDescriptionAction, getWeatherConditionsAction } from "@/app/actions";
+import { planTripAction, planPreviewAction, planFromDescriptionAction, getWeatherConditionsAction } from "@/app/actions";
 import { tripParserMode } from "@/server/app-service";
 import { TRIP_PRESETS } from "@/core/trips";
 import { defaultConditions } from "@/core/conditions";
+import { getUserIdOrGuest } from "@/lib/auth";
+import { decodeConditions } from "@/lib/conditions-codec";
 import { SubmitButton } from "@/components/SubmitButton";
 import { WeatherAutofill } from "@/components/WeatherAutofill";
 import { Input } from "@/components/ui/input";
@@ -22,10 +24,19 @@ export default async function PlanPage({ searchParams }: { searchParams: Record<
   const preset = presetDefaults(searchParams);
   const parserMode = tripParserMode();
 
-  // Seed the (now controlled) structured-conditions form from the preset, falling back to defaults. The
-  // WeatherAutofill widget owns this as React state so a forecast pull can prefill it; every field stays
-  // editable. String-typed because they are form values.
-  const seed = preset?.conditions ?? defaultConditions();
+  // READ gate — never redirects. A guest gets the no-save preview action; an authed user keeps the
+  // save-on-plan action. (Auth unconfigured/dev → isGuest:false → the unchanged save path.)
+  const { isGuest } = await getUserIdOrGuest();
+
+  // Conditions-as-prefill bridge: returning from the save-wall via /login?next=/plan?conditions=… (or the
+  // preview's "edit" link) carries a validated conditions blob that pre-fills the structured form. The
+  // codec Zod-validates the (untrusted) query value; a malformed one is ignored → preset/defaults stand.
+  const prefill = decodeConditions(searchParams.conditions);
+
+  // Seed the (now controlled) structured-conditions form: a valid conditions-prefill wins over a preset,
+  // which wins over the blank defaults. The WeatherAutofill widget owns this as React state so a forecast
+  // pull can prefill it; every field stays editable. String-typed because they are form values.
+  const seed = prefill ?? preset?.conditions ?? defaultConditions();
   const initialConditions = {
     temp_min_c: seed.temp_min_c !== null ? String(seed.temp_min_c) : "",
     temp_max_c: seed.temp_max_c !== null ? String(seed.temp_max_c) : "",
@@ -173,11 +184,19 @@ export default async function PlanPage({ searchParams }: { searchParams: Record<
           <p className="text-xs text-muted-foreground">
             Pull a forecast from a location &amp; dates, or configure each parameter directly — either way
             you can adjust everything before planning.
+            {isGuest && (
+              <span className="data-mono ml-1 uppercase tracking-wide text-blaze">
+                Results won&apos;t be saved until you log in.
+              </span>
+            )}
           </p>
         </CardHeader>
         <CardContent>
+          {/* A guest posts to the NO-SAVE preview action (renders the result behind a save wall); an
+              authenticated user posts to the existing save-on-plan action. Both are server actions passed
+              as the `planAction` prop — no event handler crosses the server→client boundary (RSC-safe). */}
           <WeatherAutofill
-            planAction={planTripAction}
+            planAction={isGuest ? planPreviewAction : planTripAction}
             weatherAction={getWeatherConditionsAction}
             initial={initialConditions}
             initialName={preset?.name ?? ""}
