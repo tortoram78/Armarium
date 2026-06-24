@@ -4,8 +4,10 @@
 // One table drives BOTH directions so they can never drift:
 //   - the ASSEMBLER (claims → resolved ItemClassification) writes a resolved facet at `setPath`.
 //   - the DECOMPOSER (a resolved ItemClassification → claims, for offline/seed items) reads each facet.
-// `materials`/`treatments`/`applicable_groups` are whole-array/derived fields handled specially by the
-// assembler — they are NOT per-facet resolver slots, so they live OUTSIDE this scalar table.
+// `materials` and `treatments` are whole-array atomic claims (each resolved as one unit under its own
+// facetKey — MATERIALS_FACET_KEY / TREATMENTS_FACET_KEY in assemble.ts), and `applicable_groups` is a
+// derived field; all three are handled specially by the assembler and the decomposer — they are NOT
+// per-facet resolver slots, so they live OUTSIDE this scalar table.
 //
 // "hard" marks the facets that are hard FACTS (identity + upf + the group hard facts). At the claim
 // boundary an `inferred` hard fact has nowhere to live (ADR-0004/0014) — it is dropped, never written.

@@ -32,6 +32,9 @@ import { FACET_PATHS, type FacetPathDef } from "./facet-paths";
 /** The facetKey under which a whole composition (materials array) is claimed/resolved. */
 export const MATERIALS_FACET_KEY = "materials";
 
+/** The facetKey under which the whole treatments array is claimed/resolved (one atomic claim, like materials). */
+export const TREATMENTS_FACET_KEY = "treatments";
+
 /** An at-rest EvidenceClaim → the resolver's Claim<V>. Asserting by construction (the store holds only
  *  asserting claims), so confidence is one of low|medium|high — never the "unknown" floor. */
 function toResolverClaim<V>(c: EvidenceClaim): Claim<V> {
@@ -160,6 +163,16 @@ export function assembleClassification(name: string, claims: readonly EvidenceCl
     scaffold.materials = Array.isArray(winner.value) ? winner.value : [];
   }
 
+  // 2b. Treatments: precedence-resolve the whole treatments array as one atomic claim — exactly like
+  //     materials. A treatments list is one stated set (a manufacturer DWR finish out-ranks an inferred
+  //     guess); we never interleave two sources' treatment rows. Resolved BEFORE parseClassification so the
+  //     winning array is validated by the single Zod boundary below.
+  const treatmentsClaims = byKey.get(TREATMENTS_FACET_KEY);
+  if (treatmentsClaims && treatmentsClaims.length > 0) {
+    const winner = resolveFacet(treatmentsClaims.map(toResolverClaim));
+    scaffold.treatments = Array.isArray(winner.value) ? winner.value : [];
+  }
+
   // Provisional applicable_groups so the blob validates; corrected post-demotion below.
   scaffold.applicable_groups = [...groupsPresent];
 
@@ -255,6 +268,21 @@ export function decomposeToClaims(c: ItemClassification, extractorVersion: strin
     });
   }
 
+  // Treatments: the whole treatments list as one claim (when present) — symmetric with materials, so a
+  // round-trip can never silently erase a manufacturer-stated DWR finish on a seed/legacy item. Take the
+  // strongest present source so an authoritatively-stated treatment is recorded (and out-ranks) as such.
+  if (Array.isArray(c.treatments) && c.treatments.length > 0) {
+    const source = strongestTreatmentSource(c.treatments);
+    out.push({
+      facetKey: TREATMENTS_FACET_KEY,
+      value: c.treatments,
+      confidence: "high",
+      source,
+      evidence: `offline classification: treatments`,
+      extractorVersion,
+    });
+  }
+
   return out;
 }
 
@@ -284,6 +312,23 @@ function strongestMaterialSource(materials: ItemClassification["materials"]): So
     if (r > bestRank) {
       bestRank = r;
       best = m.source as Source;
+    }
+  }
+  return best;
+}
+
+/** The strongest source present across a treatments list's rows (manufacturer/user > derived > inferred).
+ *  Mirrors strongestMaterialSource so a manufacturer-stated treatment (e.g. a factory DWR) round-trips as
+ *  authoritative rather than being relabeled "inferred". */
+function strongestTreatmentSource(treatments: ItemClassification["treatments"]): Source {
+  const rank: Record<string, number> = { unknown: 0, inferred: 1, derived_from_material: 2, manufacturer: 3, user: 4 };
+  let best: Source = "inferred";
+  let bestRank = rank.inferred!;
+  for (const t of treatments) {
+    const r = rank[t.source] ?? 0;
+    if (r > bestRank) {
+      bestRank = r;
+      best = t.source as Source;
     }
   }
   return best;

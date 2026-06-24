@@ -14,6 +14,7 @@ import {
   decomposeToClaims,
   FACET_PATHS,
   MATERIALS_FACET_KEY,
+  TREATMENTS_FACET_KEY,
 } from "@/core/resolve";
 import { ItemClassificationSchema, parseClassification, type ItemClassification } from "@/core/classification";
 import type { EvidenceClaim } from "@/core/ports";
@@ -169,14 +170,38 @@ describe("assembleClassification — claims resolve into the ItemClassification 
     expect(c.materials[0]!.source).toBe("manufacturer");
     expect(c.materials[0]!.fiber_components[0]!.fiber).toBe("polyester");
   });
+
+  it("resolves a TREATMENTS claim (whole array, manufacturer DWR wins over an inferred treatment)", () => {
+    // Symmetric with materials: a treatments list is one atomic stated set. A manufacturer DWR finish must
+    // out-rank an inferred guess and survive into the resolved classification with its source intact.
+    const inferredTreat = [
+      { kind: "dwr", condition: "degraded", source: "inferred", evidence: "looks worn" },
+    ];
+    const mfrTreat = [
+      { kind: "dwr", condition: "factory_fresh", source: "manufacturer", evidence: "DWR finish" },
+    ];
+    const c = assembleClassification("Treated Shell", [
+      claim({ facetKey: TREATMENTS_FACET_KEY, value: inferredTreat, source: "inferred", confidence: "high" }),
+      claim({ facetKey: TREATMENTS_FACET_KEY, value: mfrTreat, source: "manufacturer", confidence: "high", evidence: "stated" }),
+    ]);
+    expect(c.treatments.length).toBe(1);
+    expect(c.treatments[0]!.source).toBe("manufacturer");
+    expect(c.treatments[0]!.condition).toBe("factory_fresh");
+    expect(c.treatments).toEqual(mfrTreat);
+  });
 });
 
 describe("decomposeToClaims — a resolved classification → its claim trail (offline items, §5)", () => {
+  // A manufacturer-stated DWR finish (exactly the shape a seed item like `terrePlaning` carries) — the
+  // round-trip below proves decompose→assemble never silently erases it (the regression this test locks).
+  const MFR_DWR = [{ kind: "dwr", condition: "factory_fresh", source: "manufacturer", evidence: "DWR finish" }] as const;
+
   function build(over: Partial<{ warmth: ItemClassification["universal"]["warmth"] }>): ItemClassification {
     return assembleClassification("Decompose Subject", [
       claim({ facetKey: "universal.warmth", value: "moderate", source: "inferred", confidence: "high" }),
       claim({ facetKey: "universal.upf", value: 50, source: "manufacturer", confidence: "high", evidence: "UPF 50 stated" }),
       claim({ facetKey: "multilabel.activity_fit", value: ["hiking"], confidence: "high" }),
+      claim({ facetKey: TREATMENTS_FACET_KEY, value: MFR_DWR, source: "manufacturer", confidence: "high", evidence: "stated" }),
       ...(over.warmth ? [] : []),
     ]);
   }
@@ -195,15 +220,41 @@ describe("decomposeToClaims — a resolved classification → its claim trail (o
     const activity = claims.find((x) => x.facetKey === "multilabel.activity_fit");
     expect(activity?.value).toEqual(["hiking"]);
 
+    // A manufacturer treatment decomposes to a single whole-array claim under TREATMENTS_FACET_KEY, with
+    // its authoritative source preserved (not relabeled "inferred").
+    const treatment = claims.find((x) => x.facetKey === TREATMENTS_FACET_KEY);
+    expect(treatment).toMatchObject({ value: MFR_DWR, source: "manufacturer", confidence: "high" });
+
     // No claim is emitted for an unknown facet (the store holds asserting claims only).
     expect(claims.some((x) => x.facetKey === "universal.packability")).toBe(false);
   });
 
-  it("decompose → re-assemble round-trips the resolved facets", () => {
+  it("decompose → re-assemble round-trips the resolved facets (treatments survive — no silent erasure)", () => {
     const original = build({});
+    // Sanity: the fixture genuinely carries the manufacturer DWR going in (else the round-trip is vacuous).
+    expect(original.treatments).toEqual(MFR_DWR);
+
     const reassembled = assembleClassification(original.name, decomposeToClaims(original, "offline-classifier-v1"));
     expect(reassembled.universal.warmth.value).toBe(original.universal.warmth.value);
     expect(reassembled.universal.upf.value).toBe(original.universal.upf.value);
     expect(reassembled.multilabel.activity_fit).toEqual(original.multilabel.activity_fit);
+    // The load-bearing regression: the manufacturer DWR finish is NOT erased by the round-trip; it deep-
+    // equals the original, source preserved (against the old code this returned [] — the data-loss bug).
+    expect(reassembled.treatments).toEqual(original.treatments);
+    expect(reassembled.treatments).toEqual(MFR_DWR);
+    expect(reassembled.treatments[0]!.source).toBe("manufacturer");
+  });
+
+  it("a MANUFACTURER treatment beats an INFERRED one on re-assembly (precedence via resolveFacet)", () => {
+    // Both an inferred and a manufacturer treatments claim reach the assembler: the manufacturer set wins
+    // wholesale (whole-array atomic claim), so the resolved treatments carry the authoritative finish.
+    const inferred = [{ kind: "dwr", condition: "degraded", source: "inferred", evidence: "guess" }];
+    const reassembled = assembleClassification("Both Sources", [
+      claim({ facetKey: TREATMENTS_FACET_KEY, value: inferred, source: "inferred", confidence: "high" }),
+      claim({ facetKey: TREATMENTS_FACET_KEY, value: MFR_DWR, source: "manufacturer", confidence: "high", evidence: "stated" }),
+    ]);
+    expect(reassembled.treatments).toEqual(MFR_DWR);
+    expect(reassembled.treatments[0]!.source).toBe("manufacturer");
+    expect(reassembled.treatments[0]!.condition).toBe("factory_fresh");
   });
 });

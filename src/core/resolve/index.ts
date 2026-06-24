@@ -32,6 +32,7 @@ export {
   assembleClassification,
   decomposeToClaims,
   MATERIALS_FACET_KEY,
+  TREATMENTS_FACET_KEY,
 } from "./assemble";
 
 export {
