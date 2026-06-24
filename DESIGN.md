@@ -12,7 +12,8 @@
 > [ADR-0007](docs/decisions/0007-classification-cache.md),
 > [ADR-0008](docs/decisions/0008-auth-multi-user.md),
 > [ADR-0010](docs/decisions/0010-layering-system-reasoning.md),
-> [ADR-0011](docs/decisions/0011-manufacturer-url-enrichment.md).
+> [ADR-0011](docs/decisions/0011-manufacturer-url-enrichment.md),
+> [ADR-0012](docs/decisions/0012-evidence-first-classification.md) *(north-star: evidence-first classification)*.
 
 ## 0. TL;DR
 
@@ -703,3 +704,30 @@ use **fixture HTML files** (saved snapshots of real manufacturer pages) injected
 strings. The SSRF gate and the parser are pure functions and are covered by unit tests that run
 completely offline. Live end-to-end verification (paste a real URL; confirm extracted specs appear
 in the review UI) is performed on Vercel after deployment.
+
+---
+
+## 15. Target architecture: evidence-first classification
+
+**Principle:** classification is not a one-time answer — it is an auditable argument. Facts are
+CLAIMS from identified sources; a deterministic resolver produces the resolved facet value by
+explicit provenance precedence; the LLM is an extractor that proposes claims, never the authority.
+
+The full target architecture (8 elements with current-state groundings) and the migration sequence
+are in [ADR-0012](docs/decisions/0012-evidence-first-classification.md). Summary:
+
+| Element | Target | Phase status |
+|---------|--------|-------------|
+| 1. Canonical products | Global `canonical_products` table + `user_items.canonical_product_id` | Net-new; deferred (Phase 4) |
+| 2. Evidence store | `item_evidence` table: multiple competing claims per `(item_id, facet_key)` | Net-new; deferred (Phase 3) |
+| 3. Resolver layer | `src/core/resolve/` — deterministic `resolve(claims[])` with explicit precedence | **Phase 1 — in progress** |
+| 4. LLM = extractor | LLM emits claims array + `unresolvedQuestions`; resolver decides the final value | Deferred (Phase 3) |
+| 5. Cache split | `llm_draft_cache` (global) / `user_overrides` (user-scoped) / `canonical_facts` (global, curated) | Phase 2 (after resolver) |
+| 6. Targeted review | Surface only recommendation-impacting unknowns, ranked by blocked-capability severity | Deferred (Phase 6) |
+| 7. Versioned snapshots | `schema_version`, `resolver_version`, `classifier_version` on items + reclassification UI | Deferred (Phase 5) |
+| 8. Layer separation | capability ≠ classification ≠ recommendation — **already done** (ADR-0003, ADR-0005) | Complete; preserve |
+
+This is an incremental evolution of what is already built. The evidence shapes (`Evidence<T>`,
+`HardFact<T>`), the demotion guard, the provenance concepts, and the layer separation are the
+foundation. No phase requires a big-bang rewrite or a breaking change to the capability or
+recommendation contracts.

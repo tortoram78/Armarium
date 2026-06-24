@@ -22,3 +22,4 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0009 — Scope unlock: image/photo/barcode enrichment, military/NSN domain, native app moved to unlocked backlog](0009-scope-unlock.md) — Accepted
 - [0010 — Layering-system reasoning: combination-aware capability evaluation](0010-layering-system-reasoning.md) — Accepted
 - [0011 — Manufacturer URL enrichment: SSRF-gated fetch, JSON-LD+OG parsing, provenance overlay](0011-manufacturer-url-enrichment.md) — Accepted
+- [0012 — Evidence-first classification: classification as an auditable argument](0012-evidence-first-classification.md) — Accepted

@@ -3,6 +3,48 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (north-star architecture) — Evidence-first classification: ADR-0012 recorded
+
+**What this records:** the target architecture for Armarium's classification pipeline — not a
+single shipped feature, but the direction that individual phases will implement incrementally.
+
+**The principle:** classification is not a one-time answer; it is an auditable argument. Facts are
+claims from identified sources. A deterministic resolver picks the winner by explicit precedence.
+The LLM is one extractor among several, never the authority on the final value.
+
+**Why now:** Phase 3 step 2 (URL enrichment) introduces `source:"manufacturer"` as a second
+significant claim source alongside LLM inference. Material behavior derivation
+(`source:"derived_from_material"`, ADR-0011 §14.6) is the designed-for next step. As claim sources
+accumulate, the current implicit merger (`enrich/merge.ts`) will not scale. The resolver keystone
+(Migration Phase 1) consolidates that logic before the next source lands. The cache split (Phase 2)
+addresses the cross-tenant correction leakage documented as a known trade-off in ADR-0007.
+
+**The 8-element target (summary):**
+1. Canonical products — global product identity table (deferred, Phase 4)
+2. Evidence store — `item_evidence` table: multiple competing claims per `(item_id, facet_key)` (Phase 3)
+3. Resolver layer — `src/core/resolve/` with explicit `resolve(claims[])` and precedence table (**in progress, Phase 1**)
+4. LLM = extractor — LLM emits claims + `unresolvedQuestions`; resolver decides final value (Phase 3)
+5. Cache split — `llm_draft_cache` (global) / `user_overrides` (user-scoped) / `canonical_facts` (Phase 2)
+6. Targeted review — impact-ranked unknowns from capability evaluation output (Phase 6)
+7. Versioned snapshots — `schema_version`/`resolver_version`/`classifier_version` on items (Phase 5)
+8. Layer separation — capability ≠ classification ≠ recommendation: **already done; preserve**
+
+**What already exists (and must be preserved):** `Evidence<T>` / `HardFact<T>` shapes, mechanical
+demotion guard, `Source` union with precedence concepts, `pending_facets` queue, per-facet `*_src`
+columns, lossless `classification` JSONB, three-state capabilities, layer separation. This is
+evolution, not rewrite.
+
+**Relationship to prior ADRs:** extends ADR-0003 (hybrid storage — unchanged), ADR-0004
+(classification contract — demotion guard preserved, promoted), ADR-0007 (cache — split resolves
+cross-tenant trade-off), ADR-0011 (enrichment — resolver absorbs merge.ts). No ADR is superseded.
+
+**ADR recorded:** [ADR-0012](../decisions/0012-evidence-first-classification.md)
+
+**DESIGN.md updated:** status banner pointer added; §15 (new) — evidence-first target architecture
+summary table with phase status per element.
+
+---
+
 ## 2026-06-24 (Phase 3 step 2) — Manufacturer URL enrichment: design + ADR complete; implementation begins
 
 Design and ADR recorded. Code implementation by core-reasoning-owner, schema-db-owner, and
