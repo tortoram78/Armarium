@@ -21,6 +21,7 @@ import {
   itemShell,
   itemCarry,
   itemFootwear,
+  itemEvidence,
 } from "@/db/schema";
 import type {
   GearRepository,
@@ -30,6 +31,7 @@ import type {
   SaveTripInput,
   PageOpts,
   ItemsPage,
+  EvidenceClaim,
 } from "@/core/ports";
 import type { ItemClassification } from "@/core/classification";
 import type { TripConditions } from "@/core/conditions";
@@ -554,11 +556,75 @@ export const postgresRepository: GearRepository = {
 
   async deleteItem(userId, id) {
     const db = getDb();
-    // Group rows are removed by DB cascade (onDelete: "cascade" FKs). Verify the item belongs to
-    // this user before deleting to enforce user-scoping.
+    // Group rows + evidence rows are removed by DB cascade (onDelete: "cascade" FKs). Verify the item
+    // belongs to this user before deleting to enforce user-scoping.
     await db
       .delete(items)
       .where(and(eq(items.userId, userId), eq(items.id, id)));
+  },
+
+  // ---- item evidence (ADR-0012 Element 2) ----
+
+  async replaceItemEvidence(userId, itemId, claims) {
+    const db = getDb();
+    // User-scope via the parent item: the item_evidence rows carry no user_id, so ownership is gated
+    // through the items row (RLS does the same with an EXISTS-on-parent policy). If the item isn't the
+    // user's, do nothing — never delete or write another user's evidence.
+    const owner = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.userId, userId), eq(items.id, itemId)));
+    if (!owner[0]) return;
+
+    const rows = claims.map((c) => ({
+      itemId,
+      facetKey: c.facetKey,
+      value: c.value,
+      confidence: c.confidence,
+      source: c.source,
+      sourceUrl: c.sourceUrl ?? null,
+      extractorVersion: c.extractorVersion ?? null,
+      evidence: c.evidence,
+      // observedAt defaults to now() in the column; set it only when the caller provided one.
+      ...(c.observedAt ? { observedAt: new Date(c.observedAt) } : {}),
+    }));
+
+    // REPLACE semantics: drop the item's existing claim rows, then insert the new full set — atomically
+    // so a re-resolution is never observed half-applied.
+    await db.transaction(async (tx) => {
+      await tx.delete(itemEvidence).where(eq(itemEvidence.itemId, itemId));
+      if (rows.length > 0) await tx.insert(itemEvidence).values(rows);
+    });
+  },
+
+  async getItemEvidence(userId, itemId) {
+    const db = getDb();
+    // User-scope via the parent item; a non-owned/unknown item reads as empty.
+    const owner = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.userId, userId), eq(items.id, itemId)));
+    if (!owner[0]) return [];
+
+    const rows = await db
+      .select()
+      .from(itemEvidence)
+      .where(eq(itemEvidence.itemId, itemId))
+      .orderBy(itemEvidence.facetKey, itemEvidence.createdAt);
+
+    return rows.map(
+      (r): EvidenceClaim => ({
+        facetKey: r.facetKey,
+        value: r.value,
+        // Columns are plain text/jsonb; narrow to the port's union types at this boundary.
+        confidence: r.confidence as EvidenceClaim["confidence"],
+        source: r.source as EvidenceClaim["source"],
+        sourceUrl: r.sourceUrl,
+        extractorVersion: r.extractorVersion,
+        evidence: r.evidence,
+        observedAt: r.observedAt.toISOString(),
+      }),
+    );
   },
 
   // ---- trips ----

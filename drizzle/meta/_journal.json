@@ -43,6 +43,13 @@
       "when": 1782304289903,
       "tag": "0005_absurd_kingpin",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782305170325,
+      "tag": "0006_organic_vertigo",
+      "breakpoints": true
     }
   ]
 }

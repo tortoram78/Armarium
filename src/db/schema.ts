@@ -157,6 +157,33 @@ export const pendingFacets = pgTable("pending_facets", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ---- item evidence store: the per-claim audit log (ADR-0012 Element 2) ----
+// One row per CLAIM (one source's assertion about one facet) — the durable, queryable backing for the
+// resolver's Claim<V> set. A facet may have several rows (one per source); the resolver groups by
+// facet_key and decides the winner via SOURCE_PRECEDENCE (src/core/resolve/resolve-facet.ts). `value`
+// is jsonb (scalar OR array). No user_id column: access is gated through the parent items row (the
+// subtype-table pattern), so RLS mirrors drizzle/0003's EXISTS-on-parent policy. Persisted on save with
+// REPLACE semantics — a re-resolution writes the current full claim set for the item.
+export const itemEvidence = pgTable(
+  "item_evidence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
+    facetKey: text("facet_key").notNull(),
+    value: jsonb("value").notNull(), // scalar or array; the resolved claim value
+    confidence: text("confidence").notNull(), // "low" | "medium" | "high"
+    source: text("source").notNull(), // SOURCE vocab (manufacturer | user | inferred | derived_from_material | ...)
+    sourceUrl: text("source_url"),
+    extractorVersion: text("extractor_version"),
+    evidence: text("evidence").notNull(), // the audit-trail string for this claim
+    observedAt: timestamp("observed_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    itemFacetIdx: index("item_evidence_item_facet_idx").on(t.itemId, t.facetKey),
+  }),
+);
+
 // ---- trips (user-owned, revisitable) ----
 // `updatedAt` tracks rename / conditions edits / re-plans. The (user_id, created_at, id) index backs
 // keyset pagination of items AND keeps trip lookups user-scoped & cheap; the items keyset index is the
