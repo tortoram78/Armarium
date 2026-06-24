@@ -11,6 +11,8 @@ import type { TripConditions } from "@/core/conditions";
 import { classifyItemClaims } from "@/core/classify/classify-claims";
 import { classifyOffline } from "@/core/classify/offline";
 import { parseTripConditions, parseConditionsHeuristic } from "@/core/recommend/parse-conditions";
+import type { LlmUsage } from "@/core/obs/log";
+import { logEvent } from "@/lib/logger";
 import { memoryRepository } from "./memory-repo";
 import { memoryCache } from "./memory-cache";
 // Static imports are safe because postgres-repo.ts / postgres-cache.ts construct the DB client
@@ -87,11 +89,18 @@ export type ClassifierHandle =
   | { kind: "claims"; classify: ClaimsClassifier; mode: "live" }
   | { kind: "resolved"; classify: ResolvedClassifier; mode: "offline" };
 
+// The ONE place LLM token usage from a live call is logged. Passed as `onUsage` into the core deps; core
+// only reports the counts (it never imports a console), the console sink lives here in the server logger.
+// The OFFLINE handle never constructs this dep, so the offline path logs no LLM usage (no model call).
+const logLlmUsage = (action: "classify" | "parse") => (llm: LlmUsage): void =>
+  logEvent({ level: "info", event: "llm", action, llm });
+
 export function getClassifier(): ClassifierHandle {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey) {
     const anthropic = new Anthropic({ apiKey, timeout: 30_000, maxRetries: 1 });
-    return { kind: "claims", classify: (input) => classifyItemClaims(input, { anthropic }), mode: "live" };
+    const onUsage = logLlmUsage("classify");
+    return { kind: "claims", classify: (input) => classifyItemClaims(input, { anthropic, onUsage }), mode: "live" };
   }
   return { kind: "resolved", classify: async (input) => classifyOffline(input), mode: "offline" };
 }
@@ -108,7 +117,8 @@ export function getTripParser(): TripParserHandle {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey) {
     const anthropic = new Anthropic({ apiKey, timeout: 30_000, maxRetries: 1 });
-    return { parse: (d) => parseTripConditions(d, { anthropic }), mode: "live" };
+    const onUsage = logLlmUsage("parse");
+    return { parse: (d) => parseTripConditions(d, { anthropic, onUsage }), mode: "live" };
   }
   return { parse: async (d) => parseConditionsHeuristic(d), mode: "offline" };
 }
