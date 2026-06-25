@@ -144,30 +144,72 @@ export async function updateTripConditionsAction(formData: FormData) {
   redirect(`/trips/${id}`);
 }
 
+/** Preserve the user's typed fields across a friendly error redirect so nothing is lost on a retry. */
+function preserveAddFields(fields: { name?: string; text?: string; url?: string }): string {
+  const p = new URLSearchParams();
+  if (fields.name) p.set("name", fields.name);
+  if (fields.text) p.set("text", fields.text);
+  if (fields.url) p.set("url", fields.url);
+  const q = p.toString();
+  return q ? "&" + q : "";
+}
+
+/**
+ * Add an item from ONE pane: a name, known details, and/or a manufacturer link — any combination. The
+ * flow is LINK-FIRST with a NAME FALLBACK:
+ *   - A link is fetched + parsed for authoritative specs (manufacturer facts out-rank inference).
+ *   - If the link yields nothing usable (a bot-walled brand like Patagonia, a non-product page) BUT the
+ *     user also typed a name, we fall back to classifying that name — so the item is still added. With no
+ *     name to fall back on, we surface the friendly read-failure message.
+ *   - No link → classify the name directly.
+ * Each spendy path is independently rate-limited; a reject (or a classify error) degrades to a friendly
+ * redirect that preserves the typed fields. NEVER a thrown 500.
+ */
 export async function addItemAction(formData: FormData) {
   const userId = await requireUserId();
   const name = String(formData.get("name") ?? "").trim();
   const text = String(formData.get("text") ?? "").trim() || undefined;
+  const url = String(formData.get("url") ?? "").trim();
   const inInventory = formData.get("inInventory") != null;
-  if (!name) redirect("/items/new?error=" + encodeURIComponent("Please enter an item name."));
 
-  // Rate-limit the LLM-spendy classify path. On reject, degrade to a friendly redirect (never a 500).
-  const key = await resolveRateKey();
-  if (!checkRateLimit("classify", key).allowed) {
-    redirect("/items/new?error=" + encodeURIComponent(RATE_LIMITED_MSG) + "&name=" + encodeURIComponent(name));
+  // One pane, three inputs — but we need at least a name or a link to do anything.
+  if (!name && !url) {
+    redirect("/items/new?error=" + encodeURIComponent("Enter a product name or paste a link (or both)."));
+  }
+  const rateKey = await resolveRateKey();
+  const preserve = preserveAddFields({ name, text, url });
+
+  // ── LINK provided → authoritative enrichment first (tightest rate budget: the outbound fetch). ──
+  if (url) {
+    if (!checkRateLimit("enrich", rateKey).allowed) {
+      redirect("/items/new?error=" + encodeURIComponent(RATE_LIMITED_MSG) + preserve);
+    }
+    // dest is computed inside the logged span; redirect() fires AFTER (NEXT_REDIRECT would otherwise log
+    // as a spurious error). A null dest signals "fall back to the name classifier below".
+    const dest = await timeAndLog({ event: "action", action: "enrichFromUrl", userId }, async () => {
+      const result = await enrichFromUrlToDraft(userId, url, {}, inInventory);
+      if (result.ok) {
+        revalidatePath("/");
+        return `/items/${result.draftId}/review`;
+      }
+      if (name) return null; // fall through to classify the typed name (walled-brand rescue)
+      return "/items/new?error=" + encodeURIComponent(friendlyEnrichError(result.reason)) + preserve;
+    });
+    if (dest) redirect(dest);
+    // dest === null: the link failed but we have a name — fall through to the classifier.
   }
 
-  // The destination is computed inside the logged span; the redirect() fires AFTER it so a normal
-  // success logs as ok:true (redirect() throws NEXT_REDIRECT, which timeAndLog would otherwise log as
-  // a spurious error). The classify failure is an EXPECTED outcome (friendly redirect), not a thrown
-  // error, so it is handled inside the span and returns its own destination.
+  // ── NAME path (no link, or the link failed and we have a name). Rate-limit the classify path. ──
+  if (!checkRateLimit("classify", rateKey).allowed) {
+    redirect("/items/new?error=" + encodeURIComponent(RATE_LIMITED_MSG) + preserve);
+  }
   const dest = await timeAndLog({ event: "action", action: "addItem", userId }, async () => {
     try {
       const { item } = await classifyToDraft(name, text, inInventory, userId);
       revalidatePath("/");
       return `/items/${item.id}/review`;
     } catch (e) {
-      return "/items/new?error=" + encodeURIComponent((e as Error).message) + "&name=" + encodeURIComponent(name);
+      return "/items/new?error=" + encodeURIComponent((e as Error).message) + preserve;
     }
   });
   redirect(dest);
@@ -192,40 +234,6 @@ function friendlyEnrichError(reason: string): string {
   return GENERIC_ENRICH_HINT;
 }
 
-const EnrichUrlInput = z.object({
-  url: z.string().trim().min(1, "Please paste a manufacturer product URL."),
-});
-
-/**
- * Add an item by manufacturer URL: fetch + parse + classify + overlay authoritative facts, then send the
- * user to review the resulting draft. On any failure, return to /items/new with a friendly ?error=.
- */
-export async function enrichFromUrlAction(formData: FormData) {
-  const userId = await requireUserId();
-  const parsed = EnrichUrlInput.safeParse({ url: formData.get("url") });
-  if (!parsed.success) {
-    const msg = parsed.error.issues[0]?.message ?? "Please paste a manufacturer product URL.";
-    redirect("/items/new?error=" + encodeURIComponent(msg));
-  }
-
-  // Rate-limit the outbound manufacturer-URL fetch (tightest budget). Reject → friendly redirect.
-  const key = await resolveRateKey();
-  if (!checkRateLimit("enrich", key).allowed) {
-    redirect("/items/new?error=" + encodeURIComponent(RATE_LIMITED_MSG));
-  }
-
-  // Compute the destination inside the logged span, redirect() after (see addItemAction note). An
-  // unsupported/unreadable page is an expected outcome (friendly redirect), handled in-band.
-  const dest = await timeAndLog({ event: "action", action: "enrichFromUrl", userId }, async () => {
-    const result = await enrichFromUrlToDraft(userId, parsed.data.url);
-    if (!result.ok) {
-      return "/items/new?error=" + encodeURIComponent(friendlyEnrichError(result.reason));
-    }
-    revalidatePath("/");
-    return `/items/${result.draftId}/review`;
-  });
-  redirect(dest);
-}
 
 export async function confirmItemAction(formData: FormData) {
   const userId = await requireUserId();

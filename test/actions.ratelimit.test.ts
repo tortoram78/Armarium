@@ -53,7 +53,12 @@ vi.mock("@/server/ratelimit-guard", () => ({
 
 // The core services the actions call. Each returns a minimal shape the action reads.
 const classifyToDraft = vi.fn(async () => ({ item: { id: "item-9" } }));
-const enrichFromUrlToDraft = vi.fn(async () => ({ ok: true as const, draftId: "draft-7" }));
+const enrichFromUrlToDraft = vi.fn(
+  async (): Promise<{ ok: true; draftId: string } | { ok: false; reason: string }> => ({
+    ok: true,
+    draftId: "draft-7",
+  }),
+);
 const parseDescription = vi.fn(async () => ({ kind: "cond" }));
 const planAndSave = vi.fn(async () => ({ id: "trip-3" }));
 const getForecast = vi.fn(async () => null);
@@ -82,7 +87,6 @@ vi.mock("@/server/weather-fetcher", () => ({ getForecast: (...a: unknown[]) => g
 
 import {
   addItemAction,
-  enrichFromUrlAction,
   planFromDescriptionAction,
   getWeatherConditionsAction,
 } from "@/app/actions";
@@ -114,10 +118,10 @@ describe("rate-limit reject — graceful degradation (never a 500)", () => {
     expect(classifyToDraft).not.toHaveBeenCalled();
   });
 
-  it("enrichFromUrlAction redirects to /items/new with the friendly rate-limit error and never fetches", async () => {
+  it("addItemAction with a link redirects with the friendly rate-limit error and never fetches", async () => {
     allowed = false;
     const target = await expectRedirect(() =>
-      enrichFromUrlAction(fd({ url: "https://www.patagonia.com/product/x" })),
+      addItemAction(fd({ url: "https://www.patagonia.com/product/x" })),
     );
     expect(target.startsWith("/items/new?error=")).toBe(true);
     expect(decodeURIComponent(target)).toContain("going a bit fast");
@@ -151,12 +155,23 @@ describe("rate-limit allowed — timeAndLog wrap is observability-only (outcome 
     expect(classifyToDraft).toHaveBeenCalledTimes(1);
   });
 
-  it("enrichFromUrlAction still enriches and redirects to the review screen", async () => {
+  it("addItemAction with a link enriches and redirects to the review screen", async () => {
     const target = await expectRedirect(() =>
-      enrichFromUrlAction(fd({ url: "https://www.patagonia.com/product/x" })),
+      addItemAction(fd({ url: "https://www.patagonia.com/product/x" })),
     );
     expect(target).toBe("/items/draft-7/review");
     expect(enrichFromUrlToDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("addItemAction falls back to classifying the typed name when the link yields no signal", async () => {
+    // The bot-walled-brand rescue: link returns { ok:false }, but the user also typed a name → classify it.
+    enrichFromUrlToDraft.mockResolvedValueOnce({ ok: false as const, reason: "no-signal: nothing to import" });
+    const target = await expectRedirect(() =>
+      addItemAction(fd({ url: "https://www.patagonia.com/product/x", name: "Patagonia Nano Puff" })),
+    );
+    expect(target).toBe("/items/item-9/review");
+    expect(enrichFromUrlToDraft).toHaveBeenCalledTimes(1);
+    expect(classifyToDraft).toHaveBeenCalledTimes(1);
   });
 
   it("planFromDescriptionAction still parses + saves and redirects to the trip dossier", async () => {

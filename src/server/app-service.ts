@@ -255,6 +255,7 @@ export async function enrichFromUrlToDraft(
   userId: string,
   url: string,
   deps: EnrichDeps = {},
+  inInventory = true,
 ): Promise<EnrichResult> {
   const fetchHtml = deps.fetchHtml ?? ((u: string) => fetchManufacturerHtml(u, deps.fetcherDeps));
   const fetchScrapfly = deps.fetchScrapfly ?? ((u: string) => fetchViaScrapfly(u));
@@ -315,7 +316,7 @@ export async function enrichFromUrlToDraft(
 
   const item = await getRepository().addItem(userId, {
     name,
-    inInventory: true,
+    inInventory,
     draft: true,
     rawText: text,
     classification,
