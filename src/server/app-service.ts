@@ -3,6 +3,7 @@
 
 import { getRepository, getRepositoryFor, getCacheRepository, getClassifier, getTripParser, DEFAULT_USER_ID, type Classifier } from "./services";
 import { fetchManufacturerHtml, type FetcherDeps } from "./enrich-fetcher";
+import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
 import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
@@ -221,6 +222,13 @@ export type EnrichResult = { ok: true; draftId: string } | { ok: false; reason: 
 export interface EnrichDeps {
   /** Defaults to the real SSRF-safe `fetchManufacturerHtml`. Passed `deps.fetcher` for a fixture in tests. */
   fetchHtml?: (url: string) => ReturnType<typeof fetchManufacturerHtml>;
+  /**
+   * Residential-proxy fallback (Scrapfly), tried ONLY when the direct fetch yields no product signal —
+   * a bot wall (REI/TNF). Defaults to the real `fetchViaScrapfly`; injected in tests. The fallback path
+   * is taken only when this is injected OR `SCRAPFLY_KEY` is configured, so the hermetic gate (no key) is
+   * unchanged.
+   */
+  fetchScrapfly?: (url: string) => ReturnType<typeof fetchViaScrapfly>;
   /** Defaults to the env-selected classifier from `getClassifier()`. */
   classify?: Classifier;
   /** Forwarded to the default fetcher (injected `fetchImpl`/`lookup`) when `fetchHtml` is not overridden. */
@@ -249,21 +257,41 @@ export async function enrichFromUrlToDraft(
   deps: EnrichDeps = {},
 ): Promise<EnrichResult> {
   const fetchHtml = deps.fetchHtml ?? ((u: string) => fetchManufacturerHtml(u, deps.fetcherDeps));
+  const fetchScrapfly = deps.fetchScrapfly ?? ((u: string) => fetchViaScrapfly(u));
 
-  const fetched = await fetchHtml(url);
+  // 1. DIRECT fetch first — free + fast. For non-walled brands this is the whole story.
+  let fetched = await fetchHtml(url);
+  let extracted = fetched.ok ? parseProductHtml(fetched.html) : null;
+  let enrichment = extracted ? toManufacturerEvidence(extracted) : null;
+
+  // 2. RESIDENTIAL fallback (ADR-0019): if the direct path got NO usable product signal — a bot wall
+  //    serving a 200 challenge (REI/TNF), a 403, or a refused connection — retry through Scrapfly's
+  //    residential + anti-bot pipeline when configured. A url-shape rejection is NEVER retried (a
+  //    non-allowlisted URL must not be proxied). The shape gate runs again inside fetchViaScrapfly, so
+  //    only allowlisted hosts are sent on. Taken only when injected (tests) or SCRAPFLY_KEY is set, so the
+  //    hermetic gate is unchanged. (Patagonia stays walled even here → falls through to the no-signal guard.)
+  const shapeRejected = !fetched.ok && fetched.reason.startsWith("url-shape:");
+  const scrapflyAvailable = deps.fetchScrapfly != null || isScrapflyConfigured();
+  if (!shapeRejected && !enrichment?.hasSignal && scrapflyAvailable) {
+    const viaScrapfly = await fetchScrapfly(url);
+    if (viaScrapfly.ok) {
+      fetched = viaScrapfly;
+      extracted = parseProductHtml(viaScrapfly.html);
+      enrichment = toManufacturerEvidence(extracted);
+    }
+  }
+
+  // 3. The direct fetch failed (non-shape) AND the residential fallback didn't rescue → surface the
+  //    original fetcher reason (`url-shape:`/`http:`/`network:`/…) for the action's friendly mapping.
   if (!fetched.ok) return { ok: false, reason: fetched.reason };
 
-  // Pure extraction → validated manufacturer overlay. Never throws on arbitrary HTML.
-  const extracted = parseProductHtml(fetched.html);
-  const enrichment = toManufacturerEvidence(extracted);
-
-  // HONEST no-signal guard: the page fetched + parsed cleanly but carried NO authoritative product data
-  // — no identity (brand/model/price/weight) and no composition (`hasSignal === false`). This is the
-  // bot-challenge page, the JS-only catalog, or a non-product URL. Do NOT manufacture a junk
-  // "Item from <host>" draft with every field unknown (the "returned zero fields" symptom the user hit);
-  // fail honestly so the action steers them to add-by-name, which classifies a real, typed product name.
-  // (Distinct from DEGRADED classify below: there the manufacturer signal IS present and is preserved.)
-  if (!enrichment.hasSignal) {
+  // 4. HONEST no-signal guard: the page parsed cleanly but carried NO authoritative product data — no
+  //    identity (brand/model/price/weight) and no composition (even after the residential retry). This is
+  //    a bot-challenge page, a JS-only catalog, or a non-product URL (Patagonia lands here). Do NOT
+  //    manufacture a junk "Item from <host>" draft with every field unknown (the "returned zero fields"
+  //    symptom); fail honestly so the action steers the user to add-by-name. (Distinct from DEGRADED
+  //    classify below: there the manufacturer signal IS present and is preserved.)
+  if (!extracted || !enrichment || !enrichment.hasSignal) {
     return { ok: false, reason: "no-signal: the page had no readable product details" };
   }
 

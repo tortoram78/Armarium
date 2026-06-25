@@ -29,3 +29,4 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0016 — Demo guest funnel: seeded sample closet + "log in to save" wall](0016-demo-guest-funnel.md) — Accepted
 - [0017 — Ops hardening: in-process rate limiter, structured console logging, error boundaries](0017-ops-hardening.md) — Accepted
 - [0018 — Item photos: display-only, private Supabase Storage, signed-URL delivery](0018-item-photos.md) — Accepted
+- [0019 — Residential-proxy fallback for manufacturer-URL enrichment (Scrapfly)](0019-scrapfly-residential-enrichment-fallback.md) — Accepted

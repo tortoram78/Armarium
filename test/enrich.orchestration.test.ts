@@ -114,3 +114,47 @@ describe("enrichFromUrlToDraft — page with NO product signal fails honestly, c
     expect(result.reason).toMatch(/^no-signal:/);
   });
 });
+
+describe("enrichFromUrlToDraft — residential fallback (ADR-0019: Scrapfly for bot-walled brands)", () => {
+  it("direct no-signal (bot wall) → Scrapfly rescue builds a draft from the residential-fetched product", async () => {
+    const userId = randomUUID();
+    const result = await enrichFromUrlToDraft(userId, "https://www.rei.com/product/1/x", {
+      fetchHtml: okFetcher(fixture("no-product.html")), // direct = a 200 bot-challenge page (no signal)
+      fetchScrapfly: okFetcher(fixture("product-jsonld.html")), // residential = the real product page
+      classify: throwingClassifier,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const item = await getItem(result.draftId, userId);
+    // The manufacturer identity came from the Scrapfly-fetched page, not the direct bot wall.
+    expect(item!.classification.identity.brand.value).toBe("Patagonia");
+    expect(item!.classification.identity.price_cents.value).toBe(23900);
+  });
+
+  it("does NOT call Scrapfly when the direct fetch already has signal (no wasted credit)", async () => {
+    const userId = randomUUID();
+    let scrapflyCalled = false;
+    const result = await enrichFromUrlToDraft(userId, "https://www.patagonia.com/product/nano-puff", {
+      fetchHtml: okFetcher(fixture("product-jsonld.html")), // direct already yields product data
+      fetchScrapfly: async () => {
+        scrapflyCalled = true;
+        return { ok: false as const, reason: "should-not-be-called" };
+      },
+      classify: echoClassifier,
+    });
+    expect(result.ok).toBe(true);
+    expect(scrapflyCalled).toBe(false);
+  });
+
+  it("direct no-signal + Scrapfly ALSO no-signal (the Patagonia case) → honest no-signal, no draft", async () => {
+    const userId = randomUUID();
+    const result = await enrichFromUrlToDraft(userId, "https://www.patagonia.com/product/x", {
+      fetchHtml: okFetcher(fixture("no-product.html")),
+      fetchScrapfly: okFetcher(fixture("no-product.html")), // residential still walled → no signal
+      classify: throwingClassifier,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/^no-signal:/);
+  });
+});
