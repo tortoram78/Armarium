@@ -22,6 +22,7 @@ import {
   deleteTrip,
   updateTripConditions,
 } from "@/server/app-service";
+import { isItemImageObjectPath } from "@/server/item-images";
 import {
   defaultConditions,
   PRECIPITATION,
@@ -319,14 +320,23 @@ export async function setItemImageAction(formData: FormData) {
   }
   const { id, path } = parsed.data;
 
-  // The path must live under THIS user's + THIS item's folder (mirrors buildItemImageObjectPath +
-  // Storage RLS). Reject anything else — never persist a key pointing at another user's objects.
-  const expectedPrefix = `${userId}/${id}/`;
-  if (!path.startsWith(expectedPrefix)) {
+  // Validate the FULL canonical shape, not just the prefix — the bytes upload CLIENT-DIRECT, so `path` is
+  // client-controlled. `isItemImageObjectPath` rejects another user's/item's folder, `..` traversal,
+  // extra separators, null bytes, and non-image extensions before persisting (it's the read-side owner of
+  // the same scheme `buildItemImageObjectPath` writes). Storage RLS is the primary per-user boundary; this
+  // keeps `items.image_path` canonical for any later cleanup/migration.
+  if (!isItemImageObjectPath(path, userId, id)) {
     redirect(`/items/${id}?imageError=1`);
   }
 
-  await setItemImagePath(id, path, userId);
+  // Persist defensively: a transient repo failure must surface as a friendly error redirect (which
+  // remounts the uploader and clears its busy spinner), never a thrown 500 that leaves the client stuck
+  // on "Uploading…". The redirect()s below throw NEXT_REDIRECT by design — only the DB call is guarded.
+  try {
+    await setItemImagePath(id, path, userId);
+  } catch {
+    redirect(`/items/${id}?imageError=1`);
+  }
   revalidatePath(`/items/${id}`);
   revalidatePath("/");
   redirect(`/items/${id}`);

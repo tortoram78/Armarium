@@ -156,3 +156,23 @@ export function buildItemImageObjectPath(userId: string, itemId: string, ext = "
   const clean = ext.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
   return `${userId}/${itemId}/${randomUUID()}.${clean}`;
 }
+
+/**
+ * Read-side counterpart to `buildItemImageObjectPath`: is `path` a CANONICAL item-image object key under
+ * `<userId>/<itemId>/` — exactly one `<name>.<ext>` filename segment with a supported image extension and
+ * nothing else (no `..` traversal, no extra `/` separators, no null bytes, no query junk)?
+ *
+ * The photo bytes upload CLIENT-DIRECT, so the key a user submits to persist is client-controlled. This
+ * is the defence-in-depth shape gate before it lands in `items.image_path`: Storage RLS already confines
+ * writes to the user's own `<userId>/` folder (the primary tenant boundary), but validating the full
+ * shape here keeps the stored key canonical so any later cleanup/migration/signing can trust it, and
+ * upholds the "single path scheme" invariant (this function and the constructor are its only two owners).
+ */
+export function isItemImageObjectPath(path: string, userId: string, itemId: string): boolean {
+  const prefix = `${userId}/${itemId}/`;
+  if (!path.startsWith(prefix)) return false;
+  const filename = path.slice(prefix.length);
+  // One filename segment: alphanumerics/hyphens (a uuid stem) + a supported image extension. The
+  // character class forbids `/`, `.` runs (`..`), backslashes, and control chars / null bytes.
+  return /^[A-Za-z0-9-]+\.(jpe?g|png|webp)$/i.test(filename);
+}

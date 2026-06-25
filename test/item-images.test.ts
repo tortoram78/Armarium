@@ -11,6 +11,7 @@ import {
   getSignedItemImageUrl,
   getSignedItemImageUrls,
   buildItemImageObjectPath,
+  isItemImageObjectPath,
   ITEM_IMAGES_BUCKET,
 } from "@/server/item-images";
 
@@ -93,6 +94,40 @@ describe("buildItemImageObjectPath", () => {
     const a = buildItemImageObjectPath("u", "i", "jpg");
     const b = buildItemImageObjectPath("u", "i", "jpg");
     expect(a).not.toBe(b);
+  });
+});
+
+describe("isItemImageObjectPath — defence-in-depth shape gate for client-supplied keys", () => {
+  const user = "00000000-0000-0000-0000-000000000001";
+  const item = "11111111-1111-1111-1111-111111111111";
+
+  it("accepts a key the canonical constructor produces (the two scheme owners agree)", () => {
+    for (const ext of ["jpg", "jpeg", "png", "webp"]) {
+      const path = buildItemImageObjectPath(user, item, ext);
+      expect(isItemImageObjectPath(path, user, item)).toBe(true);
+    }
+  });
+
+  it("rejects another user's or another item's folder (prefix must match)", () => {
+    const other = "22222222-2222-2222-2222-222222222222";
+    const path = buildItemImageObjectPath(user, item, "jpg");
+    expect(isItemImageObjectPath(path, other, item)).toBe(false); // different user
+    expect(isItemImageObjectPath(path, user, other)).toBe(false); // different item
+  });
+
+  it("rejects path traversal, extra separators, and null bytes in the filename segment", () => {
+    expect(isItemImageObjectPath(`${user}/${item}/../../../etc/passwd`, user, item)).toBe(false);
+    expect(isItemImageObjectPath(`${user}/${item}/..`, user, item)).toBe(false);
+    expect(isItemImageObjectPath(`${user}/${item}/sub/nested.jpg`, user, item)).toBe(false); // extra '/'
+    expect(isItemImageObjectPath(`${user}/${item}/a\0.jpg`, user, item)).toBe(false); // null byte in stem
+    expect(isItemImageObjectPath(`${user}/${item}/a.jpg.png`, user, item)).toBe(false); // double extension
+  });
+
+  it("rejects a non-image extension or a missing extension", () => {
+    expect(isItemImageObjectPath(`${user}/${item}/evil.svg`, user, item)).toBe(false);
+    expect(isItemImageObjectPath(`${user}/${item}/evil.exe`, user, item)).toBe(false);
+    expect(isItemImageObjectPath(`${user}/${item}/noext`, user, item)).toBe(false);
+    expect(isItemImageObjectPath(`${user}/${item}/`, user, item)).toBe(false); // empty filename
   });
 });
 
