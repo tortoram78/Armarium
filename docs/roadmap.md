@@ -139,6 +139,135 @@ steps 1–2 as its item source.
 
 ---
 
+## Active — Closet-database: turning the closet into a first-class inventory (approved 2026-06-25)
+
+The product inversion approved on 2026-06-25 (ADR-0021 / ADR-0022 / ADR-0023; DESIGN.md §19):
+ownership becomes the root entity; classification/enrichment is an optional async follow-up;
+the closet becomes a general-purpose, any-domain personal inventory database. All five phases
+below are additive over the existing capability-first hybrid — the facet core, evidence contract,
+capability predicates, enrichment pipeline, and trip engine are reused unchanged.
+
+### Closet P1 — Foundation *(DESIGN.md §19 + ADR-0021/0022/0023 are the gating docs)*
+
+**Goal:** any possession can be recorded instantly; the full inventory layer is live; the
+closet is a real, browsable database rather than a classification side-effect.
+
+Deliverables:
+- Additive schema migration: `ownership_status`, `quantity`, `condition`, `acquired_at`,
+  `price_paid_cents`, `acquired_from`, `storage_location`, `size`, `color`, `user_notes`,
+  `domains` columns on `items`; backfill `inInventory → ownership_status`.
+- `recordOwnership(name)` path: instant persist via all-unknown classification + DEFAULT_INVENTORY,
+  background enrichment enqueued. Capture latency target under 1 second.
+- Degrade-not-throw on the name-classify path: corpus miss / LLM error → all-unknown, never throw.
+- Basic closet list: surface `ownership_status` and `condition` in the closet card; filter to
+  `status = 'owned'` by default (loaned / retired / sold visible in a secondary view).
+
+**Demoable outcome:** user types a name, hits enter, sees the item in their closet under 1 second.
+The item shows as "pending classification" and upgrades in place as background enrichment completes.
+User can record a camera or board game with the same flow as a jacket.
+
+**Gating:** DESIGN.md §19 + ADR-0021 + ADR-0022 + ADR-0023 (written; covers the schema delta and
+the decoupled capture contract). Background job infrastructure choice (`ask-first` before any new
+dep lands) must be made before implementation begins.
+
+---
+
+### Closet P2 — Browse at scale
+
+**Goal:** a closet with 50–500 items is navigable, searchable, and actionable without scrolling
+through a flat list.
+
+Deliverables:
+- Full-text search across `name`, `brand`, `model`, `user_notes`.
+- Filter panel: by `ownership_status`, `condition`, `domains`, `activity_fit`, `body_zone_covered`,
+  and key facets (waterproofness, warmth, layering role for gear items).
+- Sort: by name, date added, `acquired_at`, `condition`, brand.
+- Wire `listItemsPage` keyset pagination (the cursor-paginated repo method exists but is dead code);
+  dense closet list with inline quick-actions (edit condition, change status, delete).
+- Bulk-action: select multiple items → change status / condition / delete.
+
+**Demoable outcome:** user types "jacket" into the closet search and sees all jackets, filterable
+by condition and activity. Navigating 200-item closet is fast.
+
+**Gating:** P1 complete. Requires its own DESIGN.md update (search query design, filter facet
+selection, pagination contract) + ADR for any new full-text-search dependency before implementation.
+
+---
+
+### Closet P3 — Capture at scale
+
+**Goal:** adding a large existing collection is not a one-item-at-a-time exercise.
+
+Deliverables:
+- **URL-paste async path:** user pastes a product URL; item is recorded instantly as all-unknown;
+  enrichment from the URL runs in the background (reuses ADR-0011 / ADR-0019 / ADR-0020 tiers).
+- **Batch / paste-a-list:** user pastes a newline-separated list of item names; all items are
+  recorded in one action.
+- **Dedupe detection:** before recording, check for existing items with a normalized-name match;
+  surface a "you may already have this" prompt.
+- **Name typeahead:** suggest from the classification cache as the user types, so common items
+  are found rather than re-entered with variant spellings.
+- **Background-enrich review queue:** a queue view showing items whose enrichment produced
+  low-confidence or unknown results, surfaced for optional user review. Replaces the current
+  blocking review-before-save flow for the fast-capture path.
+
+**Demoable outcome:** user pastes a list of 20 item names; all 20 appear in the closet within
+2 seconds; enrichment populates specs in the background over the following 30 seconds.
+
+**Gating:** P2 complete. Each sub-feature (URL-paste async, batch entry, dedupe, typeahead,
+review queue) needs its own design note and the background job infrastructure from P1.
+
+---
+
+### Closet P4 — Curation and portability
+
+**Goal:** users can organize their closet their way and take their data with them.
+
+Deliverables:
+- **Collections:** user-defined groups of items (e.g. "Ski kit", "Ultralight backpacking setup").
+  A collection is a join table (`collection_items`) with a name and optional description;
+  items can belong to multiple collections (no hardcoded grouping). Collections require their
+  own DESIGN.md section + ADR.
+- **User tags:** freeform labels on items (`user_tags text[]`, GIN-indexed). Distinct from
+  `domains` (behavioral scope) and from facets (evidence-graded properties).
+- **CSV export:** export the user's full closet — one row per item, including inventory layer
+  and key facets — as a CSV download. No new dependency; plain text generation.
+- **Apparel as second modeled domain:** complete facet ontology (size range, care instructions,
+  season) + classification prompt + capability predicates for apparel. Requires its own
+  DESIGN.md section + ADR. Items already storable with `domains = ['apparel']` from P1;
+  this adds the reasoning layer.
+
+**Demoable outcome:** user creates a "3-day ski trip" collection, exports their closet to CSV,
+and sees their jackets classified with apparel facets (size, care label) alongside gear facets.
+
+**Gating:** P3 complete. Collections and user tags are schema changes requiring their own ADRs.
+Apparel domain requires a full ontology design pass.
+
+---
+
+### Closet P5 — Frontier
+
+**Goal:** the catalog builds itself; adding items requires minimal user effort.
+
+Deliverables:
+- **Self-building canonical catalog:** items enriched from manufacturer pages + web search are
+  promoted to a global `canonical_products` table (DESIGN.md §15, element 1) so repeat items
+  skip enrichment entirely. The KB improves with every user.
+- **Photo / vision capture:** user photographs a tag or item; vision AI extracts name, brand,
+  and model; the item is pre-filled for confirmation. Slots into the evidence resolver as
+  `source:'vision_inferred'` (DESIGN.md §18.1 extension point). Requires its own ADR + the
+  infra/cost decision for vision API usage.
+- **Additional domain ontologies:** electronics, collectibles, or other domains as prioritized.
+  Each requires its own DESIGN.md section + ADR.
+
+**Demoable outcome:** user photographs the tag on a jacket; name and brand are pre-filled;
+confirming adds the item to the closet with manufacturer specs already populated.
+
+**Gating:** P4 complete. Canonical catalog requires DESIGN.md §15 element 1 implementation.
+Vision capture requires its own ADR and a provider decision before any implementation.
+
+---
+
 ## Unlocked backlog (build when prioritized; each gated on its own ADR + dep/infra decision)
 
 The hard block on these items was lifted on 2026-06-21 (ADR-0009). They are no longer prohibited

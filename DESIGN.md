@@ -1,13 +1,15 @@
 # Armarium — DESIGN (Phase 0 synthesis)
 
-> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 + ops hardening + item photos in delivery.** This document
-> began as the Phase 0 design synthesis (9 investigation agents → 3 competing architectures → 3
-> adversarial audits) and is updated as each phase lands. Phase 1 (core + schema), Phase 2 (usable
-> web app + NL parser + review lifecycle + Postgres + self-building cache + layering-system
-> reasoning), Phase 3 step 1 (real auth + multi-user), Phase 3 step 2 (manufacturer URL enrichment),
-> Phase 3 step 3 (weather auto-conditions), the ops-hardening bundle (rate limiting + structured
-> logging + error boundaries), and item photos (display-only, private Supabase Storage) are all
-> reflected below.
+> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 + ops hardening + item photos delivered;
+> closet-database inversion (possession model + inventory layer) is the active phase.**
+> This document began as the Phase 0 design synthesis (9 investigation agents → 3 competing
+> architectures → 3 adversarial audits) and is updated as each phase lands. Phase 1 (core +
+> schema), Phase 2 (usable web app + NL parser + review lifecycle + Postgres + self-building cache
+> + layering-system reasoning), Phase 3 step 1 (real auth + multi-user), Phase 3 step 2
+> (manufacturer URL enrichment), Phase 3 step 3 (weather auto-conditions), the ops-hardening
+> bundle (rate limiting + structured logging + error boundaries), and item photos (display-only,
+> private Supabase Storage) are all reflected below. The possession-model inversion (§19) is the
+> current active work — see ADR-0021, ADR-0022, ADR-0023.
 > Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
 > [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
 > [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
@@ -19,7 +21,10 @@
 > [ADR-0012](docs/decisions/0012-evidence-first-classification.md) *(north-star: evidence-first classification)*,
 > [ADR-0015](docs/decisions/0015-weather-auto-conditions.md) *(weather auto-conditions: Open-Meteo + override-always)*,
 > [ADR-0017](docs/decisions/0017-ops-hardening.md) *(ops hardening: rate limiter + structured logs + error boundaries)*,
-> [ADR-0018](docs/decisions/0018-item-photos.md) *(item photos: display-only, private bucket, signed-URL delivery)*.
+> [ADR-0018](docs/decisions/0018-item-photos.md) *(item photos: display-only, private bucket, signed-URL delivery)*,
+> [ADR-0021](docs/decisions/0021-inventory-and-ownership-lifecycle.md) *(inventory layer + ownership-status lifecycle)*,
+> [ADR-0022](docs/decisions/0022-decouple-ownership-from-classification.md) *(decouple ownership from classification: record-only + async enrichment)*,
+> [ADR-0023](docs/decisions/0023-multi-domain-possession-model.md) *(multi-domain possession model: three-ring architecture)*.
 
 ## 0. TL;DR
 
@@ -503,19 +508,26 @@ derived from facets (C‑F3).
 
 ---
 
-## 12. Out of scope for v0 (updated as Phase 3 lands)
+## 12. Out of scope / deferred (updated as each phase lands)
 
-**Real auth + multi-user** and **manufacturer URL enrichment** have moved out of this list — they
-are now designed and being built (Phase 3 steps 1–2; see §13 and §14).
+**Real auth + multi-user**, **manufacturer URL enrichment**, **weather auto-conditions**, and
+**item photos** have all moved out of this list — they are designed and built (Phase 3 steps 1–3
+and the ops-hardening bundle; see §13, §14, §16, §17, §18).
 
-Still out of scope / deferred: barcode enrichment (deferred until after Phase 3 step 2 and better
-suited to a native app — ADR-0009); photo/image enrichment via vision AI (deferred — see §18 and
-ADR-0018 for why display-only ships first and how vision enrichment slots in later); military/NSN
-domain; native app; catalog gap-fill suggestions (Phase 3 step 4). Each requires its own
-`DESIGN.md` update + ADR(s) before any implementation. Weather auto-conditions (Phase 3 step 3)
-has moved out of this list — it is now designed and being built (see §16 and ADR-0015). Item
-photo display (not enrichment) has moved out of this list — it is now designed and being built
-(see §18 and ADR-0018).
+The possession-model inversion — ownership-status lifecycle, full inventory layer, decoupled
+async enrichment, and multi-domain possession model — is the **active phase** (§19; ADR-0021,
+ADR-0022, ADR-0023). Browse-at-scale (search, filter, sort, dense list, inline/bulk actions),
+capture-at-scale (URL-paste async, batch entry, dedupe), curation + portability (collections,
+user tags, CSV export, apparel as second domain), and the frontier (self-building canonical
+catalog, photo/vision capture) are sequenced in the closet-database roadmap in `docs/roadmap.md`.
+
+Still out of scope and requiring their own `DESIGN.md` update + ADR(s) before implementation:
+barcode enrichment (deferred until after manufacturer URL enrichment is complete; better suited
+to a native app — ADR-0009); photo/image enrichment via vision AI (display-only ships first, per
+§18 and ADR-0018; vision enrichment slots in via the evidence resolver as a later fast-follow);
+military/NSN domain (large strategic pivot — requires a dedicated scoping ADR); native app (large
+strategic pivot — requires its own scoping ADR); catalog gap-fill suggestions (Phase 3 step 4
+in the original sequence, re-assessed after the closet-database foundation lands).
 
 ---
 
@@ -1002,3 +1014,87 @@ absent at build time — the same gate as auth). Signed-URL generation returns `
 unconfigured; cards fall back to text layout. No storage call is ever made in the gauntlet
 (`pnpm typecheck / lint / test / build`). Tests mock the storage client via injection. No new
 npm dependency.
+
+---
+
+## 19. Possession model and inventory layer (active phase — closet-database inversion)
+
+The thesis: invert the product. Ownership was a side-effect of classification; ownership is now
+the root entity, and classification/enrichment is an optional, async, never-blocking follow-up.
+The facet/evidence core, the capability predicates, the recommendation engine, the enrichment
+pipeline (ADR-0011 / ADR-0019 / ADR-0020), the evidence resolver (ADR-0012), and the auth/RLS
+model (ADR-0008) are **reused unchanged** — this section is purely additive over the existing
+capability-first hybrid described in §6.
+
+### 19.1 The three-ring possession model
+
+Every item has three concentric rings:
+
+| Ring | Scope | Contents |
+|------|-------|----------|
+| **1 — Universal possession core** | Every item, any domain | Identity (name, brand, model, image_path) + the full inventory layer |
+| **2 — Domain markers** | Every item | `domains text[]` — which behavioral facet-sets apply (see §19.3) |
+| **3 — Behavioral facet ring** | Domain-specific, optional | The existing gear facets (§3, §4); dormant when `'gear' ∉ domains` |
+
+See [ADR-0023](docs/decisions/0023-multi-domain-possession-model.md) for the full rationale and
+the reconciliation with the no-hardcoded-buckets invariant.
+
+### 19.2 Inventory layer — schema delta
+
+One additive migration on `items` (gear behavioral facets are unchanged):
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `ownership_status` | `text NOT NULL DEFAULT 'owned'` | `'owned' \| 'wishlist' \| 'loaned' \| 'retired' \| 'sold'` — replaces `inInventory` boolean as source of truth. Backfill: true → `'owned'`, false → `'wishlist'`. `inInventory` retained as deprecated mirror in Phase 1, removed later. |
+| `quantity` | `integer DEFAULT 1` | Number of identical units owned |
+| `condition` | `text` nullable | `'new' \| 'good' \| 'worn' \| 'end_of_life'` |
+| `acquired_at` | `date` nullable | Date of purchase/acquisition |
+| `price_paid_cents` | `integer` nullable | Amount the user paid — **distinct from `priceCents`** (MSRP from enrichment) |
+| `acquired_from` | `text` nullable | Retailer or source ("REI", "eBay", "gift") |
+| `storage_location` | `text` nullable | Where the item is stored |
+| `size` | `text` nullable | User-recorded size label |
+| `color` | `text` nullable | User-recorded color |
+| `user_notes` | `text` nullable | Freeform personal notes |
+| `domains` | `text[] DEFAULT '{}'` | GIN-indexed; see §19.3 |
+
+**`classification` stays NOT NULL.** Record-only and non-gear items carry
+`unknownBehavioralClassification(name)` — all facets unknown — not a null classification.
+This preserves every downstream reader's contract.
+
+**Inventory metadata is typed columns, never JSONB.** The `items.facets` JSONB bag is for
+evidence-shaped behavioral facets only. User-owned mutable possession data (condition,
+acquisition, location) does not belong there. Collections and user tags are deferred to Phase 4
+as join tables.
+
+See [ADR-0021](docs/decisions/0021-inventory-and-ownership-lifecycle.md) for full rationale
+and rejected alternatives.
+
+### 19.3 `domains text[]` — pluggable facet-set markers, not categories
+
+`domains` records which behavioral facet-sets apply to an item. **It is not a routing
+discriminator** — it never drives a `switch`/`if` that routes recommendations, queries, or UI.
+Its sole role is to govern which reasoning pipelines are invoked and which facet groups are
+expected to be populated.
+
+`'gear'` is the one fully-modeled domain in Phase 1. Items with `'gear' ∉ domains` have all
+gear facets at all-unknown and never satisfy any gear capability gate — which is exactly correct.
+Other domain labels (`'apparel'`, `'electronics'`, `'collectibles'`) are storable and queryable
+from day one as extension points; their own ontologies are fast-follows requiring their own
+`DESIGN.md` sections and ADR(s) before implementation.
+
+### 19.4 Decoupled capture: record-only + async enrichment
+
+A new `recordOwnership(name)` path persists the item instantly (under 1 second) using the
+all-unknown classification envelope and `DEFAULT_INVENTORY` defaults, then enqueues the existing
+enrichment pipeline as a background job. The item is immediately visible in the closet. The
+classification columns update in place when enrichment completes.
+
+The name-based classifier degrades to all-unknown (degrade-not-throw) on corpus miss, LLM error,
+or timeout — never a hard failure for item creation.
+
+The trip engine reads `quantity`, `ownership_status`, and `condition` as first-class inputs with
+no additional capability changes: `status = 'loaned'` excludes an item from packing picks by
+default; `condition = 'end_of_life'` surfaces it as a gap candidate.
+
+See [ADR-0022](docs/decisions/0022-decouple-ownership-from-classification.md) for full rationale
+and rejected alternatives.

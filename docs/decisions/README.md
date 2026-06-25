@@ -31,3 +31,6 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0018 — Item photos: display-only, private Supabase Storage, signed-URL delivery](0018-item-photos.md) — Accepted
 - [0019 — Residential-proxy fallback for manufacturer-URL enrichment (Scrapfly)](0019-scrapfly-residential-enrichment-fallback.md) — Accepted
 - [0020 — Web-search enrichment tier: manufacturer specs for every allowlisted brand (incl. Patagonia)](0020-web-search-enrichment-tier.md) — Accepted
+- [0021 — Inventory layer + ownership-status lifecycle replacing the inInventory boolean](0021-inventory-and-ownership-lifecycle.md) — Accepted
+- [0022 — Decouple ownership from classification: record-only capture + async enrichment](0022-decouple-ownership-from-classification.md) — Accepted
+- [0023 — Multi-domain possession model: three-ring architecture + pluggable facet-sets](0023-multi-domain-possession-model.md) — Accepted
