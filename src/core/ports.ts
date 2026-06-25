@@ -151,6 +151,13 @@ export interface GearRepository {
    * (the browse/closet UI) call this so users can update ownership state without re-classifying.
    */
   updateInventory(userId: string, id: string, patch: Partial<InventoryMeta>): Promise<void>;
+  /**
+   * Rename an item in-place: updates `items.name` AND `classification.name` inside the JSONB so that
+   * both the hot column and the lossless source of truth stay in sync (reads reconstruct the display
+   * name from classification, so drifting them apart causes stale names in the UI). User-scoped: a
+   * non-owned id is a no-op returning null. Returns the updated StoredItem, or null if not found.
+   */
+  updateItemName(userId: string, id: string, name: string): Promise<StoredItem | null>;
   deleteItem(userId: string, id: string): Promise<void>;
 
   /**

@@ -287,6 +287,26 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
     expect(after.ownershipStatus).toBe(before.ownershipStatus);
   });
 
+  it("updateItemName(B, A-itemId) → null and does NOT rename A's item", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+    const { itemId } = await seedUserA(userA);
+    const aItem = (await repo.getItem(userA, itemId))!;
+    const beforeName = aItem.name;
+    const beforeClassificationName = aItem.classification.name;
+
+    // B attempts to rename A's item — must be a no-op returning null.
+    expect(await repo.updateItemName(userB, itemId, "HIJACKED NAME")).toBeNull();
+    const aAfter = await repo.getItem(userA, itemId);
+    // Both hot column and JSONB must be unchanged after B's attempt.
+    expect(aAfter!.name).toBe(beforeName);
+    expect(aAfter!.classification.name).toBe(beforeClassificationName);
+    // sanity: A can rename its own item and both fields stay in sync.
+    const renamed = await repo.updateItemName(userA, itemId, "Renamed By A");
+    expect(renamed!.name).toBe("Renamed By A");
+    expect(renamed!.classification.name).toBe("Renamed By A");
+  });
+
   // ---- coverage tripwire ---------------------------------------------------------------------------
   // EVERY method of the GearRepository port is enumerated above. This list is asserted against the
   // live object's keys so adding a new repo method WITHOUT a cross-tenant assertion here fails the
@@ -305,6 +325,7 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
       "setDraft",
       "setItemImagePath",
       "updateInventory", // no-op on non-owned id; user-scoped via per-user item map
+      "updateItemName", // no-op returning null on non-owned id; user-scoped
       "deleteItem",
       "replaceItemEvidence",
       "getItemEvidence",

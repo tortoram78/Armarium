@@ -685,6 +685,27 @@ export const postgresRepository: GearRepository = {
     return rowToStoredItem(row);
   },
 
+  async updateItemName(userId, id, name) {
+    const db = getDb();
+    // Update the `name` hot column AND patch `classification.name` inside the JSONB so both stay in
+    // sync — reads reconstruct the display name from the JSONB lossless path, so drifting the two
+    // apart causes stale names in the UI. User-scoped: AND user_id = $userId is the SOLE live tenant
+    // isolation (OWNER connection bypasses RLS). A non-owned id matches no row → null (no-op).
+    const rows = await db
+      .update(items)
+      .set({
+        name,
+        // Merge the new name into the existing classification JSONB using Postgres's || operator
+        // so we patch only the `name` key without overwriting the rest of the document.
+        classification: sql`${items.classification} || jsonb_build_object('name', ${name}::text)`,
+      })
+      .where(and(eq(items.userId, userId), eq(items.id, id)))
+      .returning();
+    const row = rows[0];
+    if (!row) return null;
+    return rowToStoredItem(row);
+  },
+
   async updateInventory(userId, id, patch: Partial<InventoryMeta>) {
     const db = getDb();
     // Build a SET clause from only the supplied patch fields so we never overwrite unrelated columns.

@@ -1,18 +1,27 @@
-import { searchCloset } from "@/server/app-service";
+import { searchCloset, isItemGear } from "@/server/app-service";
 import { getSignedItemImageUrls } from "@/server/item-images";
 import { deriveDisplayTags } from "@/core/tags";
 import { GROUPINGS, GROUPING_LABELS, type GroupingKey } from "@/core/closet";
+import { OWNERSHIP_STATUS, CONDITION, type OwnershipStatus, type Condition } from "@/core/inventory";
 import { getUserIdOrGuest } from "@/lib/auth";
 import { ClosetView } from "@/components/ClosetView";
 import { GuestBanner } from "@/components/GuestBanner";
-import { recordOwnershipAction } from "@/app/actions";
+import { recordOwnershipAction, renameItemAction, updateInventoryAction, deleteItemAction, loadMoreClosetAction, bulkUpdateClosetAction } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClosetPage({
   searchParams,
 }: {
-  searchParams: { group?: string; q?: string; error?: string };
+  searchParams: {
+    group?: string;
+    q?: string;
+    status?: string;
+    condition?: string;
+    sort?: string;
+    view?: string;
+    error?: string;
+  };
 }) {
   // READ gate — never redirects. A guest (auth configured, no session) is served the seeded SAMPLE closet
   // from the in-memory repo; add/edit remain write-gated behind requireUserId() in the actions.
@@ -26,27 +35,60 @@ export default async function ClosetPage({
   // Optional name/brand/model search query — trimmed, empty = no filter.
   const searchQ = (searchParams.q ?? "").trim();
 
-  const { items, groups } = await searchCloset(dimension, { search: searchQ || undefined }, userId);
+  // Filter + sort controls
+  const statusRaw = searchParams.status ?? "";
+  const conditionRaw = searchParams.condition ?? "";
+  const sortRaw = searchParams.sort ?? "";
+
+  const activeStatus: OwnershipStatus | undefined = (OWNERSHIP_STATUS as readonly string[]).includes(statusRaw)
+    ? (statusRaw as OwnershipStatus)
+    : undefined;
+  const activeCondition: Condition | undefined = (CONDITION as readonly string[]).includes(conditionRaw)
+    ? (conditionRaw as Condition)
+    : undefined;
+  const activeSort: "newest" | "name" = sortRaw === "name" ? "name" : "newest";
+
+  // View toggle: grid (default) or list
+  const activeView = searchParams.view === "list" ? "list" : "grid";
+
+  // First page — limit 36 for the grid SSR; grouped views use a generous fetch (no pagination)
+  const pageLimit = grouped ? 200 : 36;
+
+  const { items, groups, nextCursor } = await searchCloset(
+    dimension,
+    {
+      search: searchQ || undefined,
+      status: activeStatus,
+      condition: activeCondition,
+      sort: activeSort,
+      limit: pageLimit,
+    },
+    userId,
+  );
 
   // Batch-sign every item's private photo path in ONE round-trip (ADR-0018 §D).
   const signedUrls = await getSignedItemImageUrls(items.map((it) => it.imagePath ?? null));
 
   // Map items to the summary shape ClosetView expects — no core imports in the page.
-  const itemSummaries = items.map((it) => ({
-    id: it.id,
-    name: it.name,
-    badges: deriveDisplayTags(it.classification.universal).slice(0, 4).map((t) => t.label),
-    imageUrl: it.imagePath ? (signedUrls.get(it.imagePath) ?? null) : null,
-    needsVerify:
-      it.classification.universal.warmth.value === null &&
-      it.classification.universal.technical_vs_lifestyle.value === null,
-    // Inventory surface fields for the card
-    ownershipStatus: it.inventory.ownershipStatus,
-    quantity: it.inventory.quantity,
-    condition: it.inventory.condition,
-    // Record-only = domains empty (no behavioral facets classified yet)
-    isRecordOnly: it.inventory.domains.length === 0 && deriveDisplayTags(it.classification.universal).length === 0,
-  }));
+  const itemSummaries = items.map((it) => {
+    const tags = deriveDisplayTags(it.classification.universal);
+    return {
+      id: it.id,
+      name: it.name,
+      badges: tags.slice(0, 4).map((t) => t.label),
+      imageUrl: it.imagePath ? (signedUrls.get(it.imagePath) ?? null) : null,
+      needsVerify:
+        it.classification.universal.warmth.value === null &&
+        it.classification.universal.technical_vs_lifestyle.value === null,
+      // Inventory surface fields for the card
+      ownershipStatus: it.inventory.ownershipStatus,
+      quantity: it.inventory.quantity,
+      condition: it.inventory.condition,
+      isRecordOnly: it.inventory.domains.length === 0 && tags.length === 0,
+      // Domain-gating: true = full gear UI; false = possession/record treatment
+      isGear: isItemGear(it),
+    };
+  });
 
   // "All" leads; the emergent facet dimensions follow. Never fixed category tabs.
   const groupingLinks = [
@@ -74,8 +116,18 @@ export default async function ClosetPage({
         activeGroup={grouped ? dimension : "all"}
         groupingLinks={groupingLinks}
         searchQ={searchQ}
+        activeStatus={activeStatus}
+        activeCondition={activeCondition}
+        activeSort={activeSort}
+        activeView={activeView}
+        nextCursor={grouped ? null : (nextCursor ?? null)}
         isGuest={isGuest}
         recordOwnershipAction={recordOwnershipAction}
+        renameItemAction={renameItemAction}
+        updateInventoryAction={updateInventoryAction}
+        deleteItemAction={deleteItemAction}
+        loadMoreAction={loadMoreClosetAction}
+        bulkUpdateAction={bulkUpdateClosetAction}
       />
     </div>
   );

@@ -23,6 +23,7 @@ import {
   updateTripConditions,
   recordOwnership,
   updateInventory,
+  renameItem,
 } from "@/server/app-service";
 import { OWNERSHIP_STATUS, CONDITION, type InventoryMeta } from "@/core/inventory";
 import { isItemImageObjectPath } from "@/server/item-images";
@@ -549,6 +550,136 @@ export async function updateInventoryAction(formData: FormData) {
     redirect(`/items/${id}?inventoryError=1`);
   }
   redirect(`/items/${id}`);
+}
+
+// ---- closet browse curation (ADR-0022 Phase 2) ----
+
+const RenameItemInput = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1, "Name is required").max(120),
+});
+
+/**
+ * Inline rename — updates items.name AND classification.name in sync.
+ * Write-gated; redirects back to the item detail on success.
+ */
+export async function renameItemAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = RenameItemInput.safeParse({
+    id: formData.get("id"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) {
+    const id = String(formData.get("id") ?? "");
+    redirect(`/items/${id}?renameError=1`);
+  }
+  await renameItem(parsed.data.id, parsed.data.name, userId);
+  revalidatePath("/");
+  revalidatePath(`/items/${parsed.data.id}`);
+  redirect(`/items/${parsed.data.id}`);
+}
+
+import { searchCloset } from "@/server/app-service";
+import { type GroupingKey } from "@/core/closet";
+
+/**
+ * Load the next page of the flat closet ("All" view) — cursor-keyed, filter-aware.
+ * Called client-side via a "Load more" button / IntersectionObserver.
+ * Returns serialisable data (no class instances).
+ */
+export async function loadMoreClosetAction(formData: FormData): Promise<{
+  items: {
+    id: string;
+    name: string;
+    badges: string[];
+    needsVerify: boolean;
+    imageUrl: null; // photos require a separate signed-URL round-trip; load-more omits them
+    ownershipStatus: string;
+    quantity: number;
+    condition: string | null;
+    isRecordOnly: boolean;
+    isGear: boolean;
+  }[];
+  nextCursor: string | null;
+}> {
+  const { userId } = await getUserIdOrGuest();
+  const cursor = String(formData.get("cursor") ?? "").trim() || undefined;
+  const search = String(formData.get("search") ?? "").trim() || undefined;
+  const statusRaw = String(formData.get("status") ?? "").trim();
+  const conditionRaw = String(formData.get("condition") ?? "").trim();
+  const sortRaw = String(formData.get("sort") ?? "").trim();
+
+  const status = (OWNERSHIP_STATUS as readonly string[]).includes(statusRaw)
+    ? (statusRaw as (typeof OWNERSHIP_STATUS)[number])
+    : undefined;
+  const condition = (CONDITION as readonly string[]).includes(conditionRaw)
+    ? (conditionRaw as (typeof CONDITION)[number])
+    : undefined;
+  const sort = sortRaw === "name" ? "name" : "newest";
+
+  const { deriveDisplayTags } = await import("@/core/tags");
+  const { isItemGear } = await import("@/server/app-service");
+
+  const { items, nextCursor } = await searchCloset(
+    "capability" as GroupingKey,
+    { search, status, condition, sort, cursor, limit: 36 },
+    userId,
+  );
+
+  return {
+    items: items.map((it) => {
+      const tags = deriveDisplayTags(it.classification.universal);
+      return {
+        id: it.id,
+        name: it.name,
+        badges: tags.slice(0, 4).map((t) => t.label),
+        needsVerify:
+          it.classification.universal.warmth.value === null &&
+          it.classification.universal.technical_vs_lifestyle.value === null,
+        imageUrl: null,
+        ownershipStatus: it.inventory.ownershipStatus,
+        quantity: it.inventory.quantity,
+        condition: it.inventory.condition,
+        isRecordOnly: it.inventory.domains.length === 0 && tags.length === 0,
+        isGear: isItemGear(it),
+      };
+    }),
+    nextCursor,
+  };
+}
+
+const BulkUpdateInput = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+  op: z.enum(["set_status", "delete"]),
+  status: z.enum(OWNERSHIP_STATUS).optional(),
+});
+
+/**
+ * Bulk action on a set of closet items — set ownership status or delete.
+ * Write-gated; revalidates "/" after each item so the closet refreshes.
+ */
+export async function bulkUpdateClosetAction(formData: FormData) {
+  const userId = await requireUserId();
+  const ids = formData.getAll("ids").map(String).filter(Boolean);
+  const op = String(formData.get("op") ?? "").trim();
+  const statusRaw = String(formData.get("status") ?? "").trim();
+
+  const parsed = BulkUpdateInput.safeParse({
+    ids,
+    op,
+    status: statusRaw || undefined,
+  });
+  if (!parsed.success) redirect("/?bulkError=1");
+
+  const { op: operation, ids: validIds, status } = parsed.data;
+  for (const id of validIds) {
+    if (operation === "delete") {
+      await deleteItem(id, userId);
+    } else if (operation === "set_status" && status) {
+      await updateInventory(id, { ownershipStatus: status }, userId);
+    }
+  }
+  revalidatePath("/");
 }
 
 /** Sign out the current user and redirect to /login. */

@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { getItem, resolveItem } from "@/server/app-service";
+import { getItem, resolveItem, isItemGear } from "@/server/app-service";
 import { getSignedItemImageUrl } from "@/server/item-images";
 import { evaluateCapability, CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/core/capabilities";
 import {
@@ -98,13 +98,20 @@ export default async function ItemDetailPage({
   const imageUrl = await getSignedItemImageUrl(item.imagePath ?? null);
 
   const resolved = resolveItem(item);
+
+  // Domain gate — gear-specific UI is shown only when the item is classified into the gear domain.
+  const isGear = isItemGear(item);
+
   const c = item.classification;
 
-  const capResults = CAPABILITY_KEYS.map((cap) => ({
-    cap,
-    label: CAPABILITY_LABELS[cap],
-    result: evaluateCapability(resolved, cap),
-  }));
+  // Only evaluate capabilities for gear items (they have no facets otherwise).
+  const capResults = isGear
+    ? CAPABILITY_KEYS.map((cap) => ({
+        cap,
+        label: CAPABILITY_LABELS[cap],
+        result: evaluateCapability(resolved, cap),
+      }))
+    : [];
   const satisfied = capResults.filter((r) => r.result === "satisfies");
   const verify = capResults.filter((r) => r.result === "blocked_unknown");
   const verifyCount = verify.length;
@@ -118,6 +125,30 @@ export default async function ItemDetailPage({
 
   const priceDollars =
     c.identity.price_cents.value !== null ? c.identity.price_cents.value / 100 : null;
+
+  // Header meta line differs by domain: gear shows capability count; non-gear shows honest "not yet classified"
+  const metaCapabilityNode = isGear ? (
+    <>
+      <span aria-hidden className="text-muted-foreground/40">·</span>
+      <span>
+        <span className="data-mono text-foreground">{satisfied.length}</span>{" "}
+        {satisfied.length === 1 ? "capability" : "capabilities"}
+      </span>
+      {verifyCount > 0 && (
+        <>
+          <span aria-hidden className="text-muted-foreground/40">·</span>
+          <span className="text-accent">
+            <span className="data-mono">{verifyCount}</span> to verify
+          </span>
+        </>
+      )}
+    </>
+  ) : (
+    <>
+      <span aria-hidden className="text-muted-foreground/40">·</span>
+      <span className="text-muted-foreground italic">Not yet classified</span>
+    </>
+  );
 
   return (
     <div className="mx-auto max-w-3xl space-y-12">
@@ -133,7 +164,7 @@ export default async function ItemDetailPage({
       <header className="space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
           <div className="min-w-0 max-w-2xl">
-            <p className="eyebrow mb-3">Gear</p>
+            <p className="eyebrow mb-3">{isGear ? "Gear" : "Possession"}</p>
             <h1 className="display-xl text-foreground">{item.name}</h1>
             {showIdentityLine && (
               <p className="mt-3 text-[0.975rem] text-muted-foreground">{identityLine}</p>
@@ -149,19 +180,7 @@ export default async function ItemDetailPage({
               <span className={item.inInventory ? "text-foreground" : "text-muted-foreground"}>
                 {item.inInventory ? "In inventory" : "Catalog only"}
               </span>
-              <span aria-hidden className="text-muted-foreground/40">·</span>
-              <span>
-                <span className="data-mono text-foreground">{satisfied.length}</span>{" "}
-                {satisfied.length === 1 ? "capability" : "capabilities"}
-              </span>
-              {verifyCount > 0 && (
-                <>
-                  <span aria-hidden className="text-muted-foreground/40">·</span>
-                  <span className="text-accent">
-                    <span className="data-mono">{verifyCount}</span> to verify
-                  </span>
-                </>
-              )}
+              {metaCapabilityNode}
               {priceDollars !== null && (
                 <>
                   <span aria-hidden className="text-muted-foreground/40">·</span>
@@ -241,37 +260,39 @@ export default async function ItemDetailPage({
         </section>
       )}
 
-      {/* ── Capabilities — the headline outcome of the facets ── */}
-      <section>
-        <SectionHead title="Capabilities" count={satisfied.length} />
-        {satisfied.length > 0 && (
-          <div className="mb-4">
-            <p className="eyebrow mb-2.5">Satisfies</p>
-            <div className="flex flex-wrap gap-1.5">
-              {satisfied.map(({ cap, label }) => (
-                <Badge key={cap} variant="success">{label}</Badge>
-              ))}
+      {/* ── Capabilities — GEAR ONLY ── */}
+      {isGear && (
+        <section>
+          <SectionHead title="Capabilities" count={satisfied.length} />
+          {satisfied.length > 0 && (
+            <div className="mb-4">
+              <p className="eyebrow mb-2.5">Satisfies</p>
+              <div className="flex flex-wrap gap-1.5">
+                {satisfied.map(({ cap, label }) => (
+                  <Badge key={cap} variant="success">{label}</Badge>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-        {verify.length > 0 && (
-          <div>
-            <p className="eyebrow mb-2.5 text-accent">Unknown — verify before relying on</p>
-            <div className="flex flex-wrap gap-1.5">
-              {verify.map(({ cap, label }) => (
-                <Badge key={cap} variant="verify">{label}</Badge>
-              ))}
+          )}
+          {verify.length > 0 && (
+            <div>
+              <p className="eyebrow mb-2.5 text-accent">Unknown — verify before relying on</p>
+              <div className="flex flex-wrap gap-1.5">
+                {verify.map(({ cap, label }) => (
+                  <Badge key={cap} variant="verify">{label}</Badge>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-        {satisfied.length === 0 && verify.length === 0 && (
-          <p className="text-[0.95rem] leading-relaxed text-muted-foreground">
-            No capabilities confirmed yet — many facets may be unknown. Correct them below to unlock more.
-          </p>
-        )}
-      </section>
+          )}
+          {satisfied.length === 0 && verify.length === 0 && (
+            <p className="text-[0.95rem] leading-relaxed text-muted-foreground">
+              No capabilities confirmed yet — many facets may be unknown. Correct them below to unlock more.
+            </p>
+          )}
+        </section>
+      )}
 
-      {/* ── Identity ── */}
+      {/* ── Identity — always shown ── */}
       <section>
         <SectionHead title="Identity" />
         <div className="panel px-5 py-1">
@@ -287,8 +308,8 @@ export default async function ItemDetailPage({
         </div>
       </section>
 
-      {/* ── Materials & composition ── */}
-      {(c.materials.length > 0 || c.treatments.length > 0) && (
+      {/* ── Materials & composition — GEAR ONLY (non-gear items typically have no material breakdown) ── */}
+      {isGear && (c.materials.length > 0 || c.treatments.length > 0) && (
         <section>
           <SectionHead
             title="Material & composition"
@@ -336,54 +357,58 @@ export default async function ItemDetailPage({
         </section>
       )}
 
-      {/* ── Universal facets ── */}
-      <section>
-        <SectionHead title="Universal facets" />
-        <div className="panel px-5 py-1">
-          <SpecRow e={c.universal.waterproofness} label="Waterproofness" />
-          <SpecRow e={c.universal.wind_resistance} label="Wind resistance" />
-          <SpecRow e={c.universal.breathability} label="Breathability" />
-          <SpecRow e={c.universal.moisture_management} label="Moisture management" />
-          <SpecRow e={c.universal.dry_speed} label="Dry speed" />
-          <SpecRow e={c.universal.warmth_when_wet} label="Warmth when wet" />
-          <SpecRow e={c.universal.warmth} label="Warmth" />
-          <SpecRow e={c.universal.packability} label="Packability" />
-          <SpecRow e={c.universal.technical_vs_lifestyle} label="Technical vs lifestyle" />
-          <SpecRow e={c.universal.upf} label="UPF" />
-        </div>
-      </section>
+      {/* ── Universal facets — GEAR ONLY ── */}
+      {isGear && (
+        <section>
+          <SectionHead title="Universal facets" />
+          <div className="panel px-5 py-1">
+            <SpecRow e={c.universal.waterproofness} label="Waterproofness" />
+            <SpecRow e={c.universal.wind_resistance} label="Wind resistance" />
+            <SpecRow e={c.universal.breathability} label="Breathability" />
+            <SpecRow e={c.universal.moisture_management} label="Moisture management" />
+            <SpecRow e={c.universal.dry_speed} label="Dry speed" />
+            <SpecRow e={c.universal.warmth_when_wet} label="Warmth when wet" />
+            <SpecRow e={c.universal.warmth} label="Warmth" />
+            <SpecRow e={c.universal.packability} label="Packability" />
+            <SpecRow e={c.universal.technical_vs_lifestyle} label="Technical vs lifestyle" />
+            <SpecRow e={c.universal.upf} label="UPF" />
+          </div>
+        </section>
+      )}
 
-      {/* ── Multi-label facets ── */}
-      <section>
-        <SectionHead title="Function & fit" />
-        <div className="panel space-y-4 p-5">
-          {(
-            [
-              ["Layering role", c.multilabel.layering_role],
-              ["Function / purpose", c.multilabel.function_purpose],
-              ["Body zone", c.multilabel.body_zone_covered],
-              ["Activity fit", c.multilabel.activity_fit],
-              ["Conditions fit", c.multilabel.conditions_fit],
-            ] as [string, readonly string[]][]
-          ).map(([label, vals]) => (
-            <div key={label}>
-              <p className="eyebrow mb-2">{label}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {vals.length === 0 ? (
-                  <span className="text-sm italic text-accent">None — verify</span>
-                ) : (
-                  vals.map((v) => (
-                    <Badge key={v} variant="subtle">{titleize(v)}</Badge>
-                  ))
-                )}
+      {/* ── Multi-label facets (Function & fit) — GEAR ONLY ── */}
+      {isGear && (
+        <section>
+          <SectionHead title="Function & fit" />
+          <div className="panel space-y-4 p-5">
+            {(
+              [
+                ["Layering role", c.multilabel.layering_role],
+                ["Function / purpose", c.multilabel.function_purpose],
+                ["Body zone", c.multilabel.body_zone_covered],
+                ["Activity fit", c.multilabel.activity_fit],
+                ["Conditions fit", c.multilabel.conditions_fit],
+              ] as [string, readonly string[]][]
+            ).map(([label, vals]) => (
+              <div key={label}>
+                <p className="eyebrow mb-2">{label}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {vals.length === 0 ? (
+                    <span className="text-sm italic text-accent">None — verify</span>
+                  ) : (
+                    vals.map((v) => (
+                      <Badge key={v} variant="subtle">{titleize(v)}</Badge>
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
-      {/* ── Domain groups — group-specific specs ── */}
-      {c.applicable_groups.length > 0 && (
+      {/* ── Domain groups — group-specific specs — GEAR ONLY ── */}
+      {isGear && c.applicable_groups.length > 0 && (
         <section>
           <SectionHead title="Group-specific specs" />
           <div className="space-y-6">
@@ -405,7 +430,7 @@ export default async function ItemDetailPage({
         </section>
       )}
 
-      {/* ── Inventory — ownership/physical metadata layer (ADR-0021) ── */}
+      {/* ── Inventory — ownership/physical metadata layer (ADR-0021) — always shown ── */}
       <section>
         <SectionHead title="Inventory" />
 
@@ -523,7 +548,7 @@ export default async function ItemDetailPage({
         )}
       </section>
 
-      {/* ── Record-only: classify affordance — shown when no behavioral facets have been classified ── */}
+      {/* ── Classify affordance — shown for non-gear items (no behavioral facets yet) ── */}
       {item.inventory.domains.length === 0 && (
         <section>
           <div className="panel flex flex-wrap items-center justify-between gap-4 bg-muted/30 p-5">
@@ -544,28 +569,30 @@ export default async function ItemDetailPage({
         </section>
       )}
 
-      {/* ── Facet editor — correction is a write; hidden for a guest, who gets a log-in invite. ── */}
-      <section>
-        <SectionHead title="Correct facets" />
-        {!isGuest ? (
-          <FacetEditor
-            itemId={item.id}
-            classification={c}
-            action={updateFacetsAction}
-            defaultOpen={searchParams.edit === "1"}
-          />
-        ) : (
-          <div className="panel flex flex-wrap items-center justify-between gap-3 bg-muted/40 p-5">
-            <p className="text-sm text-muted-foreground">Correcting facets requires an account.</p>
-            <Link
-              href={`/login?next=${encodeURIComponent(`/items/${item.id}`)}`}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92"
-            >
-              Log in to edit
-            </Link>
-          </div>
-        )}
-      </section>
+      {/* ── Facet editor — GEAR ONLY; correction is a write; hidden for a guest. ── */}
+      {isGear && (
+        <section>
+          <SectionHead title="Correct facets" />
+          {!isGuest ? (
+            <FacetEditor
+              itemId={item.id}
+              classification={c}
+              action={updateFacetsAction}
+              defaultOpen={searchParams.edit === "1"}
+            />
+          ) : (
+            <div className="panel flex flex-wrap items-center justify-between gap-3 bg-muted/40 p-5">
+              <p className="text-sm text-muted-foreground">Correcting facets requires an account.</p>
+              <Link
+                href={`/login?next=${encodeURIComponent(`/items/${item.id}`)}`}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92"
+              >
+                Log in to edit
+              </Link>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

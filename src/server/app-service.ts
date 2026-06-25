@@ -7,8 +7,9 @@ import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
 import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
+import { isGearClassified } from "@/core/domains";
 import { recordOnlyClassification } from "@/core/record";
-import type { InventoryMeta, OwnershipStatus } from "@/core/inventory";
+import type { InventoryMeta, OwnershipStatus, Condition } from "@/core/inventory";
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
 import type { RecommendationResult } from "@/core/recommend";
@@ -35,7 +36,13 @@ import type { ItemClassification } from "@/core/classification";
 import type { StoredItem, StoredTrip, EvidenceClaim } from "@/core/ports";
 
 export function resolveItem(i: StoredItem): ResolvedItem {
-  return resolveFromClassification(i.id, i.classification);
+  return resolveFromClassification(i.id, i.classification, i.inventory);
+}
+
+/** Whether an item is classified into the gear domain (ADR-0023) — gates the gear facet/capability UI.
+ *  Reads the real `domains` marker OR any known gear facet signal (backfill-safe; see src/core/domains). */
+export function isItemGear(i: StoredItem): boolean {
+  return isGearClassified(resolveItem(i));
 }
 
 export async function getAllItems(userId = DEFAULT_USER_ID): Promise<StoredItem[]> {
@@ -105,19 +112,40 @@ export async function updateInventory(
  */
 export async function searchCloset(
   dimension: GroupingKey,
-  opts: { search?: string; status?: OwnershipStatus; sort?: "newest" | "name" } = {},
+  opts: {
+    search?: string;
+    status?: OwnershipStatus;
+    condition?: Condition;
+    sort?: "newest" | "name";
+    cursor?: string;
+    limit?: number;
+  } = {},
   userId = DEFAULT_USER_ID,
 ) {
   const page = await getRepositoryFor(userId).listItemsPage(userId, {
     search: opts.search,
     status: opts.status,
+    condition: opts.condition,
     sort: opts.sort ?? "newest",
-    limit: 200,
+    cursor: opts.cursor,
+    limit: opts.limit ?? 60,
   });
+  // Closet membership = in-inventory, non-draft (drafts await review). Post-filter is safe with keyset
+  // paging: nextCursor advances on the RAW last row, so load-more continues correctly even if a page
+  // shows fewer than `limit` after filtering.
   const items = page.items.filter((i) => i.inInventory && !i.draft);
   const byId = new Map(items.map((i) => [i.id, i] as const));
   const groups = groupCloset(items.map(resolveItem), dimension);
-  return { items, byId, groups };
+  return { items, byId, groups, nextCursor: page.nextCursor };
+}
+
+/** Inline rename — updates items.name AND classification.name in sync (ADR-0021 browse curation). */
+export async function renameItem(
+  id: string,
+  name: string,
+  userId = DEFAULT_USER_ID,
+): Promise<StoredItem | null> {
+  return getRepository().updateItemName(userId, id, name);
 }
 
 export async function planAndSave(
@@ -266,7 +294,9 @@ export async function classifyToDraft(
     await cache.putDraft(key, name, classification, MODEL_ID);
   }
 
-  const item = await getRepository().addItem(userId, { name, inInventory, draft: true, rawText: text, classification });
+  // domains:['gear'] marks the item as classified into the gear domain (ADR-0023) — the classify path
+  // always produces a gear assessment, so it is gear even when most facets resolve unknown.
+  const item = await getRepository().addItem(userId, { name, inInventory, draft: true, rawText: text, classification, inventory: { domains: ["gear"] } });
   // Persist the claim set as the item's provenance backing store (a no-op-safe REPLACE, user-scoped).
   await getRepository().replaceItemEvidence(userId, item.id, claims);
   const mode = deps.classifier?.mode ?? classifierMode();
@@ -402,6 +432,7 @@ export async function enrichFromUrlToDraft(
     draft: true,
     rawText: text,
     classification,
+    inventory: { domains: ["gear"] }, // URL enrichment is a gear assessment → mark the gear domain (ADR-0023)
   });
   // Persist the full claim set (manufacturer + inference + derived) as the item's provenance backing store.
   await getRepository().replaceItemEvidence(userId, item.id, claims);
