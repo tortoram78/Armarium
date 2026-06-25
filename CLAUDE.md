@@ -130,6 +130,9 @@ Run **`/retro`** at the end of every iteration. Promote only durable, broadly-ap
 - **A passing canonical test is not proof of generality.** We let recommendations collapse onto one
   trip (Marcy); fixed by deriving requirements from structured conditions. For any "reasoning" feature,
   add cross-archetype tests (≥3 distinct cases) so the engine can't be secretly hardcoded.
+- **A passing test can be guarding the bug.** When fixing a UX/behavior regression, grep the suite for
+  a test that asserts the OLD contract and flip it — not just add a new test beside it. A passing suite
+  that encodes the exact wrong behavior actively blocks the fix.
 - **When a test asserts a capability outcome, read the actual gate first.** Capability gates are often
   OR-predicates across multiple facets; clearing one arm may leave the item satisfying the gate through
   another, making the test pass for the wrong reason. Assert against the full real predicate.
@@ -137,8 +140,12 @@ Run **`/retro`** at the end of every iteration. Promote only durable, broadly-ap
   `typecheck/lint/build/test` are green with no env; tests use a mock client + an offline classifier.
   Even having `DATABASE_URL` *set* (not just required) switches to the Postgres path and breaks the
   hermetic run. Always strip DB/API env vars for gate invocations; never make a gate depend on a secret.
-- **Unknown is first-class; specs are never fabricated.** Enforce it mechanically (the `hardFact`
-  demotion guard) and test it with failing fixtures — not by prompt wording alone.
+- **Unknown is first-class; specs are never fabricated — in the display layer too.** Enforce it
+  mechanically (the `hardFact` demotion guard) and test it with failing fixtures. For display chips/tags,
+  derive from the same medium+-gated facets the capabilities use; a low-confidence facet shows nothing.
+- **Before "removing" a field from the UI, grep for non-display readers.** A field that looks like a
+  display label can be load-bearing elsewhere (`function_purpose` gates the `sun_protection` capability).
+  Keep the facet; change only its rendering.
 - **Verify the actual artifact, not the agent's (or doc's) summary.** Agents summarize; summaries
   elide. An agent report can abbreviate "...same pattern" for a file that is actually complete — or a
   doc can claim a fallback that the code doesn't implement. Read the real file/function before
