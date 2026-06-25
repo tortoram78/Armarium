@@ -37,22 +37,26 @@ non-blocking, background follow-up rather than a prerequisite for the existence 
 
 ### The inversion: record first, enrich asynchronously
 
-A new code path `recordOwnership(name, inventoryDefaults?)` in `src/core/` (and its server
-action counterpart) does the following in a single fast transaction:
+As shipped: the pure constructor `recordOnlyClassification(name)` (`src/core/record.ts`) feeds the
+`recordOwnership(name, userId?)` app-service path (`src/server/app-service.ts`), invoked by the
+`recordOwnershipAction` server action. Together they do the following in a single fast transaction:
 
-1. Construct `unknownBehavioralClassification(name)` — the existing all-unknown classification
-   envelope with every facet set to `{ value: null, confidence: 'unknown', source: 'unknown' }`.
+1. Construct `recordOnlyClassification(name)` = the existing `unknownBehavioralClassification(name)`
+   all-unknown envelope, with every facet `{ value: null, confidence: 'unknown', source: 'unknown' }`.
 2. Set `ownership_status = 'owned'` (or the caller-supplied status), `DEFAULT_INVENTORY`
    (quantity = 1, all other inventory fields null unless the user supplied them).
 3. Persist the item. The row is now live in the database. The user sees it immediately in
    their closet.
-4. Enqueue enrichment as a background job: the existing classify → URL-tier → evidence-resolver
-   pipeline runs after the response is returned to the user. The item's classification columns
-   are updated in place when enrichment completes. The UI reflects the improvement without
-   requiring the user to wait for it.
+4. Make enrichment an **optional follow-up, never a prerequisite.** In Phase 1 (as shipped) the
+   item carries an explicit *"Add details / classify"* affordance that routes into the existing
+   classify → URL-tier → evidence-resolver pipeline on demand; the user (or no one) triggers it.
+   The **automatic** post-response background job — enrichment runs after the response is returned
+   and updates the classification columns in place without the user waiting — is the **Phase 3**
+   target and is gated on the background-job infrastructure decision (see Consequences and the
+   roadmap's Phase 3). Either way, enrichment never blocks the act of recording.
 
 **Capture latency target: under 1 second** from the user submitting a name to seeing the item
-in their closet.
+in their closet. (Met in Phase 1: `recordOwnership` is a single insert with no LLM call.)
 
 ### Classification stays NOT NULL via the all-unknown envelope
 
