@@ -41,8 +41,9 @@ export interface ExtractedProduct {
   fiber_components: ExtractedFiber[];
   /** Any additionalProperty name/value pairs, kept verbatim for downstream mapping/audit. */
   specs: ExtractedSpec[];
-  /** Where the bulk of the data came from — for downstream confidence / debugging. */
-  source: "json-ld" | "opengraph" | "none";
+  /** Where the bulk of the data came from — for downstream confidence / debugging. `"web-search"` is set
+   *  when specs were retrieved via Claude's server-side web-search tool and cited to an allowlisted URL. */
+  source: "json-ld" | "opengraph" | "web-search" | "none";
 }
 
 const EMPTY: ExtractedProduct = {

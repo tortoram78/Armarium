@@ -11,6 +11,7 @@ import type { TripConditions } from "@/core/conditions";
 import { classifyItemClaims } from "@/core/classify/classify-claims";
 import { classifyOffline } from "@/core/classify/offline";
 import { parseTripConditions, parseConditionsHeuristic } from "@/core/recommend/parse-conditions";
+import { extractViaWebSearch, type WebSearchResult } from "@/core/enrich";
 import type { LlmUsage } from "@/core/obs/log";
 import { logEvent } from "@/lib/logger";
 import { memoryRepository } from "./memory-repo";
@@ -92,7 +93,7 @@ export type ClassifierHandle =
 // The ONE place LLM token usage from a live call is logged. Passed as `onUsage` into the core deps; core
 // only reports the counts (it never imports a console), the console sink lives here in the server logger.
 // The OFFLINE handle never constructs this dep, so the offline path logs no LLM usage (no model call).
-const logLlmUsage = (action: "classify" | "parse") => (llm: LlmUsage): void =>
+const logLlmUsage = (action: "classify" | "parse" | "search") => (llm: LlmUsage): void =>
   logEvent({ level: "info", event: "llm", action, llm });
 
 export function getClassifier(): ClassifierHandle {
@@ -121,4 +122,35 @@ export function getTripParser(): TripParserHandle {
     return { parse: (d) => parseTripConditions(d, { anthropic, onUsage }), mode: "live" };
   }
   return { parse: async (d) => parseConditionsHeuristic(d), mode: "offline" };
+}
+
+export interface WebSearchEnricherHandle {
+  /** Run a citation-gated web-search product lookup (restricted to the manufacturer allowlist in core). */
+  enrich: (query: { name?: string | null; url?: string | null }) => Promise<WebSearchResult>;
+  /** True when an ANTHROPIC_API_KEY is present (the web-search tier is live). */
+  available: boolean;
+}
+
+/**
+ * Web-search enrichment factory (ADR-0020): live when ANTHROPIC_API_KEY is set, an inert no-op otherwise
+ * (so the hermetic gate and any keyless deploy behave exactly as before). The Anthropic client gets a
+ * longer timeout than classify — the server-side `web_search` loop (multiple searches + reasoning) is
+ * slower than a plain completion; kept under the route's `maxDuration=60` ceiling.
+ */
+export function getWebSearchEnricher(): WebSearchEnricherHandle {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (apiKey) {
+    const anthropic = new Anthropic({ apiKey, timeout: 50_000, maxRetries: 1 });
+    const onUsage = logLlmUsage("search");
+    return { enrich: (query) => extractViaWebSearch(query, { anthropic, onUsage }), available: true };
+  }
+  // Keyless: an inert handle — `available:false` means app-service never invokes `enrich`.
+  const empty: WebSearchResult = {
+    extracted: {
+      name: null, brand: null, sku: null, mpn: null, price_cents: null, price_currency: null,
+      weight_grams: null, material_raw: null, fiber_components: [], specs: [], source: "none",
+    },
+    sourceUrl: null,
+  };
+  return { enrich: async () => empty, available: false };
 }
