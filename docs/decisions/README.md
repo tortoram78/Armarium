@@ -30,3 +30,4 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0017 — Ops hardening: in-process rate limiter, structured console logging, error boundaries](0017-ops-hardening.md) — Accepted
 - [0018 — Item photos: display-only, private Supabase Storage, signed-URL delivery](0018-item-photos.md) — Accepted
 - [0019 — Residential-proxy fallback for manufacturer-URL enrichment (Scrapfly)](0019-scrapfly-residential-enrichment-fallback.md) — Accepted
+- [0020 — Web-search enrichment tier: manufacturer specs for every allowlisted brand (incl. Patagonia)](0020-web-search-enrichment-tier.md) — Accepted

@@ -1,7 +1,7 @@
 // Application service — the thin layer the UI (pages, actions) calls. Ties the repository to the pure
 // core (resolve, group, plan). Pages never import core reasoning directly; they go through here.
 
-import { getRepository, getRepositoryFor, getCacheRepository, getClassifier, getTripParser, DEFAULT_USER_ID, type Classifier } from "./services";
+import { getRepository, getRepositoryFor, getCacheRepository, getClassifier, getTripParser, getWebSearchEnricher, DEFAULT_USER_ID, type Classifier } from "./services";
 import { fetchManufacturerHtml, type FetcherDeps } from "./enrich-fetcher";
 import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
@@ -25,6 +25,7 @@ import {
   parseProductHtml,
   toManufacturerEvidence,
   type ExtractedProduct,
+  type WebSearchResult,
 } from "@/core/enrich";
 import { userCorrectionClaims } from "@/core/corrections";
 import type { TripConditions } from "@/core/conditions";
@@ -229,6 +230,14 @@ export interface EnrichDeps {
    * unchanged.
    */
   fetchScrapfly?: (url: string) => ReturnType<typeof fetchViaScrapfly>;
+  /**
+   * Web-search enrichment (ADR-0020), tried when direct + residential both yield no signal — the
+   * universal tier that resolves even hard-walled brands (Patagonia). Defaults to the env-selected
+   * `getWebSearchEnricher()`; injected in tests. Taken only when injected OR an ANTHROPIC_API_KEY is
+   * configured, so the hermetic gate is unchanged. Citation-gated in core: only an allowlisted,
+   * actually-returned source URL yields authoritative (`manufacturer`) facts.
+   */
+  webSearch?: (query: { name?: string | null; url?: string | null }) => Promise<WebSearchResult>;
   /** Defaults to the env-selected classifier from `getClassifier()`. */
   classify?: Classifier;
   /** Forwarded to the default fetcher (injected `fetchImpl`/`lookup`) when `fetchHtml` is not overridden. */
@@ -282,17 +291,32 @@ export async function enrichFromUrlToDraft(
     }
   }
 
-  // 3. The direct fetch failed (non-shape) AND the residential fallback didn't rescue → surface the
-  //    original fetcher reason (`url-shape:`/`http:`/`network:`/…) for the action's friendly mapping.
-  if (!fetched.ok) return { ok: false, reason: fetched.reason };
+  // 3. WEB-SEARCH fallback (ADR-0020): STILL no authoritative signal — a hard-walled brand (Patagonia,
+  //    which even residential can't clear) or a page that didn't parse. Retrieve the specs from the search
+  //    index via Claude's web_search tool, restricted to the manufacturer/retailer allowlist. A fact is
+  //    authoritative ONLY when its citation is a REAL allowlisted result URL — the authority comes from the
+  //    citation (validated in core), not the model. This can rescue even a FAILED direct fetch (a 403 /
+  //    refused page that search can still find). A url-shape rejection is never searched (out-of-scope
+  //    host). Taken only when injected (tests) or ANTHROPIC_API_KEY is set, so the hermetic gate is unchanged.
+  if (!shapeRejected && !enrichment?.hasSignal) {
+    const ws = deps.webSearch ? { enrich: deps.webSearch, available: true } : getWebSearchEnricher();
+    if (ws.available) {
+      const viaSearch = await ws.enrich({ url });
+      if (viaSearch.sourceUrl) {
+        extracted = viaSearch.extracted;
+        enrichment = toManufacturerEvidence(extracted);
+      }
+    }
+  }
 
-  // 4. HONEST no-signal guard: the page parsed cleanly but carried NO authoritative product data — no
-  //    identity (brand/model/price/weight) and no composition (even after the residential retry). This is
-  //    a bot-challenge page, a JS-only catalog, or a non-product URL (Patagonia lands here). Do NOT
-  //    manufacture a junk "Item from <host>" draft with every field unknown (the "returned zero fields"
-  //    symptom); fail honestly so the action steers the user to add-by-name. (Distinct from DEGRADED
-  //    classify below: there the manufacturer signal IS present and is preserved.)
+  // 4. Resolve the outcome. We proceed iff SOME tier produced authoritative signal — even when the DIRECT
+  //    fetch failed (web search can rescue a 403/walled page). Otherwise surface the original fetcher
+  //    reason (direct failed, nothing rescued it) for the action's friendly mapping, else the honest
+  //    no-signal message. Do NOT manufacture a junk "Item from <host>" draft with every field unknown (the
+  //    "returned zero fields" symptom); fail honestly so the action steers the user to add-by-name.
+  //    (Distinct from DEGRADED classify below: there the manufacturer signal IS present and is preserved.)
   if (!extracted || !enrichment || !enrichment.hasSignal) {
+    if (!fetched.ok) return { ok: false, reason: fetched.reason };
     return { ok: false, reason: "no-signal: the page had no readable product details" };
   }
 

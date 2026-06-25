@@ -7,6 +7,10 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
+// The add flow can run a slow tier: a residential proxy fetch and/or a Claude web-search lookup (each up
+// to ~20-30s). Raise the serverless function ceiling so the action completes instead of timing out at the
+// ~10-15s default. (Vercel Hobby allows up to 60s.)
+export const maxDuration = 60;
 
 export default function NewItemPage({
   searchParams,

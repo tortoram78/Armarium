@@ -16,7 +16,7 @@ import { HARD_SOURCE } from "../evidence";
 import type { ExtractedProduct, ExtractedFiber } from "./parse-html";
 
 /** The closed set of provenance origins an ExtractedProduct may legitimately carry. */
-const EXTRACTED_FROM = z.enum(["json-ld", "opengraph", "none"]);
+const EXTRACTED_FROM = z.enum(["json-ld", "opengraph", "web-search", "none"]);
 
 /**
  * Coerce a value to a non-empty string ONLY when it is genuinely a string (or finite number); otherwise

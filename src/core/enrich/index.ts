@@ -26,4 +26,10 @@ export {
   type ManufacturerEnrichment,
 } from "./to-evidence";
 
+export {
+  extractViaWebSearch,
+  type WebSearchResult,
+  type WebSearchExtractDeps,
+} from "./web-search-extract";
+
 export { applyManufacturerOverlay, unknownBehavioralClassification } from "./merge";
