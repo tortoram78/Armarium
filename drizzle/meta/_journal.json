@@ -57,6 +57,13 @@
       "when": 1782334690182,
       "tag": "0007_sad_william_stryker",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782417508866,
+      "tag": "0008_mighty_whirlwind",
+      "breakpoints": true
     }
   ]
 }

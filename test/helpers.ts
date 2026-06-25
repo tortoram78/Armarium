@@ -1,6 +1,7 @@
 import type { ResolvedItem } from "@/core/resolved";
 import type { UniversalFacets, MultiLabelFacets, FacetGroups } from "@/core/classification";
 import { UNKNOWN_SOFT as us, UNKNOWN_HARD as uh } from "@/core/evidence";
+import { DEFAULT_INVENTORY } from "@/core/inventory";
 
 export const s = <T>(
   value: T,
@@ -28,5 +29,11 @@ export function mkResolved(
   m: Partial<MultiLabelFacets> = {},
   groups: FacetGroups = {},
 ): ResolvedItem {
-  return { id, name, universal: { ...universalDefaults(), ...u }, multilabel: { ...multilabelDefaults(), ...m }, groups };
+  return {
+    id, name,
+    universal: { ...universalDefaults(), ...u },
+    multilabel: { ...multilabelDefaults(), ...m },
+    groups,
+    inventory: DEFAULT_INVENTORY,
+  };
 }

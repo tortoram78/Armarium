@@ -2,8 +2,14 @@
 // It is produced either from a fresh classification (seed / ingest) or, in Phase 2, rebuilt from the
 // DB columns. Either way capabilities consume this single shape, so the reasoning layer never depends
 // on how an item was stored.
+//
+// `inventory` carries the ownership/physical envelope (ownershipStatus, quantity, condition, …). It is
+// passed in from the PERSISTENCE layer — it is NOT derived from the classification JSONB. When a caller
+// does not supply it (e.g. existing tests, seed corpus paths), DEFAULT_INVENTORY is used so the field is
+// always present and callers never need to null-check it.
 
 import type { ItemClassification, UniversalFacets, MultiLabelFacets, FacetGroups } from "./classification";
+import { type InventoryMeta, DEFAULT_INVENTORY } from "./inventory";
 
 export interface ResolvedItem {
   id: string;
@@ -11,8 +17,10 @@ export interface ResolvedItem {
   universal: UniversalFacets;
   multilabel: MultiLabelFacets;
   groups: FacetGroups;
+  /** Ownership / physical metadata from the persistence layer. Never derived from classification. */
+  inventory: InventoryMeta;
 }
 
-export function resolveFromClassification(id: string, c: ItemClassification): ResolvedItem {
-  return { id, name: c.name, universal: c.universal, multilabel: c.multilabel, groups: c.groups };
+export function resolveFromClassification(id: string, c: ItemClassification, inventory: InventoryMeta = DEFAULT_INVENTORY): ResolvedItem {
+  return { id, name: c.name, universal: c.universal, multilabel: c.multilabel, groups: c.groups, inventory };
 }

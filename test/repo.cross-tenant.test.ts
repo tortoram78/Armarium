@@ -275,6 +275,18 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
     expect(await cache.lookup(userB, key)).toBeNull();
   });
 
+  it("updateInventory(B, A-itemId) is a no-op — A's inventory unchanged", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+    const { itemId } = await seedUserA(userA);
+    const before = (await repo.getItem(userA, itemId))!.inventory;
+
+    // B attempts to overwrite A's ownership status — must be silently ignored.
+    await repo.updateInventory(userB, itemId, { ownershipStatus: "sold" });
+    const after = (await repo.getItem(userA, itemId))!.inventory;
+    expect(after.ownershipStatus).toBe(before.ownershipStatus);
+  });
+
   // ---- coverage tripwire ---------------------------------------------------------------------------
   // EVERY method of the GearRepository port is enumerated above. This list is asserted against the
   // live object's keys so adding a new repo method WITHOUT a cross-tenant assertion here fails the
@@ -292,6 +304,7 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
       "setInventory",
       "setDraft",
       "setItemImagePath",
+      "updateInventory", // no-op on non-owned id; user-scoped via per-user item map
       "deleteItem",
       "replaceItemEvidence",
       "getItemEvidence",

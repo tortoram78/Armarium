@@ -6,6 +6,7 @@ import type { ItemClassification } from "./classification";
 import type { TripConditions } from "./conditions";
 import type { RecommendationResult } from "./recommend";
 import type { Source } from "./evidence";
+import type { InventoryMeta, OwnershipStatus, Condition } from "./inventory";
 
 // The classification-cache port lives with its types in ./cache (the split-store contract — ADR-0012
 // Element 5). Re-exported here so existing importers of the persistence ports keep working.
@@ -29,6 +30,12 @@ export interface StoredItem {
    * it; the upload action that writes it is a later wave.
    */
   imagePath?: string | null;
+  /**
+   * Ownership / physical metadata from the inventory layer (ADR-0021, ADR-0022, ADR-0023). Populated
+   * from typed columns; never derived from the classification JSONB. Defaults to DEFAULT_INVENTORY when
+   * reading pre-migration rows (columns exist with DB defaults after the 0008 migration).
+   */
+  inventory: InventoryMeta;
 }
 
 export interface StoredTrip {
@@ -48,6 +55,12 @@ export interface AddItemInput {
   draft?: boolean;
   rawText?: string;
   classification: ItemClassification;
+  /**
+   * Optional inventory/possession metadata. All fields optional; absent fields fall through to
+   * DEFAULT_INVENTORY so existing callers in app-service.ts compile unchanged. When present, the
+   * field values are persisted in the typed inventory columns (not in the classification JSONB).
+   */
+  inventory?: Partial<InventoryMeta>;
 }
 
 export interface SaveTripInput {
@@ -63,6 +76,22 @@ export interface PageOpts {
   cursor?: string;
   /** Page size. Defaults to 50 in both implementations. */
   limit?: number;
+  /**
+   * Free-text search: case-insensitive substring match over name/brand/model. Postgres uses ILIKE;
+   * the in-memory impl mirrors with `itemMatchesSearch` so both paths return the same items.
+   */
+  search?: string;
+  /** Filter to items whose ownershipStatus equals this value. */
+  status?: OwnershipStatus;
+  /** Filter to items whose condition equals this value. */
+  condition?: Condition;
+  /**
+   * Filter to items where this string is a member of the `domains` array. Postgres uses `= ANY(domains)`;
+   * the in-memory impl uses Array.includes. Useful for showing only fully-classified 'gear' items.
+   */
+  domain?: string;
+  /** Sort order. 'newest' (default) = createdAt desc, id desc. 'name' = alphabetical ascending. */
+  sort?: "newest" | "name";
 }
 
 /** A single page of items plus the cursor to fetch the next one (`null` when exhausted). */
@@ -115,6 +144,13 @@ export interface GearRepository {
    * item isn't the user's.
    */
   setItemImagePath(userId: string, id: string, imagePath: string | null): Promise<StoredItem | null>;
+  /**
+   * Patch an item's inventory/possession metadata (ownershipStatus, condition, acquiredAt, …). Only
+   * the supplied fields are updated; absent fields are left unchanged. User-scoped: a non-owned id is
+   * a no-op. Does NOT touch the classification JSONB or any behavioral facet column. Inline edits
+   * (the browse/closet UI) call this so users can update ownership state without re-classifying.
+   */
+  updateInventory(userId: string, id: string, patch: Partial<InventoryMeta>): Promise<void>;
   deleteItem(userId: string, id: string): Promise<void>;
 
   /**

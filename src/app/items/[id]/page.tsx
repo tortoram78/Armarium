@@ -8,8 +8,10 @@ import {
   updateFacetsAction,
   setItemImageAction,
   removeItemImageAction,
+  updateInventoryAction,
 } from "@/app/actions";
 import { FacetEditor } from "@/components/FacetEditor";
+import { InventoryEditor } from "@/components/InventoryEditor";
 import { ItemImageUploader } from "@/components/ItemImageUploader";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { Badge } from "@/components/ui/badge";
@@ -79,7 +81,7 @@ export default async function ItemDetailPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { facetError?: string; edit?: string; imageError?: string };
+  searchParams: { facetError?: string; edit?: string; imageError?: string; inventoryError?: string };
 }) {
   // READ gate — never redirects. A guest views a sample item from the seeded closet; the write affordances
   // (inventory toggle, delete, facet editor, photo upload) are hidden for a guest since their actions are
@@ -203,6 +205,11 @@ export default async function ItemDetailPage({
         {searchParams.imageError && (
           <p className="panel border-l-2 border-l-accent bg-accent/5 px-4 py-3 text-sm leading-relaxed text-accent">
             That photo couldn&apos;t be saved. Use a JPEG, PNG, or WebP under 5 MB and try again.
+          </p>
+        )}
+        {searchParams.inventoryError && (
+          <p className="panel border-l-2 border-l-accent bg-accent/5 px-4 py-3 text-sm leading-relaxed text-accent">
+            Inventory couldn&apos;t be saved — please try again.
           </p>
         )}
       </header>
@@ -394,6 +401,145 @@ export default async function ItemDetailPage({
                 </div>
               );
             })}
+          </div>
+        </section>
+      )}
+
+      {/* ── Inventory — ownership/physical metadata layer (ADR-0021) ── */}
+      <section>
+        <SectionHead title="Inventory" />
+
+        {/* Display: show all fields, "—" for nulls honestly (unknown-is-first-class). */}
+        <div className="panel mb-4 px-5 py-1">
+          {/* Status */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+            <span className="text-sm text-muted-foreground">Ownership status</span>
+            <span className="data-mono text-[0.8125rem] capitalize text-foreground">
+              {item.inventory.ownershipStatus}
+            </span>
+          </div>
+          {/* Quantity */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+            <span className="text-sm text-muted-foreground">Quantity</span>
+            <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.quantity}</span>
+          </div>
+          {/* Condition */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+            <span className="text-sm text-muted-foreground">Condition</span>
+            {item.inventory.condition ? (
+              <span className="data-mono text-[0.8125rem] capitalize text-foreground">
+                {item.inventory.condition.replace(/_/g, " ")}
+              </span>
+            ) : (
+              <span className="text-sm italic text-accent">—</span>
+            )}
+          </div>
+          {/* Acquired date */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+            <span className="text-sm text-muted-foreground">Acquired</span>
+            {item.inventory.acquiredAt ? (
+              <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.acquiredAt}</span>
+            ) : (
+              <span className="text-sm italic text-accent">—</span>
+            )}
+          </div>
+          {/* Price paid */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+            <span className="text-sm text-muted-foreground">Price paid</span>
+            {item.inventory.pricePaidCents !== null ? (
+              <span className="data-mono text-[0.8125rem] text-foreground">
+                ${(item.inventory.pricePaidCents / 100).toFixed(2)}
+              </span>
+            ) : (
+              <span className="text-sm italic text-accent">—</span>
+            )}
+          </div>
+          {/* Acquired from */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+            <span className="text-sm text-muted-foreground">Acquired from</span>
+            {item.inventory.acquiredFrom ? (
+              <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.acquiredFrom}</span>
+            ) : (
+              <span className="text-sm italic text-accent">—</span>
+            )}
+          </div>
+          {/* Storage location */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+            <span className="text-sm text-muted-foreground">Storage location</span>
+            {item.inventory.storageLocation ? (
+              <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.storageLocation}</span>
+            ) : (
+              <span className="text-sm italic text-accent">—</span>
+            )}
+          </div>
+          {/* Size */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+            <span className="text-sm text-muted-foreground">Size</span>
+            {item.inventory.size ? (
+              <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.size}</span>
+            ) : (
+              <span className="text-sm italic text-accent">—</span>
+            )}
+          </div>
+          {/* Color */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+            <span className="text-sm text-muted-foreground">Color</span>
+            {item.inventory.color ? (
+              <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.color}</span>
+            ) : (
+              <span className="text-sm italic text-accent">—</span>
+            )}
+          </div>
+          {/* Notes */}
+          <div className="flex items-baseline justify-between gap-4 py-2.5">
+            <span className="text-sm text-muted-foreground">Notes</span>
+            {item.inventory.userNotes ? (
+              <span className="max-w-xs text-right text-[0.8125rem] text-foreground">
+                {item.inventory.userNotes}
+              </span>
+            ) : (
+              <span className="text-sm italic text-accent">—</span>
+            )}
+          </div>
+        </div>
+
+        {/* Edit affordance — write-gated */}
+        {!isGuest ? (
+          <InventoryEditor
+            itemId={item.id}
+            inventory={item.inventory}
+            action={updateInventoryAction}
+          />
+        ) : (
+          <div className="panel flex flex-wrap items-center justify-between gap-3 bg-muted/40 p-5">
+            <p className="text-sm text-muted-foreground">Editing inventory requires an account.</p>
+            <Link
+              href={`/login?next=${encodeURIComponent(`/items/${item.id}`)}`}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92"
+            >
+              Log in to edit
+            </Link>
+          </div>
+        )}
+      </section>
+
+      {/* ── Record-only: classify affordance — shown when no behavioral facets have been classified ── */}
+      {item.inventory.domains.length === 0 && (
+        <section>
+          <div className="panel flex flex-wrap items-center justify-between gap-4 bg-muted/30 p-5">
+            <div>
+              <p className="text-sm font-medium text-foreground">Add details and classify</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                This item was recorded quickly. Add specs or a manufacturer link to unlock capabilities and
+                packing recommendations.
+              </p>
+            </div>
+            <Link
+              href={`/items/new?name=${encodeURIComponent(item.name)}`}
+              className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92"
+            >
+              Add details
+            </Link>
           </div>
         </section>
       )}

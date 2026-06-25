@@ -9,7 +9,7 @@ import type { LlmClaimsOutput } from "@/core/classify/claims";
 import type { ClassifyInput } from "@/core/classify/prompt";
 import type { TripConditions } from "@/core/conditions";
 import { classifyItemClaims } from "@/core/classify/classify-claims";
-import { classifyOffline } from "@/core/classify/offline";
+import { classifyOfflineSafe } from "@/core/classify/offline";
 import { parseTripConditions, parseConditionsHeuristic } from "@/core/recommend/parse-conditions";
 import { extractViaWebSearch, type WebSearchResult } from "@/core/enrich";
 import type { LlmUsage } from "@/core/obs/log";
@@ -103,7 +103,7 @@ export function getClassifier(): ClassifierHandle {
     const onUsage = logLlmUsage("classify");
     return { kind: "claims", classify: (input) => classifyItemClaims(input, { anthropic, onUsage }), mode: "live" };
   }
-  return { kind: "resolved", classify: async (input) => classifyOffline(input), mode: "offline" };
+  return { kind: "resolved", classify: async (input) => classifyOfflineSafe(input), mode: "offline" };
 }
 
 export type TripParser = (description: string) => Promise<TripConditions>;

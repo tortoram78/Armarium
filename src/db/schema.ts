@@ -8,7 +8,8 @@
 //   validated at the Zod boundary. `user_id` is on every user-owned table (rule #4); the materials and
 //   treatments libraries are intentionally shared/global (no user_id).
 
-import { pgTable, uuid, text, integer, real, boolean, jsonb, timestamp, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, real, boolean, jsonb, timestamp, date, index, primaryKey } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type { ItemClassification } from "@/core/classification";
 
 // ---- shared libraries (global, no user_id) ----
@@ -83,7 +84,28 @@ export const items = pgTable(
     // place that constructs this scheme, so the upload action and this column never drift.
     imagePath: text("image_path"),
 
-    // provenance + ownership
+    // ---- inventory / possession layer (ADR-0021, ADR-0022, ADR-0023) ----
+    // Physical and ownership metadata stored ALONGSIDE (never inside) the behavioral classification.
+    // All columns default to 'owned' / 1 / null so existing rows get sensible values without a
+    // partial backfill (the migration backfills `ownership_status = 'wishlist'` for catalog-only rows
+    // where in_inventory = false, which is the only case where the default would be wrong).
+    ownershipStatus: text("ownership_status").notNull().default("owned"),
+    quantity: integer("quantity").notNull().default(1),
+    condition: text("condition"),
+    // ISO 8601 date ('YYYY-MM-DD'), stored as plain text via Drizzle's date column in string mode.
+    // Distinct from any classification date: this is when the user acquired the physical item.
+    acquiredAt: date("acquired_at", { mode: "string" }),
+    // Purchase price in cents (e.g. 9900 = $99.00). DISTINCT from priceCents (MSRP from classification).
+    pricePaidCents: integer("price_paid_cents"),
+    acquiredFrom: text("acquired_from"),
+    storageLocation: text("storage_location"),
+    size: text("size"),
+    color: text("color"),
+    userNotes: text("user_notes"),
+    // Domain membership marker — NOT a routing discriminator. GIN-indexed for array membership queries.
+    domains: text("domains").array().notNull().default(sql`'{}'`),
+
+    // provenance + ownership (DEPRECATED mirrors — keep; do not drop until migration strategy is set)
     rawText: text("raw_text"),
     inInventory: boolean("in_inventory").notNull().default(false),
     draft: boolean("draft").notNull().default(false),
@@ -97,6 +119,9 @@ export const items = pgTable(
     layeringRoleIdx: index("items_layering_role_idx").using("gin", t.layeringRole),
     functionPurposeIdx: index("items_function_purpose_idx").using("gin", t.functionPurpose),
     facetsIdx: index("items_facets_idx").using("gin", t.facets),
+    // GIN index on domains mirrors the array-facet pattern; enables efficient membership queries
+    // (e.g. "items where 'gear' = ANY(domains)") used by listItemsPage's domain filter.
+    domainsIdx: index("items_domains_idx").using("gin", t.domains),
   }),
 );
 

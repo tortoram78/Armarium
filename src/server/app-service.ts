@@ -7,6 +7,8 @@ import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
 import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
+import { recordOnlyClassification } from "@/core/record";
+import type { InventoryMeta, OwnershipStatus } from "@/core/inventory";
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
 import type { RecommendationResult } from "@/core/recommend";
@@ -57,6 +59,62 @@ export async function getInventoryResolved(userId = DEFAULT_USER_ID): Promise<Re
 
 export async function getCloset(dimension: GroupingKey, userId = DEFAULT_USER_ID) {
   const items = await getInventory(userId);
+  const byId = new Map(items.map((i) => [i.id, i] as const));
+  const groups = groupCloset(items.map(resolveItem), dimension);
+  return { items, byId, groups };
+}
+
+// ---- closet-as-database: record-only capture + search + inline inventory edit (ADR-0021/0022) ----
+
+/**
+ * Record that the user OWNS something — instantly, with NO LLM call (ADR-0022, the keystone decouple).
+ * Builds the all-unknown behavioral classification (`classification` stays NOT NULL) + DEFAULT_INVENTORY
+ * with `ownershipStatus:'owned'`, and persists it as a NON-draft closet item the user sees immediately.
+ * Enrichment (classify / URL tiers) is an OPTIONAL follow-up the user triggers later — it never blocks the
+ * act of recording. `domains: []` marks it as not-yet-classified into any modeled domain (gear or other).
+ * Write-gated by the caller (`requireUserId()`); `getRepository()` is the real repo (a guest cannot write).
+ */
+export async function recordOwnership(name: string, userId = DEFAULT_USER_ID): Promise<StoredItem> {
+  return getRepository().addItem(userId, {
+    name,
+    inInventory: true,
+    draft: false,
+    classification: recordOnlyClassification(name),
+    inventory: { ownershipStatus: "owned", domains: [] },
+  });
+}
+
+/**
+ * Patch an item's user-owned inventory metadata (status, quantity, condition, acquisition, location,
+ * size/color, notes) WITHOUT touching its behavioral classification (ADR-0021 — inventory is mutable user
+ * data, never a facet). User-scoped in the repo; a non-owned item is a no-op.
+ */
+export async function updateInventory(
+  id: string,
+  patch: Partial<InventoryMeta>,
+  userId = DEFAULT_USER_ID,
+): Promise<void> {
+  return getRepository().updateInventory(userId, id, patch);
+}
+
+/**
+ * The closet read with optional name/brand/model SEARCH + status filter + sort — routed through the keyset
+ * `listItemsPage` query backbone (previously dead code; now the live closet path). Closet membership matches
+ * the legacy `getCloset` (in-inventory, non-draft) so record-only and confirmed items both appear, while
+ * drafts awaiting review stay out. Phase 1 uses one generous page; true infinite-scroll is Phase 2.
+ */
+export async function searchCloset(
+  dimension: GroupingKey,
+  opts: { search?: string; status?: OwnershipStatus; sort?: "newest" | "name" } = {},
+  userId = DEFAULT_USER_ID,
+) {
+  const page = await getRepositoryFor(userId).listItemsPage(userId, {
+    search: opts.search,
+    status: opts.status,
+    sort: opts.sort ?? "newest",
+    limit: 200,
+  });
+  const items = page.items.filter((i) => i.inInventory && !i.draft);
   const byId = new Map(items.map((i) => [i.id, i] as const));
   const groups = groupCloset(items.map(resolveItem), dimension);
   return { items, byId, groups };

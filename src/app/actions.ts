@@ -21,7 +21,10 @@ import {
   cloneTrip,
   deleteTrip,
   updateTripConditions,
+  recordOwnership,
+  updateInventory,
 } from "@/server/app-service";
+import { OWNERSHIP_STATUS, CONDITION, type InventoryMeta } from "@/core/inventory";
 import { isItemImageObjectPath } from "@/server/item-images";
 import {
   defaultConditions,
@@ -469,6 +472,83 @@ export async function planPreviewAction(formData: FormData) {
   await getUserIdOrGuest();
   const conditions = conditionsFromFormData(formData);
   redirect(`/plan/preview?conditions=${encodeConditions(conditions)}`);
+}
+
+// ---- closet-as-database: record-only capture + inventory edit (ADR-0021/0022) ----
+
+/**
+ * Instant record-only capture — no LLM call. Reads `name` from the form; if empty, redirects home.
+ * Rate-limited on the "classify" budget (shares the same token bucket as classify — it's a write
+ * path but much cheaper; reuse the key to prevent unbounded append spam). On success the item
+ * appears immediately in the closet (non-draft, owned).
+ */
+export async function recordOwnershipAction(formData: FormData) {
+  const userId = await requireUserId();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) {
+    redirect("/?error=" + encodeURIComponent("Enter a name for the item."));
+  }
+  const key = await resolveRateKey();
+  if (!checkRateLimit("classify", key).allowed) {
+    redirect("/?error=" + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+  await timeAndLog({ event: "action", action: "recordOwnership", userId }, async () => {
+    await recordOwnership(name, userId);
+    revalidatePath("/");
+  });
+  redirect("/");
+}
+
+/**
+ * Patch an item's inventory metadata. Reads all inventory fields from FormData; validates with Zod
+ * where natural. Never throws a 500 — any failure degrades to a friendly redirect back to the item.
+ */
+export async function updateInventoryAction(formData: FormData) {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) redirect("/");
+
+  try {
+    // Parse quantity: must be a positive integer.
+    const quantityRaw = String(formData.get("quantity") ?? "").trim();
+    const quantityParsed = parseInt(quantityRaw, 10);
+    const quantity = Number.isFinite(quantityParsed) && quantityParsed >= 1 ? quantityParsed : 1;
+
+    // Parse price: user enters dollars (e.g. "99.99"), store as cents.
+    const priceRaw = String(formData.get("pricePaidDollars") ?? "").trim();
+    const priceParsed = parseFloat(priceRaw);
+    const pricePaidCents =
+      Number.isFinite(priceParsed) && priceParsed >= 0 ? Math.round(priceParsed * 100) : null;
+
+    // Trim-or-null helper.
+    const ton = (key: string): string | null => {
+      const v = String(formData.get(key) ?? "").trim();
+      return v || null;
+    };
+
+    const patch: Partial<InventoryMeta> = {
+      ownershipStatus: pick(formData.get("ownershipStatus"), OWNERSHIP_STATUS, "owned"),
+      quantity,
+      condition: (() => {
+        const v = String(formData.get("condition") ?? "").trim();
+        return (CONDITION as readonly string[]).includes(v) ? (v as InventoryMeta["condition"]) : null;
+      })(),
+      acquiredAt: ton("acquiredAt"),
+      pricePaidCents: priceRaw ? pricePaidCents : null,
+      acquiredFrom: ton("acquiredFrom"),
+      storageLocation: ton("storageLocation"),
+      size: ton("size"),
+      color: ton("color"),
+      userNotes: ton("userNotes"),
+    };
+
+    await updateInventory(id, patch, userId);
+    revalidatePath(`/items/${id}`);
+    revalidatePath("/");
+  } catch {
+    redirect(`/items/${id}?inventoryError=1`);
+  }
+  redirect(`/items/${id}`);
 }
 
 /** Sign out the current user and redirect to /login. */
