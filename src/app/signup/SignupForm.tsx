@@ -33,7 +33,7 @@ export function SignupForm({ action }: Props) {
 
   if (success) {
     return (
-      <div className="rounded-sm border-l-2 border-primary bg-primary/10 px-4 py-3 text-sm text-primary">
+      <div className="rounded-md border-l-2 border-l-accent bg-accent/5 px-4 py-3.5 text-sm leading-relaxed text-accent">
         Account created. Check your email to confirm, then{" "}
         <a href="/login" className="font-medium underline underline-offset-4">
           sign in
@@ -44,8 +44,8 @@ export function SignupForm({ action }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-1.5">
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
@@ -57,7 +57,7 @@ export function SignupForm({ action }: Props) {
           placeholder="you@example.com"
         />
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label htmlFor="password">Password</Label>
         <Input
           id="password"
@@ -68,12 +68,12 @@ export function SignupForm({ action }: Props) {
           required
           placeholder="••••••••"
         />
-        <p className="data-mono text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           Minimum 8 characters
         </p>
       </div>
       {error && (
-        <p className="rounded-sm border-l-2 border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <p className="rounded-md border-l-2 border-l-accent bg-accent/5 px-3.5 py-2.5 text-sm leading-relaxed text-accent">
           {error}
         </p>
       )}

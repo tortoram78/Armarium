@@ -40,14 +40,14 @@ export function LoginForm({ action, next }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {next && <input type="hidden" name="next" value={next} />}
       {resetDone && (
-        <p className="rounded-sm border-l-2 border-primary bg-primary/10 px-3 py-2 text-sm text-primary">
+        <p className="rounded-md border-l-2 border-l-accent bg-accent/5 px-3.5 py-2.5 text-sm leading-relaxed text-accent">
           Password updated. Sign in with your new password.
         </p>
       )}
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
@@ -59,14 +59,14 @@ export function LoginForm({ action, next }: Props) {
           placeholder="you@example.com"
         />
       </div>
-      <div className="space-y-1.5">
-        <div className="flex items-baseline justify-between">
+      <div className="space-y-2">
+        <div className="flex items-baseline justify-between gap-3">
           <Label htmlFor="password">Password</Label>
           <Link
             href="/forgot-password"
-            className="data-mono text-[0.625rem] uppercase tracking-wide text-muted-foreground underline-offset-4 hover:text-blaze hover:underline"
+            className="text-[0.8125rem] font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-accent hover:underline"
           >
-            Forgot?
+            Forgot password?
           </Link>
         </div>
         <Input
@@ -79,7 +79,7 @@ export function LoginForm({ action, next }: Props) {
         />
       </div>
       {error && (
-        <p className="rounded-sm border-l-2 border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <p className="rounded-md border-l-2 border-l-accent bg-accent/5 px-3.5 py-2.5 text-sm leading-relaxed text-accent">
           {error}
         </p>
       )}

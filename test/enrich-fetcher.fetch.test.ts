@@ -71,6 +71,23 @@ describe("fetchManufacturerHtml — ACCEPT path", () => {
     expect(r.ok).toBe(true);
   });
 
+  it("presents as a browser — sends a User-Agent + Accept-Language (origins bot-wall UA-less requests)", async () => {
+    let sent: Record<string, string> = {};
+    const r = await fetchManufacturerHtml("https://patagonia.com/product/x", {
+      fetchImpl: async (_url, init) => {
+        // Normalize whatever HeadersInit shape the fetcher passed into a plain, lowercased lookup.
+        sent = Object.fromEntries(new Headers(init?.headers).entries());
+        return htmlResponse("<html/>");
+      },
+      lookup: fixedLookup(...PUBLIC_V4),
+    });
+    expect(r.ok).toBe(true);
+    // A realistic UA is the fix for "fetched but returned zero fields" (Cloudflare/Akamai bot walls).
+    expect(sent["user-agent"]).toMatch(/Mozilla\/5\.0/);
+    expect(sent["accept-language"]).toBeTruthy();
+    expect(sent["accept"]).toContain("text/html");
+  });
+
   it("accepts a public IPv6-only host", async () => {
     const r = await fetchManufacturerHtml("https://arcteryx.com/x", {
       fetchImpl: async () => htmlResponse("<html/>"),

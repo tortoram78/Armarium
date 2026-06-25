@@ -163,6 +163,21 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
     expect(await repo.getItem(userA, itemId)).not.toBeNull();
   });
 
+  it("setItemImagePath(B, A-itemId) → null and does NOT set A's photo path (ADR-0018)", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+    const { itemId } = await seedUserA(userA);
+    const before = (await repo.getItem(userA, itemId))!.imagePath ?? null;
+
+    // B attempting to attach a photo to A's item must be a no-op returning null.
+    expect(await repo.setItemImagePath(userB, itemId, `${userB}/${itemId}/intruder.jpg`)).toBeNull();
+    expect((await repo.getItem(userA, itemId))!.imagePath ?? null).toBe(before);
+    // sanity: A can set + clear its own item's photo path.
+    const set = await repo.setItemImagePath(userA, itemId, `${userA}/${itemId}/own.jpg`);
+    expect(set!.imagePath).toBe(`${userA}/${itemId}/own.jpg`);
+    expect((await repo.setItemImagePath(userA, itemId, null))!.imagePath).toBeNull();
+  });
+
   it("replaceItemEvidence(B, A-itemId, …) does NOT write/clear A's evidence", async () => {
     const userA = freshUser();
     const userB = freshUser();
@@ -276,6 +291,7 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
       "updateClassification",
       "setInventory",
       "setDraft",
+      "setItemImagePath",
       "deleteItem",
       "replaceItemEvidence",
       "getItemEvidence",

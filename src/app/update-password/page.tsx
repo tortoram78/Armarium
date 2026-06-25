@@ -15,14 +15,14 @@ import { isAuthConfigured } from "@/lib/auth";
 export default function UpdatePasswordPage() {
   return (
     <AuthCard
-      tagline="Set a new password for your account."
-      code="PW"
+      heading="Set a new password"
+      tagline="Choose a new password for your account."
       footer={
         <>
           Link expired?{" "}
           <Link
             href="/forgot-password"
-            className="font-medium text-blaze underline-offset-4 hover:underline"
+            className="font-medium text-foreground underline-offset-4 transition-colors hover:text-accent hover:underline"
           >
             Request a new one
           </Link>
@@ -32,7 +32,7 @@ export default function UpdatePasswordPage() {
       {isAuthConfigured() ? (
         <UpdatePasswordForm />
       ) : (
-        <div className="rounded-sm border-l-2 border-muted-foreground bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+        <div className="rounded-md border border-border bg-muted/50 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
           Auth is not configured in this environment, so password reset is
           unavailable. Running in single-user dev mode.
         </div>

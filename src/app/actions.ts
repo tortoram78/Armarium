@@ -15,12 +15,14 @@ import {
   planPreview,
   parseDescription,
   getItem,
+  setItemImagePath,
   replanTrip,
   renameTrip,
   cloneTrip,
   deleteTrip,
   updateTripConditions,
 } from "@/server/app-service";
+import { isItemImageObjectPath } from "@/server/item-images";
 import {
   defaultConditions,
   PRECIPITATION,
@@ -174,15 +176,20 @@ export async function addItemAction(formData: FormData) {
 const SUPPORTED_MFR_HINT =
   "We can only pull from supported manufacturers right now (Patagonia, Arc'teryx, REI, The North Face, Black Diamond, Marmot).";
 const GENERIC_ENRICH_HINT = "Couldn't read that page automatically — try adding it by name.";
+const NO_SIGNAL_HINT =
+  "We loaded that page but couldn't find any product details to import — add the item by name instead.";
 
 /**
- * Map an `enrichFromUrlToDraft` failure reason to a friendly, user-facing message. The fetcher prefixes
- * its reasons (`url-shape:` for a non-allowlisted / malformed URL; `private-ip:`/`http:`/`content-type:`/
- * `size:`/`timeout:`/`network:`/`redirect:`/`dns:`/`read:` for everything else). A shape/allowlist
- * rejection means "unsupported manufacturer"; anything else is an opaque read failure → add-by-name.
+ * Map an `enrichFromUrlToDraft` failure reason to a friendly, user-facing message. The reason is prefixed:
+ * `url-shape:` (non-allowlisted / malformed URL) → unsupported manufacturer; `no-signal:` (page reached
+ * but no machine-readable product data — bot-challenge / JS-only catalog / non-product page) → a distinct
+ * "reached it but nothing to import" message; everything else (`private-ip:`/`http:`/`content-type:`/
+ * `size:`/`timeout:`/`network:`/`redirect:`/`dns:`/`read:`) is an opaque read failure → add-by-name.
  */
 function friendlyEnrichError(reason: string): string {
-  return reason.startsWith("url-shape:") ? SUPPORTED_MFR_HINT : GENERIC_ENRICH_HINT;
+  if (reason.startsWith("url-shape:")) return SUPPORTED_MFR_HINT;
+  if (reason.startsWith("no-signal:")) return NO_SIGNAL_HINT;
+  return GENERIC_ENRICH_HINT;
 }
 
 const EnrichUrlInput = z.object({
@@ -282,6 +289,72 @@ export async function deleteItemAction(formData: FormData) {
   await deleteItem(id, userId);
   revalidatePath("/");
   redirect("/");
+}
+
+// ---- item photo (display-only — ADR-0018) ----
+
+const SetItemImageInput = z.object({
+  id: z.string().min(1),
+  // The bucket-relative object key the browser just uploaded to (buildItemImageObjectPath output):
+  // <user_id>/<item_id>/<uuid>.<ext>. Bounded so a junk/oversized value can't be persisted.
+  path: z.string().trim().min(1).max(512),
+});
+
+/**
+ * Persist the object path of a photo the BROWSER uploaded client-direct to the private `item-images`
+ * bucket (ADR-0018 §C). Write-gated: `requireUserId()` bounces a guest to /login BEFORE any write — a
+ * guest can never attach a photo (the upload control is also hidden for them). Defence-in-depth: the
+ * supplied path MUST begin with `<userId>/<itemId>/` — the same prefix Storage RLS keyed the upload to —
+ * so a forged path for another user's folder (or another item) is rejected and never written. The repo
+ * write is itself user-scoped (a non-owned item is a no-op). Photo is decoration, never a facet input.
+ */
+export async function setItemImageAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = SetItemImageInput.safeParse({
+    id: formData.get("id"),
+    path: formData.get("path"),
+  });
+  if (!parsed.success) {
+    const id = String(formData.get("id") ?? "");
+    redirect(`/items/${id}?imageError=1`);
+  }
+  const { id, path } = parsed.data;
+
+  // Validate the FULL canonical shape, not just the prefix — the bytes upload CLIENT-DIRECT, so `path` is
+  // client-controlled. `isItemImageObjectPath` rejects another user's/item's folder, `..` traversal,
+  // extra separators, null bytes, and non-image extensions before persisting (it's the read-side owner of
+  // the same scheme `buildItemImageObjectPath` writes). Storage RLS is the primary per-user boundary; this
+  // keeps `items.image_path` canonical for any later cleanup/migration.
+  if (!isItemImageObjectPath(path, userId, id)) {
+    redirect(`/items/${id}?imageError=1`);
+  }
+
+  // Persist defensively: a transient repo failure must surface as a friendly error redirect (which
+  // remounts the uploader and clears its busy spinner), never a thrown 500 that leaves the client stuck
+  // on "Uploading…". The redirect()s below throw NEXT_REDIRECT by design — only the DB call is guarded.
+  try {
+    await setItemImagePath(id, path, userId);
+  } catch {
+    redirect(`/items/${id}?imageError=1`);
+  }
+  revalidatePath(`/items/${id}`);
+  revalidatePath("/");
+  redirect(`/items/${id}`);
+}
+
+/**
+ * Remove an item's photo: null the `image_path` column (ADR-0018 v1 — the column is the source of truth
+ * for display; the stored object is left in place, a deferred cleanup). Write-gated behind
+ * `requireUserId()`; user-scoped in the repo (a non-owned item is a no-op).
+ */
+export async function removeItemImageAction(formData: FormData) {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "");
+  if (!id) redirect("/");
+  await setItemImagePath(id, null, userId);
+  revalidatePath(`/items/${id}`);
+  revalidatePath("/");
+  redirect(`/items/${id}`);
 }
 
 export async function planFromDescriptionAction(formData: FormData) {

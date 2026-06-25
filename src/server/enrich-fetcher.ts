@@ -50,6 +50,14 @@ const DEFAULT_MAX_REDIRECTS = 3;
 
 const HTML_CONTENT_TYPES = ["text/html", "application/xhtml+xml"];
 
+// A realistic desktop-browser User-Agent (+ standard Accept headers below). Manufacturer origins behind
+// bot protection (Cloudflare / Akamai) answer a UA-less or non-browser request with a 403 OR a 200
+// JS-challenge page that carries no product JSON-LD — which surfaced to the user as "fetched but returned
+// zero fields". Presenting as a browser gets us the real server-rendered HTML (where the schema.org
+// Product block lives). This changes ONLY how the origin treats us; every SSRF defense above is unchanged.
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
 /**
  * Default DNS lookup: resolve BOTH A and AAAA records and return every address. We want all of them —
  * blocking must consider the whole set (a host that returns one public and one loopback address is
@@ -140,7 +148,11 @@ export async function fetchManufacturerHtml(
         method: "GET",
         redirect: "manual", // we follow redirects ourselves so we can re-validate every hop
         signal: controller.signal,
-        headers: { accept: "text/html,application/xhtml+xml" },
+        headers: {
+          "user-agent": BROWSER_UA,
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "en-US,en;q=0.9",
+        },
       });
     } catch (err) {
       clearTimeout(timer);

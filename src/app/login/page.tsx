@@ -52,12 +52,15 @@ export default function LoginPage({
 
   return (
     <AuthCard
+      heading="Welcome back"
       tagline="Sign in to access your gear closet."
-      code="IN"
       footer={
         <>
           No account?{" "}
-          <Link href={signupHref} className="font-medium text-blaze underline-offset-4 hover:underline">
+          <Link
+            href={signupHref}
+            className="font-medium text-foreground underline-offset-4 transition-colors hover:text-accent hover:underline"
+          >
             Create one
           </Link>
         </>

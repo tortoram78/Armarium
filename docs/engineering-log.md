@@ -321,3 +321,84 @@ rollout + green adjust). Baseline: `c77884b`.
 - **Lesson:** scope unlock is still a decision — commit it with the same ADR discipline as a scope
   add. The gating condition (ADR + dep decision per item) stays in CLAUDE.md so it isn't lost.
 - **Promoted:** no (confirms existing "commit decisions as markdown" lesson; no new rule needed).
+
+---
+
+## 2026-06-24 — Item photos, professional display tags, and honest no-signal enrichment (analyzed through `1459c1a`)
+
+Covers commits `56ec6a3` (feat: item photo upload — client-direct to private bucket + signed display),
+`720bf9d` (feat: professional display tags derived from hard facets), and `1459c1a` (fix: browser
+User-Agent + honest no-signal handling). All three gates green (typecheck + lint + vitest + next build)
+with DB/API env stripped. Baseline: `1211f04`.
+
+### Item photos: client-direct upload, private bucket, server-side signed reads
+- **Delta:** `src/server/item-images.ts` — private Supabase Storage bucket `item-images`; upload bytes
+  go CLIENT-DIRECT from the browser (cookie session + Storage RLS keying the
+  `<user_id>/<item_id>/<uuid>.<ext>` path to `auth.uid()`), keeping multi-MB payloads off the server
+  action; only the object key is persisted on `items.image_path`; reads are signed server-side with the
+  SERVICE_ROLE key (1h TTL). `ItemImageUploader` component self-hides when storage env is absent
+  (graceful degradation — text cards). Upload write-gated (`requireUserId`) with a defence-in-depth
+  path-prefix check. Cross-tenant and image-path tests added. Storage client is lazy/never-at-import,
+  preserving the hermetic gate.
+- **Why:** streaming multi-MB uploads through a server action would saturate the serverless function
+  timeout budget; the private bucket with Storage RLS enforces per-user isolation at the storage layer
+  without exposing a public URL; graceful degradation keeps dev and CI unaffected (no SUPABASE_* env
+  needed to run or test).
+- **Lesson (per-feature graceful degradation mirrors the hermetic gate):** any feature backed by an
+  optional infra credential (storage, enrichment API, weather) must degrade gracefully when that
+  credential is absent — the component or helper hides itself rather than erroring. This is the
+  UI/feature equivalent of the hermetic gate rule: the build/test gate must always pass with zero env,
+  and the running app should do the same.
+- **Promoted:** no (the hermetic gate lesson already covers the zero-env requirement; graceful
+  degradation is an extension of that principle, already implicit in the architecture — not a new
+  top-level rule).
+
+### Professional display tags: confidence-gated derivation from hard facets
+- **Delta:** `src/core/tags.ts` — new pure module `deriveDisplayTags(universal)` that projects the
+  graded universal facets (waterproofness, wind_resistance, breathability, warmth, moisture_management,
+  dry_speed, packability, upf) into a deterministic professional vocabulary (Waterproof vs
+  Water-resistant graded tiers, Windproof/Wind-resistant, Insulated, Wicking, Quick-dry, Packable,
+  "UPF N", "Warm when wet"). Tags require medium+ confidence (mirrors the capability gates); a
+  low-confidence guess shows nothing. `function_purpose` is explicitly kept as a facet (it still gates
+  the `sun_protection` capability in `capabilities/index.ts`) — only its *display* was replaced. Verified
+  on real seed data: the DWR sun hoody showed "Water-resistant"/"Wind-resistant"/"UPF 40" (not
+  "Waterproof"); a low-confidence packability correctly suppressed the "Packable" tag. 4-archetype test.
+- **Why:** the existing chip surface read soft, marketing-flavored `function_purpose` labels
+  ("wind_protection", "moisture_wicking", "lifestyle") the user called "marketing slop". Those labels are
+  LLM-inferred free-text that reflects product positioning, not measurable performance. The universal
+  graded facets (already driving capability gates) are the right source — their ordinal values map
+  directly to the vocabulary an engineer or guide uses.
+- **Lesson:** **display claims need the same confidence gate as the reasoning layer.** Projecting a hard
+  label ("Waterproof") from a low-confidence inferred facet repeats the "never fabricate specs"
+  anti-pattern in the presentation layer. Derive display chips from the same medium+-gated facets the
+  capabilities use.
+- **Promoted:** yes — new rule; the fabrication rule (Architecture rule #2 + Engineering lesson) already
+  covers the data layer; this extends it explicitly to the display layer.
+- **Lesson (CRITICAL):** **before "removing" a field from the UI, grep for non-display readers.** A
+  field that looks like a display label can be load-bearing elsewhere (`function_purpose` gated the
+  `sun_protection` capability). The correct fix keeps the facet and changes only how it is rendered.
+- **Promoted:** yes — new rule; broadly applicable to any field-rename or UI-remove refactor.
+
+### Enrichment fix: browser User-Agent and honest no-signal guard
+- **Delta (root cause A — bot walls):** `src/server/enrich-fetcher.ts` — the SSRF-safe fetcher sent
+  no User-Agent (only `accept`), so manufacturer origins behind Cloudflare/Akamai bot protection
+  returned a 403 or a JS-challenge page with no product JSON-LD. Fixed by presenting as a real browser
+  (`Mozilla/5.0 …`, Accept-Language, a full Accept header). All SSRF defenses unchanged — only the
+  request headers changed.
+- **Delta (root cause B — junk draft):** when extraction yielded no product signal, the orchestrator
+  still created an all-unknown "Item from host" draft and sent the user to review it. Fixed with an
+  honest no-signal guard: `if (!enrichment.hasSignal) return { ok: false, reason: "no-signal: …" }`
+  before `addItem` is ever called. The action now steers the user to add-by-name instead.
+- **Why (root cause A):** WAF/CDN bot-protection gates on the User-Agent string and blocks
+  non-browser requests; only a realistic browser UA gets the real server-rendered HTML where the
+  schema.org Product block lives.
+- **Why (root cause B):** the orchestrator treated "extraction ran successfully" as "data was found"
+  — two distinct conditions. Successful parse + no signal is a structurally different outcome that
+  needed its own branch; the prior code fell through to the classify path regardless.
+- **Lesson:** **a test that encodes the exact wrong behavior a user is reporting locks in the bug.**
+  The prior test "junk page (no product signal) still drafts honestly" asserted the zero-fields draft
+  the user was complaining about. Fixing the behavior required *flipping* that test's contract — not
+  adding a new test beside it. When fixing a UX/behavior bug, grep the suite for a test that asserts
+  the OLD contract and flip it; a passing suite can be guarding the bug.
+- **Promoted:** yes — new rule; broadly applicable whenever fixing a regression or user-reported
+  behavior bug.

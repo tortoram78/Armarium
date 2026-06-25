@@ -3,6 +3,53 @@
 Reverse-chronological. Each entry is a meaningful checkpoint. This is the narrative spine of the
 project; skim it to catch up fast.
 
+## 2026-06-24 (unlocked backlog — item photos) — Display-only photos: ADR-0018 recorded
+
+Design decision recorded. Code implementation (storage client injection, `saveImagePath` server
+action, signed-URL generation at page load, `imagePath` schema column, upload UI component)
+follows — owned by schema-db-owner (migration 0007, `items.image_path`), core-reasoning-owner
+(storage client injection pattern), and web-ui-owner (upload component, signed-URL display in
+closet cards and item detail).
+
+**What this enables:** users can attach one primary photo per item (JPEG/PNG/WebP, ≤ 5 MB).
+Photos are stored in a private `item-images` Supabase Storage bucket under
+`<user_id>/<item_id>/<uuid>.<ext>`, served via short-lived signed URLs. Display only — no
+vision/AI enrichment (explicitly deferred; the extension point is designed-for in the resolver).
+
+**Key design points:**
+
+- **Private bucket + Storage RLS.** Objects are per-user-folder; Storage RLS policies enforce
+  `auth.uid()` prefix ownership on all four operations (INSERT, SELECT, UPDATE, DELETE). Same
+  posture as DB RLS (ADR-0008).
+- **Client-side direct upload** via `@supabase/supabase-js`. Multi-MB photos bypass the Next.js
+  server-action body-size limit. After upload the client calls `saveImagePath` (server action,
+  gated by `requireUserId()`) with the storage path only.
+- **Server-generated signed URLs** (service-role client, TTL 3600 s) at closet/detail page load.
+  Items with `image_path = null` fall back to the existing text-only card layout.
+- **Migration 0007** adds `items.image_path` (text, nullable). One image per item in v1.
+- **Hermetic gate preserved.** Storage client is lazy/injected; upload control hidden when
+  `isAuthConfigured()` is false; signed-URL generation returns null when unconfigured; no storage
+  call in gauntlet builds. No new npm dependency.
+- **Vision enrichment deferred.** When prioritized, vision-derived claims will be rows in
+  `item_evidence` (ADR-0014) with `source:'vision_inferred'`, resolved by the existing
+  `resolveFacet()`. The extension point is already designed-for; no architectural change needed.
+- **Guest sessions unaffected.** `SEED_CORPUS` items carry no `image_path`; no signed-URL call
+  is made for guest reads. Upload is gated by `requireUserId()`.
+
+**Infrastructure to provision (not in code):**
+1. Create `item-images` private bucket in Supabase dashboard (or SQL).
+2. Apply four Storage RLS policies on `storage.objects` (`auth.uid()` prefix check).
+3. Configure bucket MIME-type allowlist and 5 MB size cap as defence-in-depth.
+
+**ADR recorded:** [ADR-0018](../decisions/0018-item-photos.md)
+
+**DESIGN.md updated:** status banner updated, ADR-0018 added to key decisions list, §12 (out of
+scope) updated (photo display removed from the deferred list, vision enrichment remains deferred),
+§18 added (full item-photo contract: bucket, path scheme, RLS, upload flow, display flow, schema,
+hermetic gate, vision-enrichment extension point).
+
+---
+
 ## 2026-06-24 (ops hardening) — Pre-deploy hardening bundle: ADR-0017 recorded
 
 Design decision recorded. Code implementation (rate limiter, structured logger, error boundaries,

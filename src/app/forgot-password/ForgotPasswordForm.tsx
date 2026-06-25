@@ -34,7 +34,7 @@ export function ForgotPasswordForm({ action }: Props) {
 
   if (sent) {
     return (
-      <div className="rounded-sm border-l-2 border-primary bg-primary/10 px-4 py-3 text-sm text-primary">
+      <div className="rounded-md border-l-2 border-l-accent bg-accent/5 px-4 py-3.5 text-sm leading-relaxed text-accent">
         If an account exists for that address, a password-reset link is on its way.
         Check your inbox (and spam), then{" "}
         <a href="/login" className="font-medium underline underline-offset-4">
@@ -46,8 +46,8 @@ export function ForgotPasswordForm({ action }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-1.5">
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
@@ -58,12 +58,12 @@ export function ForgotPasswordForm({ action }: Props) {
           required
           placeholder="you@example.com"
         />
-        <p className="data-mono text-[0.625rem] uppercase tracking-wide text-muted-foreground">
-          We&apos;ll send a reset link to this address
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          We&apos;ll send a reset link to this address.
         </p>
       </div>
       {error && (
-        <p className="rounded-sm border-l-2 border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <p className="rounded-md border-l-2 border-l-accent bg-accent/5 px-3.5 py-2.5 text-sm leading-relaxed text-accent">
           {error}
         </p>
       )}

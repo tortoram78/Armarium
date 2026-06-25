@@ -2,12 +2,15 @@ import type { Config } from "tailwindcss";
 
 const config: Config = {
   content: ["./src/**/*.{ts,tsx,mdx}"],
+  // Class strategy: the `.dark` class on <html> drives the token swap (globals.css)
+  // and any `dark:` variants. Set before first paint by the inline theme script in
+  // layout.tsx so there is no flash of the wrong theme.
+  darkMode: "class",
   theme: {
     extend: {
       /* -------------------------------------------------------
-         Colors: wire CSS variable tokens → hsl(var(--token))
-         These follow shadcn-ui naming convention so primitives
-         just use e.g. bg-background, text-foreground, etc.
+         Colors: wire CSS variable tokens → hsl(var(--token)).
+         shadcn naming so primitives use bg-background, text-foreground…
          ------------------------------------------------------- */
       colors: {
         background:         "hsl(var(--background))",
@@ -47,117 +50,88 @@ const config: Config = {
         input:              "hsl(var(--input))",
         ring:               "hsl(var(--ring))",
 
-        /* sharp orange punctuation — consistent across both skins */
+        /* back-compat names — now resolve to the editorial palette so
+           not-yet-migrated screens recolor cleanly (no loud orange,
+           no machined surfaces). */
         blaze:              "hsl(var(--blaze))",
-        /* secondary tactical signal (status), lower-key than blaze */
         amber:              "hsl(var(--amber))",
-
-        /* machined surface hierarchy: base deck → recessed well → raised bezel */
-        deck: {
-          DEFAULT:          "hsl(var(--deck))",
-        },
-        well: {
-          DEFAULT:          "hsl(var(--well))",
-          foreground:       "hsl(var(--well-foreground))",
-        },
-        bezel: {
-          DEFAULT:          "hsl(var(--bezel))",
-          foreground:       "hsl(var(--bezel-foreground))",
-        },
-        /* faint mono HUD ink (registration brackets, coordinate readouts) */
+        deck:   { DEFAULT:  "hsl(var(--deck))" },
+        well:   { DEFAULT:  "hsl(var(--well))",  foreground: "hsl(var(--well-foreground))" },
+        bezel:  { DEFAULT:  "hsl(var(--bezel))", foreground: "hsl(var(--bezel-foreground))" },
         hud:                "hsl(var(--hud))",
-        /* solid machined groove line — inline dividers / ticks */
         seam:               "hsl(var(--seam))",
       },
 
       /* -------------------------------------------------------
-         Border radius: near-square, architectural.
-         Interactive elements get ~2px; structural panels get 0.
+         Border radius — gentle editorial, never square, never pill.
          ------------------------------------------------------- */
       borderRadius: {
-        none:     "0",
-        DEFAULT:  "0.125rem",        /* 2px — interactive */
-        sm:       "0.0625rem",       /* 1px — chips/inputs */
-        md:       "0.125rem",
-        lg:       "0",               /* structural panels/cards — square */
-        full:     "9999px",          /* reserved (status dots only) */
+        none:    "0",
+        DEFAULT: "var(--radius)",           /* 0.375rem */
+        sm:      "calc(var(--radius) - 2px)",
+        md:      "var(--radius)",
+        lg:      "calc(var(--radius) + 3px)",
+        xl:      "calc(var(--radius) + 7px)",
+        full:    "9999px",
       },
 
       /* -------------------------------------------------------
-         Font families: wired to CSS vars set by next/font
-         display = condensed structural; mono = technical data
+         Font families — wired to next/font CSS vars.
+         display = Fraunces serif; sans = Inter; mono = IBM Plex Mono.
          ------------------------------------------------------- */
       fontFamily: {
         sans:    ["var(--font-inter)", "ui-sans-serif", "system-ui", "sans-serif"],
-        display: ["var(--font-display)", "var(--font-inter)", "ui-sans-serif", "sans-serif"],
+        display: ["var(--font-display)", "Georgia", "Times New Roman", "serif"],
         mono:    ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
 
       letterSpacing: {
-        legend: "0.14em",            /* topo-legend label spacing */
+        /* retained name; eased to a refined editorial cap-spacing */
+        legend: "0.12em",
       },
 
       /* -------------------------------------------------------
-         Animation keyframes — crisp, mechanical, no overshoot
+         Animation — gentle, editorial. Subtle fade/rise only.
          ------------------------------------------------------- */
       keyframes: {
         "fade-up": {
-          from: { opacity: "0", transform: "translateY(6px)" },
+          from: { opacity: "0", transform: "translateY(8px)" },
           to:   { opacity: "1", transform: "translateY(0)" },
         },
         "fade-in": {
           from: { opacity: "0" },
           to:   { opacity: "1" },
         },
-        /* a confident left→right wipe reveal (instrument readout) */
-        "wipe-in": {
-          from: { opacity: "0", clipPath: "inset(0 100% 0 0)" },
-          to:   { opacity: "1", clipPath: "inset(0 0 0 0)" },
-        },
-        shimmer: {
-          "0%":   { backgroundPosition: "-200% 0" },
-          "100%": { backgroundPosition:  "200% 0" },
-        },
       },
       animation: {
-        "fade-up":  "fade-up 0.26s cubic-bezier(0.22,1,0.36,1) both",
-        "fade-in":  "fade-in 0.20s ease-out both",
-        "wipe-in":  "wipe-in 0.34s cubic-bezier(0.22,1,0.36,1) both",
-        shimmer:    "shimmer 1.6s linear infinite",
+        "fade-up": "fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both",
+        "fade-in": "fade-in 0.4s ease-out both",
       },
 
       transitionTimingFunction: {
-        /* sharp ease-out — decisive, zero bounce */
-        crisp:   "cubic-bezier(0.22, 1, 0.36, 1)",
-        snappy:  "cubic-bezier(0.16, 1, 0.3, 1)",
+        crisp:  "cubic-bezier(0.22, 1, 0.36, 1)",
+        snappy: "cubic-bezier(0.16, 1, 0.3, 1)",
       },
 
       /* -------------------------------------------------------
-         Box shadow: MACHINED DEPTH — hard 0-blur directional casts +
-         1px milled bevels + recessed wells / raised bezels.
-         NO soft blur glows: a plate-on-plate under hard overhead light.
+         Box shadow — flat editorial: at most one soft low shadow.
+         Legacy names ('bezel'/'rail'/'well'/'pressed'/'press-in'/
+         'letterpress') survive but resolve to none or the soft lift,
+         so unmigrated screens lose their machined depth gracefully.
          ------------------------------------------------------- */
       boxShadow: {
         none:        "none",
-        hairline:    "inset 0 0 0 1px hsl(var(--hairline))",
-        letterpress: "inset 0 1px 0 0 hsl(var(--letterpress)), inset 0 -1px 0 0 hsl(var(--inkpress))",
-        "press-in":  "inset 0 1px 2px 0 hsl(var(--inkpress))",
-
-        /* raised machined plate: bright TL edge, dark BR edge, hard cast DR */
-        bezel:
-          "inset 1px 1px 0 0 hsl(var(--bevel-light)), inset -1px -1px 0 0 hsl(var(--bevel-dark)), 2px 2px 0 0 hsl(var(--cast))",
-        /* a taller raised plate — heavier cast for primary CTAs */
-        "bezel-lg":
-          "inset 1px 1px 0 0 hsl(var(--bevel-light)), inset -1px -1px 0 0 hsl(var(--bevel-dark)), 3px 3px 0 0 hsl(var(--cast))",
-        /* low raised ridge (rails, chips) */
-        rail:
-          "inset 1px 1px 0 0 hsl(var(--bevel-light)), inset -1px -1px 0 0 hsl(var(--bevel-dark)), 1px 1px 0 0 hsl(var(--cast))",
-        /* recessed inset panel (content wells) */
-        well:
-          "inset 2px 2px 0 0 hsl(var(--bevel-dark)), inset 0 0 0 1px hsl(var(--bevel-dark)), inset -1px -1px 0 0 hsl(var(--bevel-light))",
-        /* pressed/depressed control */
-        pressed:
-          "inset 2px 2px 0 0 hsl(var(--bevel-dark)), inset -1px -1px 0 0 hsl(var(--bevel-light))",
+        soft:        "0 1px 2px 0 hsl(var(--shadow-soft)), 0 12px 32px -18px hsl(var(--shadow-lift))",
+        lift:        "0 1px 2px 0 hsl(var(--shadow-soft)), 0 8px 24px -12px hsl(var(--shadow-lift))",
+        hairline:    "inset 0 0 0 1px hsl(var(--border))",
+        /* back-compat → flattened */
+        letterpress: "none",
+        "press-in":  "none",
+        bezel:       "0 1px 2px 0 hsl(var(--shadow-soft))",
+        "bezel-lg":  "0 1px 2px 0 hsl(var(--shadow-soft)), 0 8px 24px -12px hsl(var(--shadow-lift))",
+        rail:        "none",
+        well:        "none",
+        pressed:     "none",
       },
     },
   },

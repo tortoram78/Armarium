@@ -280,7 +280,7 @@ function collectProducts(node: unknown, acc: Record<string, unknown>[], depth = 
   const type = o["@type"];
   const isProduct =
     type === "Product" ||
-    (Array.isArray(type) && type.some((t) => t === "Product")) ||
+    (Array.isArray(type) && type.some((t) => typeof t === "string" && t.toLowerCase() === "product")) ||
     (typeof type === "string" && type.toLowerCase() === "product");
   if (isProduct) acc.push(o);
   // Descend into @graph and any nested objects/arrays (mainEntity, hasVariant, etc.).

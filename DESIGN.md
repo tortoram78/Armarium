@@ -1,12 +1,13 @@
 # Armarium — DESIGN (Phase 0 synthesis)
 
-> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 + ops hardening in delivery.** This document
+> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 + ops hardening + item photos in delivery.** This document
 > began as the Phase 0 design synthesis (9 investigation agents → 3 competing architectures → 3
 > adversarial audits) and is updated as each phase lands. Phase 1 (core + schema), Phase 2 (usable
 > web app + NL parser + review lifecycle + Postgres + self-building cache + layering-system
 > reasoning), Phase 3 step 1 (real auth + multi-user), Phase 3 step 2 (manufacturer URL enrichment),
-> Phase 3 step 3 (weather auto-conditions), and the ops-hardening bundle (rate limiting + structured
-> logging + error boundaries) are all reflected below.
+> Phase 3 step 3 (weather auto-conditions), the ops-hardening bundle (rate limiting + structured
+> logging + error boundaries), and item photos (display-only, private Supabase Storage) are all
+> reflected below.
 > Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
 > [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
 > [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
@@ -17,7 +18,8 @@
 > [ADR-0011](docs/decisions/0011-manufacturer-url-enrichment.md),
 > [ADR-0012](docs/decisions/0012-evidence-first-classification.md) *(north-star: evidence-first classification)*,
 > [ADR-0015](docs/decisions/0015-weather-auto-conditions.md) *(weather auto-conditions: Open-Meteo + override-always)*,
-> [ADR-0017](docs/decisions/0017-ops-hardening.md) *(ops hardening: rate limiter + structured logs + error boundaries)*.
+> [ADR-0017](docs/decisions/0017-ops-hardening.md) *(ops hardening: rate limiter + structured logs + error boundaries)*,
+> [ADR-0018](docs/decisions/0018-item-photos.md) *(item photos: display-only, private bucket, signed-URL delivery)*.
 
 ## 0. TL;DR
 
@@ -507,10 +509,13 @@ derived from facets (C‑F3).
 are now designed and being built (Phase 3 steps 1–2; see §13 and §14).
 
 Still out of scope / deferred: barcode enrichment (deferred until after Phase 3 step 2 and better
-suited to a native app — ADR-0009); photo/image enrichment; military/NSN domain; native app;
-catalog gap-fill suggestions (Phase 3 step 4). Each requires its own `DESIGN.md` update + ADR(s)
-before any implementation. Weather auto-conditions (Phase 3 step 3) has moved out of this list —
-it is now designed and being built (see §16 and ADR-0015).
+suited to a native app — ADR-0009); photo/image enrichment via vision AI (deferred — see §18 and
+ADR-0018 for why display-only ships first and how vision enrichment slots in later); military/NSN
+domain; native app; catalog gap-fill suggestions (Phase 3 step 4). Each requires its own
+`DESIGN.md` update + ADR(s) before any implementation. Weather auto-conditions (Phase 3 step 3)
+has moved out of this list — it is now designed and being built (see §16 and ADR-0015). Item
+photo display (not enrichment) has moved out of this list — it is now designed and being built
+(see §18 and ADR-0018).
 
 ---
 
@@ -929,3 +934,71 @@ fabricates facts or silently passes a degraded classification as authoritative.
 
 **Out of scope for this bundle (weather degradation is ADR-0015 §16.5's domain; not-found polish
 is a separate UI task; a global maintenance-mode banner is not built).**
+
+---
+
+## 18. Item photos (display-only, private Supabase Storage)
+
+Primary item photos for richer closet cards and spec sheets. **Display only — no vision/AI
+enrichment.** See [ADR-0018](docs/decisions/0018-item-photos.md) for full rationale, alternatives
+rejected, and the vision-enrichment extension plan.
+
+### 18.1 What is built and what is deferred
+
+**Built:** upload → private storage → signed-URL display. One primary photo per item (v1).
+
+**Deferred (designed-for extension):** vision-assisted enrichment. When ready, it slots into the
+evidence resolver as a new claim source (`source:'vision_inferred'`) feeding rows into
+`item_evidence` (ADR-0014), resolved by the existing `resolveFacet()` function. The storage and
+upload machinery built here is the prerequisite. No architectural change will be needed at that
+point — the extension point is already designed-for.
+
+### 18.2 Bucket, path scheme, and RLS
+
+- **Bucket:** `item-images`, private (not public).
+- **Object path:** `<user_id>/<item_id>/<uuid>.<ext>`
+  - `<user_id>` = `auth.uid()` of the uploading user.
+  - `<item_id>` = the item's UUID.
+  - `<uuid>` = client-generated random UUID (prevents collision on re-upload).
+  - `<ext>` = `jpg` | `png` | `webp`.
+- **Storage RLS:** `storage.objects` policies enforce that an authenticated user may INSERT, SELECT,
+  UPDATE, and DELETE only objects whose path's first folder component equals their own
+  `auth.uid()`. Same ownership posture as DB RLS on `items` / `trips` / `pending_facets` (ADR-0008).
+- **No public reads:** objects are never accessible by URL alone. Access requires a valid session
+  and a server-generated signed URL.
+
+### 18.3 Upload flow (client-side direct upload)
+
+Multi-MB files do not cross the Next.js server-action body. The browser uploads directly to
+Supabase Storage using the user's session JWT (enforced by Storage RLS). After the upload
+succeeds, a lightweight server action (`saveImagePath`) — gated by `requireUserId()` — writes
+the returned object path to `items.image_path`.
+
+Client-side pre-flight validation before any upload:
+- MIME type must be `image/jpeg`, `image/png`, or `image/webp`.
+- File size must be ≤ 5 MB.
+- Validation failures are surfaced inline; no upload is attempted.
+
+### 18.4 Display flow (server-generated signed URLs)
+
+When loading the closet or an item detail page, the server uses the service-role Supabase client
+to generate a short-lived signed URL for each item with a non-null `image_path`. Suggested TTL:
+3600 seconds. Signed URLs are passed to the UI as Server Component props and rendered as `<img>`.
+
+Items with `image_path = null` fall back to the current text-only card layout. No new layout
+path — the fallback is the existing baseline.
+
+### 18.5 Schema
+
+```ts
+// Migration 0007 — addition to items table
+imagePath: text('image_path'),  // nullable; null = no photo; one primary image per item in v1
+```
+
+### 18.6 Hermetic gate
+
+The upload control is hidden/disabled when `isAuthConfigured()` is false (Supabase env vars
+absent at build time — the same gate as auth). Signed-URL generation returns `null` when
+unconfigured; cards fall back to text layout. No storage call is ever made in the gauntlet
+(`pnpm typecheck / lint / test / build`). Tests mock the storage client via injection. No new
+npm dependency.

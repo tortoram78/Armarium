@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Mountain } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NavUser } from "@/components/NavUser";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface Props {
   userEmail: string | null;
@@ -14,17 +14,16 @@ interface Props {
 }
 
 const NAV_LINKS = [
-  { href: "/",           label: "Closet", code: "01" },
-  { href: "/items/new",  label: "Add",    code: "02" },
-  { href: "/plan",       label: "Plan",   code: "03" },
-  { href: "/trips",      label: "Trips",  code: "04" },
+  { href: "/",          label: "Closet" },
+  { href: "/items/new", label: "Add gear" },
+  { href: "/plan",      label: "Plan" },
+  { href: "/trips",     label: "Trips" },
 ] as const;
 
 /**
- * Tactical instrument header — a raised machined rail.
- * Milled bevel (bright top-left / dark bottom-right) + a hard cast underneath,
- * a faint mono coordinate readout, a stamped wordmark, and a blaze active tick.
- * Depth is the milled edge + cast, never a soft drop-shadow.
+ * Editorial top nav — a clean, readable masthead. Fraunces wordmark, calm
+ * underline active state, generous spacing, a refined user/guest affordance.
+ * One warm theme; no skin-flip chrome.
  */
 export function NavShell({ userEmail, authConfigured, isGuest = false }: Props) {
   const pathname = usePathname();
@@ -35,102 +34,79 @@ export function NavShell({ userEmail, authConfigured, isGuest = false }: Props) 
   }
 
   return (
-    <header className="surface-rail sticky top-0 z-50 backdrop-blur-sm transition-colors duration-300">
-      {/* hairline blaze indexing line across the very top edge */}
-      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-blaze/30" aria-hidden />
-
-      <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
-        {/* Brand wordmark — stamped instrument plate */}
+    <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-md">
+      <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-6 px-6 lg:px-8">
+        {/* Wordmark — refined serif */}
         <Link
           href="/"
-          className="group flex items-center gap-2.5 text-foreground"
+          className="font-display text-[1.375rem] font-medium tracking-[-0.01em] text-foreground transition-opacity hover:opacity-70"
           aria-label="Armarium home"
         >
-          <span
-            className="surface-bezel flex h-7 w-7 items-center justify-center text-blaze transition-colors group-hover:text-background group-hover:[background-color:hsl(var(--blaze))]"
-            aria-hidden
-          >
-            <Mountain className="h-4 w-4" strokeWidth={2} />
-          </span>
-          <span className="flex flex-col leading-none">
-            <span className="heading-display text-stamped text-base tracking-legend text-foreground">
-              Armarium
-            </span>
-            <span className="hud-readout text-[0.5rem] tracking-[0.22em]">
-              sec&nbsp;01&nbsp;·&nbsp;field&nbsp;index
-            </span>
-          </span>
+          Armarium
         </Link>
 
-        {/* Primary nav — recessed track holding raised tabs */}
-        <nav
-          className="surface-well flex items-stretch gap-0 px-1"
-          aria-label="Main navigation"
-        >
-          {NAV_LINKS.map(({ href, label, code }) => {
-            const active = isActive(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={cn(
-                  "label-structural group relative flex items-center gap-1.5 px-3 text-[0.6875rem] transition-colors duration-150 ease-crisp",
-                  active
-                    ? "text-foreground text-stamped [background-color:hsl(var(--bezel))] shadow-rail"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                aria-current={active ? "page" : undefined}
-              >
-                <span
+        <div className="flex items-center gap-1 sm:gap-2">
+          <nav className="flex items-center gap-1" aria-label="Main navigation">
+            {NAV_LINKS.map(({ href, label }) => {
+              const active = isActive(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
                   className={cn(
-                    "hud-readout text-[0.5rem] leading-none transition-colors",
-                    active ? "text-blaze" : "text-hud/70",
+                    "relative rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ease-crisp",
+                    active
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
-                  aria-hidden
+                  aria-current={active ? "page" : undefined}
                 >
-                  {code}
-                </span>
-                {label}
-                {/* active = blaze-orange underline tick (sharp punctuation) */}
-                <span
-                  className={cn(
-                    "pointer-events-none absolute inset-x-2 -bottom-px h-0.5 origin-left transition-transform duration-150 ease-crisp",
-                    active ? "scale-x-100 bg-blaze" : "scale-x-0 bg-transparent",
-                  )}
-                  aria-hidden
-                />
-              </Link>
-            );
-          })}
+                  {label}
+                  <span
+                    className={cn(
+                      "pointer-events-none absolute inset-x-3 -bottom-px h-0.5 origin-left rounded-full bg-primary transition-transform duration-200 ease-crisp",
+                      active ? "scale-x-100" : "scale-x-0",
+                    )}
+                    aria-hidden
+                  />
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Theme toggle — a calm sun/moon control, separated by a hairline. */}
+          <span className="ml-1 flex items-center border-l border-border pl-1 sm:pl-2">
+            <ThemeToggle />
+          </span>
+
           {authConfigured && !isGuest && (
-            <span className="ml-1 flex items-center border-l border-seam/40 pl-2 pr-1">
+            <span className="ml-2 flex items-center border-l border-border pl-3">
               <NavUser email={userEmail} />
             </span>
           )}
           {authConfigured && isGuest && (
-            <span className="ml-1 flex items-center gap-1 border-l border-seam/40 pl-2 pr-1">
-              {/* subtle SAMPLE indicator — guest is reading the demo closet */}
+            <span className="ml-2 flex items-center gap-2 border-l border-border pl-3">
               <span
-                className="hud-readout hidden text-[0.5rem] tracking-[0.22em] text-blaze sm:inline"
+                className="hidden eyebrow text-accent sm:inline"
                 aria-label="Viewing sample closet"
               >
-                sample
+                Sample
               </span>
               <Link
                 href="/login"
-                className="label-structural rounded-sm px-2.5 py-1 text-[0.625rem] text-foreground transition-colors duration-150 ease-crisp hover:text-blaze"
+                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-200 ease-crisp hover:text-foreground"
               >
                 Log in
               </Link>
               <Link
                 href="/signup"
-                className="label-structural surface-bezel text-stamped rounded-sm px-2.5 py-1 text-[0.625rem] [background-color:hsl(var(--primary))] [color:hsl(var(--primary-foreground))] transition-[filter] duration-150 ease-crisp hover:brightness-110"
+                className="rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92"
               >
                 Sign up
               </Link>
             </span>
           )}
-        </nav>
+        </div>
       </div>
     </header>
   );

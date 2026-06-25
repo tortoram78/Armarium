@@ -7,21 +7,20 @@ interface Props {
 }
 
 /**
- * Nav user control — shows the signed-in email and a sign-out button.
- * Rendered as a client component because it contains an interactive form.
- * Uses design-token classes so it recolors correctly in both skins.
+ * Nav user control — the signed-in email + a sign-out button. Client component
+ * (interactive form). Editorial styling so it sits quietly in the masthead.
  */
 export function NavUser({ email }: Props) {
   return (
-    <form action={signOutAction} className="flex items-center gap-2.5">
+    <form action={signOutAction} className="flex items-center gap-3">
       {email && (
-        <span className="hidden data-mono text-[0.625rem] text-muted-foreground sm:inline">
+        <span className="hidden text-sm text-muted-foreground sm:inline">
           {email}
         </span>
       )}
       <button
         type="submit"
-        className="label-structural rounded-sm px-2.5 py-1 text-[0.625rem] text-muted-foreground transition-colors duration-150 ease-crisp hover:text-blaze"
+        className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-200 ease-crisp hover:text-foreground"
       >
         Sign out
       </button>

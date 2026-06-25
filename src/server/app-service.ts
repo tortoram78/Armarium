@@ -257,6 +257,16 @@ export async function enrichFromUrlToDraft(
   const extracted = parseProductHtml(fetched.html);
   const enrichment = toManufacturerEvidence(extracted);
 
+  // HONEST no-signal guard: the page fetched + parsed cleanly but carried NO authoritative product data
+  // — no identity (brand/model/price/weight) and no composition (`hasSignal === false`). This is the
+  // bot-challenge page, the JS-only catalog, or a non-product URL. Do NOT manufacture a junk
+  // "Item from <host>" draft with every field unknown (the "returned zero fields" symptom the user hit);
+  // fail honestly so the action steers them to add-by-name, which classifies a real, typed product name.
+  // (Distinct from DEGRADED classify below: there the manufacturer signal IS present and is preserved.)
+  if (!enrichment.hasSignal) {
+    return { ok: false, reason: "no-signal: the page had no readable product details" };
+  }
+
   // Build the classify input from the manufacturer-stated facts: name = brand + model when present,
   // text = the stated composition / specs so the LLM infers behavioral facets from real evidence.
   const name = manufacturerName(enrichment.identity.brand.value, enrichment.identity.model.value, url);
@@ -417,6 +427,20 @@ export async function correctItemFromClaims(
 
 export async function setInventory(id: string, inInventory: boolean, userId = DEFAULT_USER_ID) {
   return getRepository().setInventory(userId, id, inInventory);
+}
+
+/**
+ * Set or clear an item's display-only photo path (ADR-0018). The bytes are uploaded client-direct to the
+ * private `item-images` bucket; this only persists the resulting object key (or null to remove) on the
+ * item row. User-scoped in the repo (the app-layer WHERE user_id is the sole live isolation) — a non-owned
+ * item is a no-op returning null. Photo is decoration, never a facet/capability input.
+ */
+export async function setItemImagePath(
+  id: string,
+  imagePath: string | null,
+  userId = DEFAULT_USER_ID,
+): Promise<StoredItem | null> {
+  return getRepository().setItemImagePath(userId, id, imagePath);
 }
 
 export async function deleteItem(id: string, userId = DEFAULT_USER_ID) {

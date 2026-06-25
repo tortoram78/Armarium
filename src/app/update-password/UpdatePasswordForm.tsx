@@ -109,7 +109,7 @@ export function UpdatePasswordForm() {
 
   if (success) {
     return (
-      <div className="rounded-sm border-l-2 border-primary bg-primary/10 px-4 py-3 text-sm text-primary">
+      <div className="rounded-md border-l-2 border-l-accent bg-accent/5 px-4 py-3.5 text-sm leading-relaxed text-accent">
         Password updated. Redirecting you to{" "}
         <a href="/login?reset=success" className="font-medium underline underline-offset-4">
           sign in
@@ -121,7 +121,7 @@ export function UpdatePasswordForm() {
 
   if (linkState === "checking") {
     return (
-      <p className="data-mono py-2 text-center text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+      <p className="py-2 text-center text-sm text-muted-foreground">
         Verifying reset link…
       </p>
     );
@@ -129,7 +129,7 @@ export function UpdatePasswordForm() {
 
   if (linkState === "invalid") {
     return (
-      <div className="rounded-sm border-l-2 border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive">
+      <div className="rounded-md border-l-2 border-l-accent bg-accent/5 px-4 py-3.5 text-sm leading-relaxed text-accent">
         This reset link is invalid or has expired. Request a fresh one from{" "}
         <a href="/forgot-password" className="font-medium underline underline-offset-4">
           forgot password
@@ -140,8 +140,8 @@ export function UpdatePasswordForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-1.5">
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="space-y-2">
         <Label htmlFor="password">New password</Label>
         <Input
           id="password"
@@ -153,11 +153,11 @@ export function UpdatePasswordForm() {
           required
           placeholder="••••••••"
         />
-        <p className="data-mono text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           Minimum {MIN_LENGTH} characters
         </p>
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label htmlFor="confirm">Confirm new password</Label>
         <Input
           id="confirm"
@@ -170,7 +170,7 @@ export function UpdatePasswordForm() {
         />
       </div>
       {error && (
-        <p className="rounded-sm border-l-2 border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <p className="rounded-md border-l-2 border-l-accent bg-accent/5 px-3.5 py-2.5 text-sm leading-relaxed text-accent">
           {error}
         </p>
       )}

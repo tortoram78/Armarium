@@ -75,6 +75,14 @@ export const items = pgTable(
     // lossless classification source-of-truth (reads reconstruct StoredItem from this, not typed columns)
     classification: jsonb("classification").$type<ItemClassification>().notNull(),
 
+    // display-only item photo (ADR-0018). The object path in the PRIVATE `item-images` bucket
+    // (`<user_id>/<item_id>/<uuid>.<ext>`), or null when no photo. NOT a facet / never a capability
+    // gate — it is decoration. Reads return it; the UI signs it via getSignedItemImageUrl (the bucket
+    // is private, so the bare path is not a public URL). Storage RLS keys the first path segment to the
+    // owner's uid (see drizzle/0007) — buildItemImageObjectPath in src/server/item-images.ts is the one
+    // place that constructs this scheme, so the upload action and this column never drift.
+    imagePath: text("image_path"),
+
     // provenance + ownership
     rawText: text("raw_text"),
     inInventory: boolean("in_inventory").notNull().default(false),

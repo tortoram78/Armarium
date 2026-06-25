@@ -107,25 +107,20 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
   const canPull = where.location.trim() !== "" && where.startDate !== "" && where.endDate !== "" && !pending;
 
   return (
-    <form action={planAction} className="space-y-5">
-      <div className="space-y-1.5">
+    <form action={planAction} className="space-y-7">
+      <div className="space-y-2">
         <Label htmlFor="struct-name">Trip name</Label>
         <Input id="struct-name" name="name" placeholder="Untitled trip" defaultValue={initialName} />
       </div>
 
-      {/* ── Where & when — the forecast block, recessed into the same form ── */}
-      <div className="surface-well relative p-3.5">
-        <div className="mb-3 flex items-center justify-between border-b border-seam/40 pb-2">
-          <h3 className="label-structural text-stamped flex items-center gap-2 text-xs text-foreground">
-            <span className="hud-readout text-[0.5625rem] tracking-[0.18em] text-hud/80">WX</span>
-            Where &amp; when
-          </h3>
-          <span className="data-mono text-[0.5625rem] uppercase tracking-[0.16em] text-muted-foreground">
-            Forecast → conditions
-          </span>
+      {/* ── Where & when — the forecast block, a quiet recessed sub-section ── */}
+      <div className="panel bg-muted/40 p-5">
+        <div className="mb-4 flex items-baseline justify-between gap-3 border-b border-border pb-3">
+          <h3 className="subhead text-[0.95rem] text-foreground">Where &amp; when</h3>
+          <span className="eyebrow">Forecast → conditions</span>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label htmlFor="wx-location">Location</Label>
           <Input
             id="wx-location"
@@ -136,18 +131,18 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
           />
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
+        <div className="mt-4 grid grid-cols-2 gap-4">
+          <div className="space-y-2">
             <Label htmlFor="wx-start">Start date</Label>
             <Input
               id="wx-start"
               type="date"
               value={where.startDate}
               onChange={(e) => setWhere((w) => ({ ...w, startDate: e.target.value }))}
-              className="font-mono"
+              className="data-mono"
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="wx-end">End date</Label>
             <Input
               id="wx-end"
@@ -155,15 +150,15 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
               value={where.endDate}
               min={where.startDate || undefined}
               onChange={(e) => setWhere((w) => ({ ...w, endDate: e.target.value }))}
-              className="font-mono"
+              className="data-mono"
             />
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2.5">
           <Button
             type="button"
-            variant="subtle"
+            variant="outline"
             size="sm"
             onClick={pullForecast}
             disabled={!canPull}
@@ -173,25 +168,25 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
           </Button>
 
           {note?.kind === "filled" && (
-            <span className="data-mono text-[0.625rem] uppercase tracking-[0.12em] text-blaze">
-              {note.label} — from forecast · edit anything
+            <span className="text-sm text-accent">
+              {note.label} — pulled from forecast. Edit anything below.
             </span>
           )}
           {note?.kind === "manual" && (
-            <span className="data-mono text-[0.625rem] uppercase tracking-[0.12em] text-muted-foreground">
-              Couldn&apos;t fetch a forecast for that location/date — enter conditions below manually
+            <span className="text-sm text-muted-foreground">
+              Couldn&apos;t fetch a forecast for that location and date — enter conditions below manually.
             </span>
           )}
         </div>
-        <p className="mt-2 max-w-prose text-[0.6875rem] leading-snug text-muted-foreground">
+        <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
           Optional. Pulls a real forecast (≈16-day horizon) to pre-fill temperature, precipitation, wind,
           and duration — a starting point you can override. Or just set everything by hand below.
         </p>
       </div>
 
       {/* ── Conditions — controlled, prefillable, always editable ── */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
           <Label htmlFor="temp_min_c">Temp min (°C)</Label>
           <Input
             id="temp_min_c"
@@ -200,9 +195,10 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
             placeholder="e.g. 3"
             value={form.temp_min_c}
             onChange={(e) => set("temp_min_c", e.target.value)}
+            className="data-mono"
           />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label htmlFor="temp_max_c">Temp max (°C)</Label>
           <Input
             id="temp_max_c"
@@ -211,12 +207,13 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
             placeholder="e.g. 18"
             value={form.temp_max_c}
             onChange={(e) => set("temp_max_c", e.target.value)}
+            className="data-mono"
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <div className="space-y-1.5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <div className="space-y-2">
           <Label>Precipitation</Label>
           <Select name="precipitation" value={form.precipitation} onChange={(e) => set("precipitation", e.target.value as FormState["precipitation"])}>
             {PRECIPITATION.map((v) => (
@@ -224,7 +221,7 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
             ))}
           </Select>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label>Wind</Label>
           <Select name="wind" value={form.wind} onChange={(e) => set("wind", e.target.value as FormState["wind"])}>
             {WIND.map((v) => (
@@ -232,7 +229,7 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
             ))}
           </Select>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label>Sun</Label>
           <Select name="sun" value={form.sun} onChange={(e) => set("sun", e.target.value as FormState["sun"])}>
             {SUN.map((v) => (
@@ -240,7 +237,7 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
             ))}
           </Select>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label>Exertion</Label>
           <Select name="exertion" value={form.exertion} onChange={(e) => set("exertion", e.target.value as FormState["exertion"])}>
             {EXERTION.map((v) => (
@@ -248,7 +245,7 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
             ))}
           </Select>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label>Duration</Label>
           <Select name="duration" value={form.duration} onChange={(e) => set("duration", e.target.value as FormState["duration"])}>
             {DURATION.map((v) => (
@@ -256,7 +253,7 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
             ))}
           </Select>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label>Exposure</Label>
           <Select name="exposure" value={form.exposure} onChange={(e) => set("exposure", e.target.value as FormState["exposure"])}>
             {EXPOSURE.map((v) => (
@@ -266,7 +263,7 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
         </div>
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label htmlFor="activities">Activities (comma-separated)</Label>
         <Input
           id="activities"
@@ -277,7 +274,9 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
         />
       </div>
 
-      <SubmitButton pendingText="Planning…">Plan trip</SubmitButton>
+      <div className="pt-1">
+        <SubmitButton pendingText="Planning…">Plan trip</SubmitButton>
+      </div>
     </form>
   );
 }
