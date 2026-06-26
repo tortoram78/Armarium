@@ -27,6 +27,10 @@ import Link from "next/link";
 import { getUserIdOrGuest } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
+// "Classify now" (classifyNowAction) runs the live classifier from THIS route, so it needs the same
+// raised serverless ceiling as /items/new — without it the action times out at the ~15s default and the
+// page 500s ("bricks"). (Vercel Hobby allows up to 60s.)
+export const maxDuration = 60;
 
 // Parallel data fetch for collections (needed for add-to-collection picker on item detail).
 // Guests see no picker (write-gated), so we skip these reads for them.

@@ -220,28 +220,34 @@ export async function enrichItem(
   if (!existing) return null;
   const name = existing.name;
 
-  const cache = getCacheRepository();
-  const key = normalizeCacheKey(name);
-  const hit = await cache.lookup(userId, key);
-
   let classification: ItemClassification;
   let claims: EvidenceClaim[] = [];
-  if (hit) {
-    classification = hit.classification;
-    claims = decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION);
-  } else {
-    const handle = deps.classifier ?? getClassifier();
-    if (handle.kind === "claims") {
-      const output = await handle.classify({ name, text: existing.rawText ?? undefined });
-      const ingested = ingestLlmClaims(output);
-      const resolved = resolveFromClaims(name, ingested.claims);
-      classification = resolved.classification;
-      claims = resolved.claims;
-    } else {
-      classification = deriveAndResolve(await handle.classify({ name, text: existing.rawText ?? undefined }));
+  try {
+    const cache = getCacheRepository();
+    const key = normalizeCacheKey(name);
+    const hit = await cache.lookup(userId, key);
+    if (hit) {
+      classification = hit.classification;
       claims = decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION);
+    } else {
+      const handle = deps.classifier ?? getClassifier();
+      if (handle.kind === "claims") {
+        const output = await handle.classify({ name, text: existing.rawText ?? undefined });
+        const ingested = ingestLlmClaims(output);
+        const resolved = resolveFromClaims(name, ingested.claims);
+        classification = resolved.classification;
+        claims = resolved.claims;
+      } else {
+        classification = deriveAndResolve(await handle.classify({ name, text: existing.rawText ?? undefined }));
+        claims = decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION);
+      }
+      await cache.putDraft(key, name, classification, MODEL_ID);
     }
-    await cache.putDraft(key, name, classification, MODEL_ID);
+  } catch {
+    // Classify/enrich failed (LLM timeout/5xx/SDK error/validation) — DEGRADE: leave the item untouched
+    // and return it, never throw (ADR-0017 §17.3 degrade-to-unknown). The caller renders the unchanged
+    // item; the user can retry. A failed enrichment must never 500 ("brick") the page.
+    return existing;
   }
 
   // Overlay the resolved classification + provenance onto the existing row. Raw repo.updateClassification

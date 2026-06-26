@@ -842,9 +842,16 @@ export async function classifyNowAction(formData: FormData) {
     redirect(`/items/${id}?error=` + encodeURIComponent(RATE_LIMITED_MSG));
   }
 
-  await timeAndLog({ event: "action", action: "classifyNow", userId }, async () => {
-    await enrichItem(id, userId);
-  });
+  // enrichItem is degrade-safe (never throws on a classify failure), but guard belt-and-suspenders so a
+  // transient DB/runtime error can never 500 ("brick") the page — return to the unchanged item, which the
+  // user can retry. (redirect() throws NEXT_REDIRECT by design, AFTER this guarded block.)
+  try {
+    await timeAndLog({ event: "action", action: "classifyNow", userId }, async () => {
+      await enrichItem(id, userId);
+    });
+  } catch {
+    redirect(`/items/${id}`);
+  }
   revalidatePath(`/items/${id}`);
   revalidatePath("/");
   redirect(`/items/${id}`);
