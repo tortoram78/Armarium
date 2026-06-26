@@ -275,6 +275,95 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
     expect(await cache.lookup(userB, key)).toBeNull();
   });
 
+  it("updateInventory(B, A-itemId) is a no-op — A's inventory unchanged", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+    const { itemId } = await seedUserA(userA);
+    const before = (await repo.getItem(userA, itemId))!.inventory;
+
+    // B attempts to overwrite A's ownership status — must be silently ignored.
+    await repo.updateInventory(userB, itemId, { ownershipStatus: "sold" });
+    const after = (await repo.getItem(userA, itemId))!.inventory;
+    expect(after.ownershipStatus).toBe(before.ownershipStatus);
+  });
+
+  it("updateItemName(B, A-itemId) → null and does NOT rename A's item", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+    const { itemId } = await seedUserA(userA);
+    const aItem = (await repo.getItem(userA, itemId))!;
+    const beforeName = aItem.name;
+    const beforeClassificationName = aItem.classification.name;
+
+    // B attempts to rename A's item — must be a no-op returning null.
+    expect(await repo.updateItemName(userB, itemId, "HIJACKED NAME")).toBeNull();
+    const aAfter = await repo.getItem(userA, itemId);
+    // Both hot column and JSONB must be unchanged after B's attempt.
+    expect(aAfter!.name).toBe(beforeName);
+    expect(aAfter!.classification.name).toBe(beforeClassificationName);
+    // sanity: A can rename its own item and both fields stay in sync.
+    const renamed = await repo.updateItemName(userA, itemId, "Renamed By A");
+    expect(renamed!.name).toBe("Renamed By A");
+    expect(renamed!.classification.name).toBe("Renamed By A");
+  });
+
+  // ---- collection isolation ----
+
+  it("createCollection(B) — B's collection is invisible to A; A's is invisible to B", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+
+    const collA = await repo.createCollection(userA, "A-collection");
+    const collB = await repo.createCollection(userB, "B-collection");
+
+    const aColls = await repo.listCollections(userA);
+    const bColls = await repo.listCollections(userB);
+
+    expect(aColls.some((c) => c.id === collB.id)).toBe(false);
+    expect(bColls.some((c) => c.id === collA.id)).toBe(false);
+    // sanity: each user sees their own collection
+    expect(aColls.some((c) => c.id === collA.id)).toBe(true);
+    expect(bColls.some((c) => c.id === collB.id)).toBe(true);
+  });
+
+  it("addItemToCollection — B cannot add A's item to B's collection (and vice versa)", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+    const { itemId: aItemId } = await seedUserA(userA);
+    const collA = await repo.createCollection(userA, "A-collection");
+    const collB = await repo.createCollection(userB, "B-collection");
+
+    // B attempts to add A's item into B's own collection — must be a no-op (item doesn't belong to B).
+    await repo.addItemToCollection(userB, collB.id, aItemId);
+    expect(await repo.listCollectionItemIds(userB, collB.id)).toEqual([]);
+
+    // B attempts to add some item into A's collection — must be a no-op (collection doesn't belong to B).
+    const bItem = await repo.addItem(userB, {
+      name: "B-item",
+      inInventory: true,
+      classification: SAMPLE_CLASSIFICATION,
+    });
+    await repo.addItemToCollection(userB, collA.id, bItem.id);
+    expect(await repo.listCollectionItemIds(userA, collA.id)).toEqual([]);
+
+    // sanity: A can add A's item to A's collection.
+    await repo.addItemToCollection(userA, collA.id, aItemId);
+    expect(await repo.listCollectionItemIds(userA, collA.id)).toContain(aItemId);
+  });
+
+  it("listCollectionItemIds(B, A-collectionId) → [] (non-owned collection)", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+    const { itemId } = await seedUserA(userA);
+    const collA = await repo.createCollection(userA, "A-collection");
+    await repo.addItemToCollection(userA, collA.id, itemId);
+
+    // B probing A's collection by id must get empty, not A's items.
+    expect(await repo.listCollectionItemIds(userB, collA.id)).toEqual([]);
+    // sanity: A reads its own items from the collection.
+    expect(await repo.listCollectionItemIds(userA, collA.id)).toContain(itemId);
+  });
+
   // ---- coverage tripwire ---------------------------------------------------------------------------
   // EVERY method of the GearRepository port is enumerated above. This list is asserted against the
   // live object's keys so adding a new repo method WITHOUT a cross-tenant assertion here fails the
@@ -292,6 +381,8 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
       "setInventory",
       "setDraft",
       "setItemImagePath",
+      "updateInventory", // no-op on non-owned id; user-scoped via per-user item map
+      "updateItemName", // no-op returning null on non-owned id; user-scoped
       "deleteItem",
       "replaceItemEvidence",
       "getItemEvidence",
@@ -303,6 +394,15 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
       "updateTripConditions",
       "cloneTrip",
       "deleteTrip",
+      // collections
+      "createCollection", // creates A's own collection (the probe subject)
+      "listCollections",  // user-scoped; B's list never includes A's collections
+      "renameCollection", // no-op on non-owned id; user-scoped
+      "deleteCollection", // no-op on non-owned id; user-scoped
+      "addItemToCollection",        // verifies both collection + item ownership
+      "removeItemFromCollection",   // no-op on non-owned collection id
+      "listCollectionItemIds",      // returns [] for non-owned collection
+      "collectionsForItem",         // returns [] if item isn't the user's
     ];
     const actual = Object.keys(repo).sort();
     expect([...covered].sort()).toEqual(actual);

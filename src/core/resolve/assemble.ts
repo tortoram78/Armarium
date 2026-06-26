@@ -78,7 +78,7 @@ function scalarEnvelope(def: FacetPathDef, winner: Claim<unknown>): unknown {
 }
 
 /** The groups, in registry order, used to seed group objects + derive applicable_groups. */
-const GROUP_ORDER = ["insulation", "sleep", "shell", "carry", "footwear"] as const;
+const GROUP_ORDER = ["insulation", "sleep", "shell", "carry", "footwear", "apparel"] as const;
 
 /** The fields of each group, precomputed from FACET_PATHS (so it can never drift from the schema). */
 const GROUP_FIELDS: Record<string, FacetPathDef[]> = (() => {
@@ -100,8 +100,14 @@ function ensureGroupScaffold(scaffold: Record<string, unknown>, group: string): 
   if (groups[group] != null) return; // already seeded
   const obj: Record<string, unknown> = {};
   for (const f of GROUP_FIELDS[group] ?? []) {
-    obj[f.path[f.path.length - 1]!] =
-      f.fact === "hard" ? { value: null, source: "unknown" } : { value: null, confidence: "unknown", source: "unknown" };
+    const fieldKey = f.path[f.path.length - 1]!;
+    if (f.shape === "multilabel") {
+      // Multilabel group fields are plain string[] (no envelope); seed as empty array.
+      obj[fieldKey] = [];
+    } else {
+      obj[fieldKey] =
+        f.fact === "hard" ? { value: null, source: "unknown" } : { value: null, confidence: "unknown", source: "unknown" };
+    }
   }
   groups[group] = obj;
 }
@@ -192,12 +198,16 @@ export function assembleClassification(name: string, claims: readonly EvidenceCl
   return parsed as unknown as ItemClassification;
 }
 
-/** True iff a group object carries at least one slot with a non-null value (a real, present field). */
+/** True iff a group object carries at least one slot with a non-null value (a real, present field).
+ *  Handles both scalar Evidence envelopes ({value: ...}) and multilabel plain arrays (string[]). */
 function hasPresentField(group: unknown): boolean {
   if (typeof group !== "object" || group === null) return false;
-  return Object.values(group as Record<string, unknown>).some(
-    (v) => typeof v === "object" && v !== null && (v as { value?: unknown }).value != null,
-  );
+  return Object.values(group as Record<string, unknown>).some((v) => {
+    // Multilabel plain array: present when non-empty.
+    if (Array.isArray(v)) return v.length > 0;
+    // Scalar Evidence/HardFact envelope: present when value is non-null.
+    return typeof v === "object" && v !== null && (v as { value?: unknown }).value != null;
+  });
 }
 
 // ----------------------------------------------------------------------------------------------------

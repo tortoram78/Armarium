@@ -7,6 +7,10 @@ import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
 import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
+import { isGearClassified, isApparelClassified, modeledDomainsOf } from "@/core/domains";
+import { findDuplicateIn, type DedupeFields } from "@/core/dedupe";
+import { recordOnlyClassification } from "@/core/record";
+import { normalizeTags, type InventoryMeta, type OwnershipStatus, type Condition } from "@/core/inventory";
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
 import type { RecommendationResult } from "@/core/recommend";
@@ -30,10 +34,28 @@ import {
 import { userCorrectionClaims } from "@/core/corrections";
 import type { TripConditions } from "@/core/conditions";
 import type { ItemClassification } from "@/core/classification";
-import type { StoredItem, StoredTrip, EvidenceClaim } from "@/core/ports";
+import type { StoredItem, StoredTrip, EvidenceClaim, Collection } from "@/core/ports";
 
 export function resolveItem(i: StoredItem): ResolvedItem {
-  return resolveFromClassification(i.id, i.classification);
+  return resolveFromClassification(i.id, i.classification, i.inventory);
+}
+
+/** Whether an item is classified into the gear domain (ADR-0023) — gates the gear facet/capability UI.
+ *  Reads the real `domains` marker OR any known gear facet signal (backfill-safe; see src/core/domains). */
+export function isItemGear(i: StoredItem): boolean {
+  return isGearClassified(resolveItem(i));
+}
+
+/** Whether an item is classified into the apparel domain (ADR-0026) — gates the apparel facet UI. */
+export function isItemApparel(i: StoredItem): boolean {
+  return isApparelClassified(resolveItem(i));
+}
+
+/** The modeled domains a classification shows signal in (['gear'], ['apparel'], ['gear','apparel'], or
+ *  []). The single source for marking `inventory.domains` on classify/enrich — a fleece becomes both,
+ *  a dress apparel-only, a no-signal item stays an unclassified possession (ADR-0023/0026). */
+function domainsForClassification(c: ItemClassification): string[] {
+  return modeledDomainsOf(resolveFromClassification("_", c));
 }
 
 export async function getAllItems(userId = DEFAULT_USER_ID): Promise<StoredItem[]> {
@@ -60,6 +82,289 @@ export async function getCloset(dimension: GroupingKey, userId = DEFAULT_USER_ID
   const byId = new Map(items.map((i) => [i.id, i] as const));
   const groups = groupCloset(items.map(resolveItem), dimension);
   return { items, byId, groups };
+}
+
+// ---- closet-as-database: record-only capture + search + inline inventory edit (ADR-0021/0022) ----
+
+/**
+ * Record that the user OWNS something — instantly, with NO LLM call (ADR-0022, the keystone decouple).
+ * Builds the all-unknown behavioral classification (`classification` stays NOT NULL) + DEFAULT_INVENTORY
+ * with `ownershipStatus:'owned'`, and persists it as a NON-draft closet item the user sees immediately.
+ * Enrichment (classify / URL tiers) is an OPTIONAL follow-up the user triggers later — it never blocks the
+ * act of recording. `domains: []` marks it as not-yet-classified into any modeled domain (gear or other).
+ * Write-gated by the caller (`requireUserId()`); `getRepository()` is the real repo (a guest cannot write).
+ */
+export async function recordOwnership(name: string, userId = DEFAULT_USER_ID): Promise<StoredItem> {
+  return getRepository().addItem(userId, {
+    name,
+    inInventory: true,
+    draft: false,
+    classification: recordOnlyClassification(name),
+    inventory: { ownershipStatus: "owned", domains: [] },
+  });
+}
+
+/**
+ * Patch an item's user-owned inventory metadata (status, quantity, condition, acquisition, location,
+ * size/color, notes) WITHOUT touching its behavioral classification (ADR-0021 — inventory is mutable user
+ * data, never a facet). User-scoped in the repo; a non-owned item is a no-op.
+ */
+export async function updateInventory(
+  id: string,
+  patch: Partial<InventoryMeta>,
+  userId = DEFAULT_USER_ID,
+): Promise<void> {
+  return getRepository().updateInventory(userId, id, patch);
+}
+
+/**
+ * The closet read with optional name/brand/model SEARCH + status filter + sort — routed through the keyset
+ * `listItemsPage` query backbone (previously dead code; now the live closet path). Closet membership matches
+ * the legacy `getCloset` (in-inventory, non-draft) so record-only and confirmed items both appear, while
+ * drafts awaiting review stay out. Phase 1 uses one generous page; true infinite-scroll is Phase 2.
+ */
+export async function searchCloset(
+  dimension: GroupingKey,
+  opts: {
+    search?: string;
+    status?: OwnershipStatus;
+    condition?: Condition;
+    collectionId?: string;
+    tag?: string;
+    sort?: "newest" | "name";
+    cursor?: string;
+    limit?: number;
+  } = {},
+  userId = DEFAULT_USER_ID,
+) {
+  const page = await getRepositoryFor(userId).listItemsPage(userId, {
+    search: opts.search,
+    status: opts.status,
+    condition: opts.condition,
+    collectionId: opts.collectionId,
+    tag: opts.tag,
+    sort: opts.sort ?? "newest",
+    cursor: opts.cursor,
+    limit: opts.limit ?? 60,
+  });
+  // Closet membership = in-inventory, non-draft (drafts await review). Post-filter is safe with keyset
+  // paging: nextCursor advances on the RAW last row, so load-more continues correctly even if a page
+  // shows fewer than `limit` after filtering.
+  const items = page.items.filter((i) => i.inInventory && !i.draft);
+  const byId = new Map(items.map((i) => [i.id, i] as const));
+  const groups = groupCloset(items.map(resolveItem), dimension);
+  return { items, byId, groups, nextCursor: page.nextCursor };
+}
+
+/** Inline rename — updates items.name AND classification.name in sync (ADR-0021 browse curation). */
+export async function renameItem(
+  id: string,
+  name: string,
+  userId = DEFAULT_USER_ID,
+): Promise<StoredItem | null> {
+  return getRepository().updateItemName(userId, id, name);
+}
+
+// ---- capture at scale: batch record-only + per-item async enrichment + dedupe (ADR-0022 §Phase 3) ----
+
+/** Helper: read the dedupe fields off a stored item (name + manufacturer identity). */
+function dedupeFields(i: StoredItem): DedupeFields {
+  return { name: i.name, brand: i.classification.identity.brand.value, model: i.classification.identity.model.value };
+}
+
+/**
+ * Find an already-owned item that likely duplicates `name` (ADR-0022 §Phase 3 dedupe). Used by the
+ * quick-add / batch flows to offer "you may already own this — bump quantity?" instead of a silent dup.
+ * Conservative (a missed dup beats a false block); a bare name has no brand/model so it matches mainly on
+ * normalized name. Reads through `getRepositoryFor` so a guest's sample closet is deduped too.
+ */
+export async function findDuplicate(name: string, userId = DEFAULT_USER_ID): Promise<StoredItem | null> {
+  const items = (await getRepositoryFor(userId).listItems(userId)).filter((i) => !i.draft);
+  type Row = DedupeFields & { _item: StoredItem };
+  const rows: Row[] = items.map((i) => ({ ...dedupeFields(i), _item: i }));
+  return findDuplicateIn<Row>({ name }, rows)?._item ?? null;
+}
+
+/**
+ * Record many possessions at once (ADR-0022 §Phase 3 batch). Each line becomes an instant record-only
+ * item — NO LLM, never blocking — exactly like `recordOwnership`. Enrichment is the per-item async
+ * follow-up the client orchestrates afterward (see `enrichItem`). Blank lines are skipped; returns the
+ * created items in input order so the batch UI can drive enrichment over their ids.
+ */
+export async function recordOwnershipBatch(names: string[], userId = DEFAULT_USER_ID): Promise<StoredItem[]> {
+  const created: StoredItem[] = [];
+  for (const raw of names) {
+    const name = raw.trim();
+    if (!name) continue;
+    created.push(await recordOwnership(name, userId));
+  }
+  return created;
+}
+
+/**
+ * Enrich an EXISTING item in place (ADR-0022 §Phase 3): re-run the classify pipeline on the item's name
+ * and overlay the resolved classification + evidence onto the row, marking the gear domain. This is the
+ * non-blocking follow-up to record-only capture — the browser fires it per item after a batch/quick add,
+ * so facets stream in while the item already lives in the closet. Cache-aware (the self-building KB,
+ * user-scoped) and degrade-safe (offline non-corpus names resolve to all-unknown, never throw). Does NOT
+ * write a user override (this is inference, not a user correction). Returns the updated item, or null if
+ * it isn't the user's. Mirrors `classifyToDraft` but updates instead of creating a draft.
+ */
+export async function enrichItem(
+  id: string,
+  userId = DEFAULT_USER_ID,
+  deps: ClassifyToDraftDeps = {},
+): Promise<StoredItem | null> {
+  const repo = getRepository();
+  const existing = await repo.getItem(userId, id);
+  if (!existing) return null;
+  const name = existing.name;
+
+  const cache = getCacheRepository();
+  const key = normalizeCacheKey(name);
+  const hit = await cache.lookup(userId, key);
+
+  let classification: ItemClassification;
+  let claims: EvidenceClaim[] = [];
+  if (hit) {
+    classification = hit.classification;
+    claims = decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION);
+  } else {
+    const handle = deps.classifier ?? getClassifier();
+    if (handle.kind === "claims") {
+      const output = await handle.classify({ name, text: existing.rawText ?? undefined });
+      const ingested = ingestLlmClaims(output);
+      const resolved = resolveFromClaims(name, ingested.claims);
+      classification = resolved.classification;
+      claims = resolved.claims;
+    } else {
+      classification = deriveAndResolve(await handle.classify({ name, text: existing.rawText ?? undefined }));
+      claims = decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION);
+    }
+    await cache.putDraft(key, name, classification, MODEL_ID);
+  }
+
+  // Overlay the resolved classification + provenance onto the existing row. Raw repo.updateClassification
+  // (NOT updateItemClassification) — enrichment is inference, not a user override, so it must not be
+  // written back as this user's authoritative correction.
+  await repo.updateClassification(userId, id, classification);
+  await repo.replaceItemEvidence(userId, id, claims);
+  // Promote to whatever modeled domains the classifier actually found signal in (gear, apparel, or both)
+  // — ADR-0023/0026. A quick-added item with no signal (a water bottle, a camera) stays an honest
+  // possession (domains []), never a domain item with empty facet sections. Unknown is first-class.
+  const domains = modeledDomainsOf(resolveFromClassification(id, classification, existing.inventory));
+  if (domains.length > 0) {
+    await repo.updateInventory(userId, id, { domains });
+  }
+  return repo.getItem(userId, id);
+}
+
+// ---- curation + portability: collections (kits), tags, CSV export (ADR-0024) ----
+
+/** Set an item's free-form user tags (ADR-0024). Tags are user-curated cross-cutting labels — never
+ *  facets/categories. Accepts a raw comma/newline string or array; normalized (trim/dedupe) in core. */
+export async function setItemTags(id: string, raw: string | string[], userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().updateInventory(userId, id, { userTags: normalizeTags(raw) });
+}
+
+export async function createCollection(name: string, userId = DEFAULT_USER_ID): Promise<Collection> {
+  return getRepository().createCollection(userId, name);
+}
+export async function listCollections(userId = DEFAULT_USER_ID): Promise<Collection[]> {
+  return getRepositoryFor(userId).listCollections(userId);
+}
+export async function renameCollection(id: string, name: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().renameCollection(userId, id, name);
+}
+export async function deleteCollection(id: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().deleteCollection(userId, id);
+}
+export async function addItemToCollection(collectionId: string, itemId: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().addItemToCollection(userId, collectionId, itemId);
+}
+export async function removeItemFromCollection(collectionId: string, itemId: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().removeItemFromCollection(userId, collectionId, itemId);
+}
+/** Which collections contain this item — for the item-detail "in collections" control. */
+export async function collectionsForItem(itemId: string, userId = DEFAULT_USER_ID): Promise<Collection[]> {
+  return getRepositoryFor(userId).collectionsForItem(userId, itemId);
+}
+
+/** One CSV cell — RFC-4180 quoting (wrap + double internal quotes when the value has a comma/quote/newline). */
+function csvCell(v: unknown): string {
+  const s = v == null ? "" : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * Export the user's whole closet as CSV (ADR-0024 — anti-lock-in / data portability). Pure string build,
+ * no new dependency; drafts excluded. One row per owned item with identity + the full inventory layer +
+ * tags + domains. Called by the export route handler, which streams it as a download.
+ */
+export async function exportClosetCsv(userId = DEFAULT_USER_ID): Promise<string> {
+  const items = (await getRepositoryFor(userId).listItems(userId)).filter((i) => !i.draft);
+  const header = [
+    "Name", "Brand", "Model", "Status", "Quantity", "Condition", "Acquired", "Price paid",
+    "Acquired from", "Storage location", "Size", "Color", "Tags", "Notes", "Domains",
+  ];
+  const rows = items.map((i) => {
+    const inv = i.inventory;
+    const id = i.classification.identity;
+    return [
+      i.name, id.brand.value ?? "", id.model.value ?? "", inv.ownershipStatus, inv.quantity,
+      inv.condition ?? "", inv.acquiredAt ?? "",
+      inv.pricePaidCents != null ? (inv.pricePaidCents / 100).toFixed(2) : "",
+      inv.acquiredFrom ?? "", inv.storageLocation ?? "", inv.size ?? "", inv.color ?? "",
+      inv.userTags.join("; "), (inv.userNotes ?? "").replace(/\r?\n/g, " "), inv.domains.join("; "),
+    ];
+  });
+  return [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n");
+}
+
+// ---- self-building product catalog: add-time autocomplete with specs (ADR-0025) ----
+
+/** A catalog suggestion surfaced as the user types — a previously-classified product they can add WITH
+ *  its specs in one tap. Drawn from the GLOBAL draft store (the self-building KB), never a user override. */
+export interface CatalogSuggestion {
+  key: string;
+  name: string;
+  brand: string | null;
+  model: string | null;
+}
+
+/** Name-search the self-building catalog for add-time autocomplete (ADR-0025). */
+export async function searchCatalog(query: string, _userId = DEFAULT_USER_ID, limit = 6): Promise<CatalogSuggestion[]> {
+  const hits = await getCacheRepository().searchCatalog(query, limit);
+  return hits.map((h) => ({
+    key: h.key,
+    name: h.name,
+    brand: h.classification.identity.brand.value,
+    model: h.classification.identity.model.value,
+  }));
+}
+
+/**
+ * Add a product from the catalog by its cache key — inherits the previously-classified specs in one tap
+ * (ADR-0025), instead of a record-only all-unknown item. The classification comes from the GLOBAL draft
+ * store (another user's enrichment, or the seed) via `lookup` — which returns this user's override first
+ * if they happen to have one, else the shared draft. Lands straight in the closet (the specs are already
+ * validated; the user chose the product) and can be corrected later. Marks the gear domain when the
+ * inherited classification carries real gear signal. Returns null if the key is gone.
+ */
+export async function addFromCatalog(key: string, userId = DEFAULT_USER_ID): Promise<StoredItem | null> {
+  const hit = await getCacheRepository().lookup(userId, key);
+  if (!hit) return null;
+  const classification = hit.classification;
+  const item = await getRepository().addItem(userId, {
+    name: classification.name,
+    inInventory: true,
+    draft: false,
+    classification,
+    inventory: { ownershipStatus: "owned", domains: domainsForClassification(classification) },
+  });
+  // Give the inherited item an auditable provenance trail (degraded — the source was the cache).
+  await getRepository().replaceItemEvidence(userId, item.id, decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION));
+  return item;
 }
 
 export async function planAndSave(
@@ -208,7 +513,8 @@ export async function classifyToDraft(
     await cache.putDraft(key, name, classification, MODEL_ID);
   }
 
-  const item = await getRepository().addItem(userId, { name, inInventory, draft: true, rawText: text, classification });
+  // Mark the modeled domains the classification shows signal in (gear, apparel, or both) — ADR-0023/0026.
+  const item = await getRepository().addItem(userId, { name, inInventory, draft: true, rawText: text, classification, inventory: { domains: domainsForClassification(classification) } });
   // Persist the claim set as the item's provenance backing store (a no-op-safe REPLACE, user-scoped).
   await getRepository().replaceItemEvidence(userId, item.id, claims);
   const mode = deps.classifier?.mode ?? classifierMode();
@@ -344,6 +650,7 @@ export async function enrichFromUrlToDraft(
     draft: true,
     rawText: text,
     classification,
+    inventory: { domains: domainsForClassification(classification) }, // mark modeled domains (ADR-0023/0026)
   });
   // Persist the full claim set (manufacturer + inference + derived) as the item's provenance backing store.
   await getRepository().replaceItemEvidence(userId, item.id, claims);

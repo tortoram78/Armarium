@@ -1,13 +1,17 @@
 # Armarium — DESIGN (Phase 0 synthesis)
 
-> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 + ops hardening + item photos in delivery.** This document
-> began as the Phase 0 design synthesis (9 investigation agents → 3 competing architectures → 3
-> adversarial audits) and is updated as each phase lands. Phase 1 (core + schema), Phase 2 (usable
-> web app + NL parser + review lifecycle + Postgres + self-building cache + layering-system
-> reasoning), Phase 3 step 1 (real auth + multi-user), Phase 3 step 2 (manufacturer URL enrichment),
-> Phase 3 step 3 (weather auto-conditions), the ops-hardening bundle (rate limiting + structured
-> logging + error boundaries), and item photos (display-only, private Supabase Storage) are all
-> reflected below.
+> **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 + ops hardening + item photos delivered;
+> closet-database Phases 1–5 (possession model inversion through self-building catalog) all shipped;
+> apparel domain ontology (second modeled domain) designed and shipped.**
+> This document began as the Phase 0 design synthesis (9 investigation agents → 3 competing
+> architectures → 3 adversarial audits) and is updated as each phase lands. Phase 1 (core +
+> schema), Phase 2 (usable web app + NL parser + review lifecycle + Postgres + self-building cache
+> + layering-system reasoning), Phase 3 step 1 (real auth + multi-user), Phase 3 step 2
+> (manufacturer URL enrichment), Phase 3 step 3 (weather auto-conditions), the ops-hardening
+> bundle (rate limiting + structured logging + error boundaries), item photos (display-only,
+> private Supabase Storage), the full closet-database inversion (§19 + §20 — Phases 1–5), and the
+> apparel domain ontology (§21) are all reflected below. See ADR-0021 / 0022 / 0023 (Phase 1),
+> ADR-0024 (Phase 4), ADR-0025 (Phase 5), ADR-0026 (apparel domain).
 > Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
 > [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
 > [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
@@ -19,7 +23,13 @@
 > [ADR-0012](docs/decisions/0012-evidence-first-classification.md) *(north-star: evidence-first classification)*,
 > [ADR-0015](docs/decisions/0015-weather-auto-conditions.md) *(weather auto-conditions: Open-Meteo + override-always)*,
 > [ADR-0017](docs/decisions/0017-ops-hardening.md) *(ops hardening: rate limiter + structured logs + error boundaries)*,
-> [ADR-0018](docs/decisions/0018-item-photos.md) *(item photos: display-only, private bucket, signed-URL delivery)*.
+> [ADR-0018](docs/decisions/0018-item-photos.md) *(item photos: display-only, private bucket, signed-URL delivery)*,
+> [ADR-0021](docs/decisions/0021-inventory-and-ownership-lifecycle.md) *(inventory layer + ownership-status lifecycle)*,
+> [ADR-0022](docs/decisions/0022-decouple-ownership-from-classification.md) *(decouple ownership from classification: record-only + async enrichment)*,
+> [ADR-0023](docs/decisions/0023-multi-domain-possession-model.md) *(multi-domain possession model: three-ring architecture)*,
+> [ADR-0024](docs/decisions/0024-collections-tags-export.md) *(collections + user tags + CSV export: personal curation orthogonal to facets)*,
+> [ADR-0025](docs/decisions/0025-self-building-catalog.md) *(self-building catalog: `llm_draft_cache` as add-time autocomplete + spec inheritance)*,
+> [ADR-0026](docs/decisions/0026-apparel-domain-ontology.md) *(apparel domain ontology: second modeled domain — six soft JSONB facets, no migration)*.
 
 ## 0. TL;DR
 
@@ -503,19 +513,26 @@ derived from facets (C‑F3).
 
 ---
 
-## 12. Out of scope for v0 (updated as Phase 3 lands)
+## 12. Out of scope / deferred (updated as each phase lands)
 
-**Real auth + multi-user** and **manufacturer URL enrichment** have moved out of this list — they
-are now designed and being built (Phase 3 steps 1–2; see §13 and §14).
+**Real auth + multi-user**, **manufacturer URL enrichment**, **weather auto-conditions**, and
+**item photos** have all moved out of this list — they are designed and built (Phase 3 steps 1–3
+and the ops-hardening bundle; see §13, §14, §16, §17, §18).
 
-Still out of scope / deferred: barcode enrichment (deferred until after Phase 3 step 2 and better
-suited to a native app — ADR-0009); photo/image enrichment via vision AI (deferred — see §18 and
-ADR-0018 for why display-only ships first and how vision enrichment slots in later); military/NSN
-domain; native app; catalog gap-fill suggestions (Phase 3 step 4). Each requires its own
-`DESIGN.md` update + ADR(s) before any implementation. Weather auto-conditions (Phase 3 step 3)
-has moved out of this list — it is now designed and being built (see §16 and ADR-0015). Item
-photo display (not enrichment) has moved out of this list — it is now designed and being built
-(see §18 and ADR-0018).
+The possession-model inversion — ownership-status lifecycle, full inventory layer, decoupled
+async enrichment, and multi-domain possession model — is the **active phase** (§19; ADR-0021,
+ADR-0022, ADR-0023). Browse-at-scale (search, filter, sort, dense list, inline/bulk actions),
+capture-at-scale (URL-paste async, batch entry, dedupe), curation + portability (collections,
+user tags, CSV export, apparel as second domain), and the frontier (self-building canonical
+catalog, photo/vision capture) are sequenced in the closet-database roadmap in `docs/roadmap.md`.
+
+Still out of scope and requiring their own `DESIGN.md` update + ADR(s) before implementation:
+barcode enrichment (deferred until after manufacturer URL enrichment is complete; better suited
+to a native app — ADR-0009); photo/image enrichment via vision AI (display-only ships first, per
+§18 and ADR-0018; vision enrichment slots in via the evidence resolver as a later fast-follow);
+military/NSN domain (large strategic pivot — requires a dedicated scoping ADR); native app (large
+strategic pivot — requires its own scoping ADR); catalog gap-fill suggestions (Phase 3 step 4
+in the original sequence, re-assessed after the closet-database foundation lands).
 
 ---
 
@@ -1002,3 +1019,191 @@ absent at build time — the same gate as auth). Signed-URL generation returns `
 unconfigured; cards fall back to text layout. No storage call is ever made in the gauntlet
 (`pnpm typecheck / lint / test / build`). Tests mock the storage client via injection. No new
 npm dependency.
+
+---
+
+## 19. Possession model and inventory layer (active phase — closet-database inversion)
+
+The thesis: invert the product. Ownership was a side-effect of classification; ownership is now
+the root entity, and classification/enrichment is an optional, async, never-blocking follow-up.
+The facet/evidence core, the capability predicates, the recommendation engine, the enrichment
+pipeline (ADR-0011 / ADR-0019 / ADR-0020), the evidence resolver (ADR-0012), and the auth/RLS
+model (ADR-0008) are **reused unchanged** — this section is purely additive over the existing
+capability-first hybrid described in §6.
+
+### 19.1 The three-ring possession model
+
+Every item has three concentric rings:
+
+| Ring | Scope | Contents |
+|------|-------|----------|
+| **1 — Universal possession core** | Every item, any domain | Identity (name, brand, model, image_path) + the full inventory layer |
+| **2 — Domain markers** | Every item | `domains text[]` — which behavioral facet-sets apply (see §19.3) |
+| **3 — Behavioral facet ring** | Domain-specific, optional | The existing gear facets (§3, §4); dormant when `'gear' ∉ domains` |
+
+See [ADR-0023](docs/decisions/0023-multi-domain-possession-model.md) for the full rationale and
+the reconciliation with the no-hardcoded-buckets invariant.
+
+### 19.2 Inventory layer — schema delta
+
+One additive migration on `items` (gear behavioral facets are unchanged):
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `ownership_status` | `text NOT NULL DEFAULT 'owned'` | `'owned' \| 'wishlist' \| 'loaned' \| 'retired' \| 'sold'` — replaces `inInventory` boolean as source of truth. Backfill: true → `'owned'`, false → `'wishlist'`. `inInventory` retained as deprecated mirror in Phase 1, removed later. |
+| `quantity` | `integer DEFAULT 1` | Number of identical units owned |
+| `condition` | `text` nullable | `'new' \| 'good' \| 'worn' \| 'end_of_life'` |
+| `acquired_at` | `date` nullable | Date of purchase/acquisition |
+| `price_paid_cents` | `integer` nullable | Amount the user paid — **distinct from `priceCents`** (MSRP from enrichment) |
+| `acquired_from` | `text` nullable | Retailer or source ("REI", "eBay", "gift") |
+| `storage_location` | `text` nullable | Where the item is stored |
+| `size` | `text` nullable | User-recorded size label |
+| `color` | `text` nullable | User-recorded color |
+| `user_notes` | `text` nullable | Freeform personal notes |
+| `domains` | `text[] DEFAULT '{}'` | GIN-indexed; see §19.3 |
+
+**`classification` stays NOT NULL.** Record-only and non-gear items carry
+`unknownBehavioralClassification(name)` — all facets unknown — not a null classification.
+This preserves every downstream reader's contract.
+
+**Inventory metadata is typed columns, never JSONB.** The `items.facets` JSONB bag is for
+evidence-shaped behavioral facets only. User-owned mutable possession data (condition,
+acquisition, location) does not belong there. Collections and user tags are deferred to Phase 4
+as join tables.
+
+See [ADR-0021](docs/decisions/0021-inventory-and-ownership-lifecycle.md) for full rationale
+and rejected alternatives.
+
+### 19.3 `domains text[]` — pluggable facet-set markers, not categories
+
+`domains` records which behavioral facet-sets apply to an item. **It is not a routing
+discriminator** — it never drives a `switch`/`if` that routes recommendations, queries, or UI.
+Its sole role is to govern which reasoning pipelines are invoked and which facet groups are
+expected to be populated.
+
+`'gear'` is the one fully-modeled domain in Phase 1. Items with `'gear' ∉ domains` have all
+gear facets at all-unknown and never satisfy any gear capability gate — which is exactly correct.
+Other domain labels (`'apparel'`, `'electronics'`, `'collectibles'`) are storable and queryable
+from day one as extension points; their own ontologies are fast-follows requiring their own
+`DESIGN.md` sections and ADR(s) before implementation.
+
+### 19.4 Decoupled capture: record-only + async enrichment
+
+A new `recordOwnership(name)` path persists the item instantly (under 1 second) using the
+all-unknown classification envelope and `DEFAULT_INVENTORY` defaults, then enqueues the existing
+enrichment pipeline as a background job. The item is immediately visible in the closet. The
+classification columns update in place when enrichment completes.
+
+The name-based classifier degrades to all-unknown (degrade-not-throw) on corpus miss, LLM error,
+or timeout — never a hard failure for item creation.
+
+The trip engine reads `quantity`, `ownership_status`, and `condition` as first-class inputs with
+no additional capability changes: `status = 'loaned'` excludes an item from packing picks by
+default; `condition = 'end_of_life'` surfaces it as a gap candidate.
+
+See [ADR-0022](docs/decisions/0022-decouple-ownership-from-classification.md) for full rationale
+and rejected alternatives.
+
+---
+
+## 20. Closet-database Phases 2–5 — what shipped (status as of 2026-06-25)
+
+All five closet-database phases landed. The facet/evidence core, capability predicates, enrichment
+pipeline, evidence resolver, auth/RLS model, and trip engine are **unchanged throughout** — Phases
+1–5 are purely additive over the capability-first hybrid described in §6.
+
+- **Phase 1 (foundation):** instant record-only capture (`recordOwnership` under 1 s); full
+  inventory layer live (`ownership_status`, `quantity`, `condition`, `acquired_at`,
+  `price_paid_cents`, `acquired_from`, `storage_location`, `size`, `color`, `user_notes`,
+  `domains`); domain-gated UI (`isGearClassified`); "Unclassified" bucket in grouped views.
+  ADR-0021 / ADR-0022 / ADR-0023.
+
+- **Phase 2 (browse at scale):** status/condition filters, newest/name sort, keyset pagination
+  wired to `listItemsPage`, grid/dense-list toggle, inline ⋯ actions (rename, status, quantity,
+  delete), bulk select with set-status/delete. `renameItem` updates `items.name` and
+  `classification.name` in sync.
+
+- **Phase 3 (capture at scale):** `POST /items/batch` paste-a-list with client-orchestrated
+  concurrent enrichment (cap 3, rate-limit backoff); `enrichItem` re-classifies an existing item
+  in place, promoting to `domains:['gear']` only on real gear signal; `findDuplicate` dedupe
+  (`src/core/dedupe.ts`) powers a quick-add banner and +1 quantity shortcut.
+
+- **Phase 4 (curation + portability):** M:N collections (`collections` + `collection_items`,
+  migration 0009, RLS); `/collections` + `/collections/[id]`; `CollectionPicker` on item detail.
+  `user_tags text[]` (GIN-indexed) with clickable chips and `?tag=` closet filter. `GET /api/export`
+  streaming CSV (RFC-4180, no new dep). Collections and tags are personal curation — they have no
+  effect on capability predicates, the evidence resolver, or trip packing. ADR-0024.
+
+- **Phase 5 (self-building catalog):** `searchCatalog(query, limit)` queries the global
+  `llm_draft_cache` for add-time autocomplete (reads global drafts only — no cross-tenant leak).
+  `addFromCatalog` one-taps a known product into the closet with inherited specs and the hard-fact
+  demotion guard applied at insert time. This is the user-facing payoff of the KB that has been
+  building since Phase 2. ADR-0025.
+
+**Designed-next, not built (each requires ADR + provider decision before any code):**
+- **Photo / vision capture** — `source:'vision_inferred'` extension point exists in the evidence
+  resolver (ADR-0018); runtime vision API + hermetic-gate strategy + background-removal dep
+  decision must precede implementation.
+- **GTIN-keyed `canonical_products` table** (DESIGN.md §15 element 1) — deferred until the
+  barcode/GTIN enrichment pipeline is built (unlocked backlog; sequenced after Phase 3 URL
+  enrichment; see ADR-0009).
+- **Apparel domain ontology** — shipped; see §21 and ADR-0026.
+- **Apparel capability predicates** (size-range fit, care compatibility, seasonal suitability,
+  occasion match) — deferred; each requires its own DESIGN.md addition and ADR before
+  implementation. Apparel items are inventory-visible and facet-queryable now; they are excluded
+  from trip packing picks until capability gates are defined.
+
+---
+
+## 21. Apparel domain ontology (second modeled domain)
+
+See [ADR-0026](docs/decisions/0026-apparel-domain-ontology.md) for full rationale and rejected
+alternatives. This section records the contract that code owners implement against.
+
+### 21.1 Relationship to the three-ring possession model
+
+The three-ring model (§19.1, ADR-0023) is unchanged. Apparel is a second behavioral facet-set
+that populates Ring 3 for items where `'apparel' ∈ domains`. `domains` remains a pluggable
+marker array, never a routing discriminator. A merino base layer carries
+`domains: ['gear', 'apparel']`; the UI renders each domain's facet section according to which
+domains have populated signal.
+
+### 21.2 The apparel facet group
+
+Six new facets in the `apparel` group of the registry — all soft, non-capability-gating, tier
+`jsonb`. They live in `items.classification` JSONB with **no migration and no new group table**.
+
+| Facet | Kind | Levels / members | Notes |
+|-------|------|-----------------|-------|
+| `garment_role` | multilabel | `top / bottom / dress / outerwear / underlayer / footwear / headwear / accessory / full_body` | Structural facet; analogous to `layering_role` for gear. Enables outfit assembly: a top + a bottom, or a dress alone. A hoodie is `[top, outerwear]`. |
+| `formality` | ordinal | `loungewear < casual < smart_casual < business_casual < business < formal` | "Work wardrobe" = `formality ≥ business_casual`. Range predicate, not a routing key. |
+| `fit` | nominal | `slim / tailored / regular / relaxed / oversized` | |
+| `pattern` | nominal | `solid / striped / plaid / checked / floral / graphic / colorblock / other` | |
+| `care` | multilabel | `machine_wash / hand_wash / dry_clean / line_dry / tumble_dry / iron` | "Machine-washable tops" = `garment_role ∋ top AND care ∋ machine_wash`. |
+| `occasion` | multilabel | `work / everyday / athletic / evening / formal_event / lounge / travel / outdoor` | |
+
+**Reuse (not duplication):** apparel items inherit the universal fabric facets already on every
+`items` row — `warmth`, `breathability`, `moisture_management`, `conditions_fit`, and the full
+`item_insulation` sub-model. Clothing is fabric; no apparel-specific copy of these facets is
+needed.
+
+### 21.3 Domains as markers, not categories (apparel edition)
+
+The no-hardcoded-buckets invariant (ADR-0003, CLAUDE.md rule #1) applies unchanged:
+
+- "Business attire" → `formality ≥ business_casual`
+- "Machine-washable tops" → `garment_role ∋ top AND care ∋ machine_wash`
+- "Summer dresses" → `garment_role ∋ dress AND conditions_fit ∋ warm`
+- "Outfit: top + bottom" → pair items where `garment_role ∋ top` with `garment_role ∋ bottom`
+
+No code path reads `garment_role` or `occasion` as a switch/if that routes to a different
+recommendation branch. `domains` governs which reasoning pipelines run; it never drives query
+routing.
+
+### 21.4 Deferred: apparel capability predicates
+
+No apparel facet gates a capability in this phase. Apparel items are fully storable, queryable,
+and browsable; they are excluded from trip packing picks (same floor as unclassified gear items)
+until capability predicates are designed. The first natural candidates — occasion-match,
+care-compatibility, seasonal suitability — each require a DESIGN.md addition and ADR before
+implementation.

@@ -16,7 +16,7 @@ const list = (xs: readonly string[]) => xs.join(" | ");
 
 export function buildClassifyPrompt(input: ClassifyInput): { system: string; user: string } {
   const system = [
-    "You classify a single piece of outdoor gear onto a fixed set of FACETS for a packing-recommendation app.",
+    "You classify a single wearable or piece of outdoor gear onto a fixed set of FACETS for a packing-recommendation app.",
     "You do NOT assign a category/type. You emit CLAIMS — one per facet you can assess — each with its own evidence.",
     "",
     "OUTPUT a SINGLE JSON object, no prose, of this exact shape:",
@@ -37,6 +37,7 @@ export function buildClassifyPrompt(input: ClassifyInput): { system: string; use
     "- Multi-label facets take an ARRAY value drawn ONLY from the allowed values. An item may hold several at once.",
     "- water_resistance/DWR is NOT rain_protection. Only claim waterproofness >= wp_breathable and function_purpose 'rain_protection' for true membranes/waterproof items.",
     "- Never upgrade a marketing temperature number to a certified EN/ISO standard. Use temp_rating_standard \"marketing_unknown\" (low) or omit it unless certification is stated.",
+    "- For clothing/apparel, assess the apparel facets (garment_role, formality, fit, pattern, care, occasion) AND the universal fabric facets (warmth, breathability, moisture_management). An item can be BOTH apparel and gear (e.g. a fleece) — emit whatever facets apply; never force a single category.",
     "",
     "FACET KEYS and their ALLOWED VALUES (ordinal scales are low -> high):",
     `- universal.waterproofness: ${list(L.WATERPROOFNESS)}`,
@@ -64,6 +65,12 @@ export function buildClassifyPrompt(input: ClassifyInput): { system: string; use
     `- groups.footwear.support_stiffness: integer 1-5`,
     `- groups.footwear.ankle_height: ${list(L.ANKLE_HEIGHT)}`,
     `- groups.footwear.water_management: ${list(L.WATER_MANAGEMENT)}`,
+    `- groups.apparel.garment_role[]: ${list(L.GARMENT_ROLE)}`,
+    `- groups.apparel.formality: ${list(L.FORMALITY)}`,
+    `- groups.apparel.fit: ${list(L.FIT)}`,
+    `- groups.apparel.pattern: ${list(L.PATTERN)}`,
+    `- groups.apparel.care[]: ${list(L.CARE)}`,
+    `- groups.apparel.occasion[]: ${list(L.OCCASION)}`,
     "",
     "COMPOSITION: if (and only if) the details literally state a fabric composition, emit ONE claim with facetKey \"materials\" whose value is an array of",
     '  { "role": "shell"|"membrane"|"insulation"|"lining", "name": string|null, "fiber_components": [{"fiber": string, "pct": number|null, "recycled"?: boolean}], "construction_type": ' + list(L.CONSTRUCTION_TYPE) + '|null, "source": "manufacturer", "evidence": string }.',

@@ -6,7 +6,7 @@
 import * as L from "./levels";
 
 export type FacetKind = "boolean" | "ordinal" | "nominal" | "continuous" | "multilabel";
-export type FacetGroup = "identity" | "universal" | "multilabel" | "insulation" | "sleep" | "shell" | "carry" | "footwear";
+export type FacetGroup = "identity" | "universal" | "multilabel" | "insulation" | "sleep" | "shell" | "carry" | "footwear" | "apparel";
 export type FacetTier = "column" | "group" | "jsonb";
 
 export interface FacetDef {
@@ -80,6 +80,14 @@ export const FACETS = {
   ankle_height: def({ key: "ankle_height", label: "Ankle height", group: "footwear", kind: "nominal", levels: L.ANKLE_HEIGHT, scope: "domain", fact: "soft", tier: "group", capabilityGate: false }),
   crampon_compat: def({ key: "crampon_compat", label: "Crampon compatibility", group: "footwear", kind: "nominal", levels: L.CRAMPON_COMPAT, scope: "domain", fact: "hard", tier: "group", capabilityGate: false }),
   water_management: def({ key: "water_management", label: "Water management", group: "footwear", kind: "nominal", levels: L.WATER_MANAGEMENT, scope: "domain", fact: "soft", tier: "group", capabilityGate: true }),
+
+  // ---- apparel group (all soft, all jsonb, none capability-gate) ----
+  garment_role: def({ key: "garment_role", label: "Garment role", group: "apparel", kind: "multilabel", levels: L.GARMENT_ROLE, scope: "domain", fact: "soft", tier: "jsonb", capabilityGate: false }),
+  formality: def({ key: "formality", label: "Formality", group: "apparel", kind: "ordinal", levels: L.FORMALITY, scope: "domain", fact: "soft", tier: "jsonb", capabilityGate: false }),
+  fit: def({ key: "fit", label: "Fit", group: "apparel", kind: "nominal", levels: L.FIT, scope: "domain", fact: "soft", tier: "jsonb", capabilityGate: false }),
+  pattern: def({ key: "pattern", label: "Pattern", group: "apparel", kind: "nominal", levels: L.PATTERN, scope: "domain", fact: "soft", tier: "jsonb", capabilityGate: false }),
+  care: def({ key: "care", label: "Care", group: "apparel", kind: "multilabel", levels: L.CARE, scope: "domain", fact: "soft", tier: "jsonb", capabilityGate: false }),
+  occasion: def({ key: "occasion", label: "Occasion", group: "apparel", kind: "multilabel", levels: L.OCCASION, scope: "domain", fact: "soft", tier: "jsonb", capabilityGate: false }),
 } satisfies Record<string, FacetDef>;
 
 export type FacetKey = keyof typeof FACETS;

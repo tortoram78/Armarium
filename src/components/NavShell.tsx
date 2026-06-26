@@ -14,10 +14,11 @@ interface Props {
 }
 
 const NAV_LINKS = [
-  { href: "/",          label: "Closet" },
-  { href: "/items/new", label: "Add gear" },
-  { href: "/plan",      label: "Plan" },
-  { href: "/trips",     label: "Trips" },
+  { href: "/",             label: "Closet" },
+  { href: "/collections",  label: "Collections" },
+  { href: "/items/new",    label: "Add gear" },
+  { href: "/plan",         label: "Plan" },
+  { href: "/trips",        label: "Trips" },
 ] as const;
 
 /**

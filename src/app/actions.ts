@@ -21,7 +21,11 @@ import {
   cloneTrip,
   deleteTrip,
   updateTripConditions,
+  recordOwnership,
+  updateInventory,
+  renameItem,
 } from "@/server/app-service";
+import { OWNERSHIP_STATUS, CONDITION, type InventoryMeta } from "@/core/inventory";
 import { isItemImageObjectPath } from "@/server/item-images";
 import {
   defaultConditions,
@@ -469,6 +473,550 @@ export async function planPreviewAction(formData: FormData) {
   await getUserIdOrGuest();
   const conditions = conditionsFromFormData(formData);
   redirect(`/plan/preview?conditions=${encodeConditions(conditions)}`);
+}
+
+// ---- closet-as-database: record-only capture + inventory edit (ADR-0021/0022) ----
+
+/**
+ * Instant record-only capture — no LLM call. Reads `name` from the form; if empty, redirects home.
+ * Rate-limited on the "classify" budget (shares the same token bucket as classify — it's a write
+ * path but much cheaper; reuse the key to prevent unbounded append spam). On success the item
+ * appears immediately in the closet (non-draft, owned).
+ *
+ * Duplicate check (ADR-0022 §Phase 3): before creating, look for a likely-already-owned item. If
+ * found and no `force` flag, redirect home with a ?dup banner so the user can bump quantity, view
+ * the original, or add anyway. With `force=1` (or no dup), create as normal.
+ */
+export async function recordOwnershipAction(formData: FormData) {
+  const userId = await requireUserId();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) {
+    redirect("/?error=" + encodeURIComponent("Enter a name for the item."));
+  }
+  const force = String(formData.get("force") ?? "") === "1";
+  const key = await resolveRateKey();
+  if (!checkRateLimit("classify", key).allowed) {
+    redirect("/?error=" + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  // Duplicate guard — skip when force=1 (user chose "add anyway")
+  if (!force) {
+    const dup = await findDuplicate(name, userId);
+    if (dup) {
+      redirect(`/?dup=${encodeURIComponent(name)}&dupId=${encodeURIComponent(dup.id)}`);
+    }
+  }
+
+  await timeAndLog({ event: "action", action: "recordOwnership", userId }, async () => {
+    await recordOwnership(name, userId);
+    revalidatePath("/");
+  });
+  redirect("/");
+}
+
+/**
+ * Patch an item's inventory metadata. Reads all inventory fields from FormData; validates with Zod
+ * where natural. Never throws a 500 — any failure degrades to a friendly redirect back to the item.
+ */
+export async function updateInventoryAction(formData: FormData) {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) redirect("/");
+
+  try {
+    // Parse quantity: must be a positive integer.
+    const quantityRaw = String(formData.get("quantity") ?? "").trim();
+    const quantityParsed = parseInt(quantityRaw, 10);
+    const quantity = Number.isFinite(quantityParsed) && quantityParsed >= 1 ? quantityParsed : 1;
+
+    // Parse price: user enters dollars (e.g. "99.99"), store as cents.
+    const priceRaw = String(formData.get("pricePaidDollars") ?? "").trim();
+    const priceParsed = parseFloat(priceRaw);
+    const pricePaidCents =
+      Number.isFinite(priceParsed) && priceParsed >= 0 ? Math.round(priceParsed * 100) : null;
+
+    // Trim-or-null helper.
+    const ton = (key: string): string | null => {
+      const v = String(formData.get(key) ?? "").trim();
+      return v || null;
+    };
+
+    const patch: Partial<InventoryMeta> = {
+      ownershipStatus: pick(formData.get("ownershipStatus"), OWNERSHIP_STATUS, "owned"),
+      quantity,
+      condition: (() => {
+        const v = String(formData.get("condition") ?? "").trim();
+        return (CONDITION as readonly string[]).includes(v) ? (v as InventoryMeta["condition"]) : null;
+      })(),
+      acquiredAt: ton("acquiredAt"),
+      pricePaidCents: priceRaw ? pricePaidCents : null,
+      acquiredFrom: ton("acquiredFrom"),
+      storageLocation: ton("storageLocation"),
+      size: ton("size"),
+      color: ton("color"),
+      userNotes: ton("userNotes"),
+    };
+
+    await updateInventory(id, patch, userId);
+    revalidatePath(`/items/${id}`);
+    revalidatePath("/");
+  } catch {
+    redirect(`/items/${id}?inventoryError=1`);
+  }
+  redirect(`/items/${id}`);
+}
+
+// ---- closet browse curation (ADR-0022 Phase 2) ----
+
+const RenameItemInput = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1, "Name is required").max(120),
+});
+
+/**
+ * Inline rename — updates items.name AND classification.name in sync.
+ * Write-gated; redirects back to the item detail on success.
+ */
+export async function renameItemAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = RenameItemInput.safeParse({
+    id: formData.get("id"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) {
+    const id = String(formData.get("id") ?? "");
+    redirect(`/items/${id}?renameError=1`);
+  }
+  await renameItem(parsed.data.id, parsed.data.name, userId);
+  revalidatePath("/");
+  revalidatePath(`/items/${parsed.data.id}`);
+  redirect(`/items/${parsed.data.id}`);
+}
+
+import {
+  searchCloset, findDuplicate, recordOwnershipBatch, enrichItem, isItemGear,
+  setItemTags,
+  createCollection, renameCollection, deleteCollection,
+  addItemToCollection, removeItemFromCollection,
+  searchCatalog, addFromCatalog,
+  type CatalogSuggestion,
+} from "@/server/app-service";
+import { type GroupingKey } from "@/core/closet";
+
+// ---- self-building catalog: add-time autocomplete with specs (ADR-0025 / Phase 5) ----
+
+// Re-export the type so client components can import it from actions.ts without touching app-service.
+export type { CatalogSuggestion };
+
+/**
+ * Name-search the self-building product catalog for add-time autocomplete. READ gate only —
+ * typeahead is read-only (no write) so `getUserIdOrGuest` is correct; no redirect. Returns []
+ * for empty/short query to keep the round-trip count low.
+ */
+export async function searchCatalogAction(formData: FormData): Promise<CatalogSuggestion[]> {
+  const { userId } = await getUserIdOrGuest();
+  const q = String(formData.get("q") ?? "").trim();
+  if (!q || q.length < 2) return [];
+  return searchCatalog(q, userId, 6);
+}
+
+/**
+ * One-tap add from the catalog — inherits the previously-classified specs instead of creating a
+ * bare record-only item. Write-gated (`requireUserId`); rate-limited on the "classify" budget
+ * (same token bucket as classify — prevents unbounded catalog-copy spam). Redirects to the new
+ * item or falls back to "/" if the catalog key is gone.
+ */
+export async function addFromCatalogAction(formData: FormData) {
+  const userId = await requireUserId();
+  const key = String(formData.get("key") ?? "").trim();
+  if (!key) redirect("/");
+
+  const rateKey = await resolveRateKey();
+  if (!checkRateLimit("classify", rateKey).allowed) {
+    redirect("/?error=" + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  const item = await timeAndLog({ event: "action", action: "addFromCatalog", userId }, async () => {
+    const result = await addFromCatalog(key, userId);
+    if (result) revalidatePath("/");
+    return result;
+  });
+
+  redirect(item ? `/items/${item.id}` : "/");
+}
+
+/**
+ * Load the next page of the flat closet ("All" view) — cursor-keyed, filter-aware.
+ * Called client-side via a "Load more" button / IntersectionObserver.
+ * Returns serialisable data (no class instances).
+ */
+export async function loadMoreClosetAction(formData: FormData): Promise<{
+  items: {
+    id: string;
+    name: string;
+    badges: string[];
+    needsVerify: boolean;
+    imageUrl: null; // photos require a separate signed-URL round-trip; load-more omits them
+    ownershipStatus: string;
+    quantity: number;
+    condition: string | null;
+    isRecordOnly: boolean;
+    isGear: boolean;
+  }[];
+  nextCursor: string | null;
+}> {
+  const { userId } = await getUserIdOrGuest();
+  const cursor = String(formData.get("cursor") ?? "").trim() || undefined;
+  const search = String(formData.get("search") ?? "").trim() || undefined;
+  const statusRaw = String(formData.get("status") ?? "").trim();
+  const conditionRaw = String(formData.get("condition") ?? "").trim();
+  const sortRaw = String(formData.get("sort") ?? "").trim();
+
+  const status = (OWNERSHIP_STATUS as readonly string[]).includes(statusRaw)
+    ? (statusRaw as (typeof OWNERSHIP_STATUS)[number])
+    : undefined;
+  const condition = (CONDITION as readonly string[]).includes(conditionRaw)
+    ? (conditionRaw as (typeof CONDITION)[number])
+    : undefined;
+  const sort = sortRaw === "name" ? "name" : "newest";
+
+  const { deriveDisplayTags } = await import("@/core/tags");
+  const { isItemGear } = await import("@/server/app-service");
+
+  const { items, nextCursor } = await searchCloset(
+    "capability" as GroupingKey,
+    { search, status, condition, sort, cursor, limit: 36 },
+    userId,
+  );
+
+  return {
+    items: items.map((it) => {
+      const tags = deriveDisplayTags(it.classification.universal);
+      return {
+        id: it.id,
+        name: it.name,
+        badges: tags.slice(0, 4).map((t) => t.label),
+        needsVerify:
+          it.classification.universal.warmth.value === null &&
+          it.classification.universal.technical_vs_lifestyle.value === null,
+        imageUrl: null,
+        ownershipStatus: it.inventory.ownershipStatus,
+        quantity: it.inventory.quantity,
+        condition: it.inventory.condition,
+        isRecordOnly: it.inventory.domains.length === 0 && tags.length === 0,
+        isGear: isItemGear(it),
+      };
+    }),
+    nextCursor,
+  };
+}
+
+const BulkUpdateInput = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+  op: z.enum(["set_status", "delete"]),
+  status: z.enum(OWNERSHIP_STATUS).optional(),
+});
+
+/**
+ * Bulk action on a set of closet items — set ownership status or delete.
+ * Write-gated; revalidates "/" after each item so the closet refreshes.
+ */
+export async function bulkUpdateClosetAction(formData: FormData) {
+  const userId = await requireUserId();
+  const ids = formData.getAll("ids").map(String).filter(Boolean);
+  const op = String(formData.get("op") ?? "").trim();
+  const statusRaw = String(formData.get("status") ?? "").trim();
+
+  const parsed = BulkUpdateInput.safeParse({
+    ids,
+    op,
+    status: statusRaw || undefined,
+  });
+  if (!parsed.success) redirect("/?bulkError=1");
+
+  const { op: operation, ids: validIds, status } = parsed.data;
+  for (const id of validIds) {
+    if (operation === "delete") {
+      await deleteItem(id, userId);
+    } else if (operation === "set_status" && status) {
+      await updateInventory(id, { ownershipStatus: status }, userId);
+    }
+  }
+  revalidatePath("/");
+}
+
+// ---- capture at scale: batch add + async enrichment + dedupe (ADR-0022 §Phase 3) ----
+
+/**
+ * Batch record-only capture from a pasted list (ADR-0022 §Phase 3). Splits the textarea on newlines,
+ * dedupes identical lines within the paste, rate-limits lightly (reuse "classify" budget), calls
+ * `recordOwnershipBatch` for the instant write (no LLM), then redirects to the `?ids=` streaming
+ * view where the browser enriches each item client-side.
+ */
+export async function recordOwnershipBatchAction(formData: FormData) {
+  const userId = await requireUserId();
+  const raw = String(formData.get("names") ?? "").trim();
+  if (!raw) {
+    redirect("/items/batch?error=" + encodeURIComponent("Paste at least one item name."));
+  }
+
+  // Split, trim, drop blanks, dedupe WITHIN the paste (preserve first occurrence order).
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const l of lines) {
+    const key = l.toLowerCase();
+    if (!seen.has(key)) { seen.add(key); unique.push(l); }
+  }
+  if (unique.length === 0) {
+    redirect("/items/batch?error=" + encodeURIComponent("No item names found — paste one per line."));
+  }
+
+  const rateKey = await resolveRateKey();
+  if (!checkRateLimit("classify", rateKey).allowed) {
+    redirect("/items/batch?error=" + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  const created = await timeAndLog({ event: "action", action: "recordOwnershipBatch", userId }, async () => {
+    const items = await recordOwnershipBatch(unique, userId);
+    revalidatePath("/");
+    return items;
+  });
+
+  const ids = created.map((i) => i.id).join(",");
+  redirect(`/items/batch?ids=${encodeURIComponent(ids)}`);
+}
+
+/**
+ * Enrich a single existing item in place — the async per-item call the batch streaming view fires
+ * from the browser. Rate-limited on the "classify" budget. Returns a serialisable result object
+ * (no redirect) so the client component can update per-row state.
+ *
+ * Returns `{ ok:true, id, classified, badges }` on success, or `{ ok:false, reason }` on
+ * rate-limit or missing item. Never throws (degrades safely).
+ */
+export async function enrichItemAction(formData: FormData): Promise<
+  | { ok: true; id: string; classified: boolean; badges: string[] }
+  | { ok: false; reason: string }
+> {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { ok: false, reason: "missing_id" };
+
+  const rateKey = await resolveRateKey();
+  if (!checkRateLimit("classify", rateKey).allowed) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  try {
+    const updated = await timeAndLog({ event: "action", action: "enrichItem", userId }, async () => {
+      return enrichItem(id, userId);
+    });
+    if (!updated) return { ok: false, reason: "not_found" };
+
+    const { deriveDisplayTags } = await import("@/core/tags");
+    const badges = deriveDisplayTags(updated.classification.universal)
+      .slice(0, 4)
+      .map((t) => t.label);
+    return { ok: true, id, classified: isItemGear(updated), badges };
+  } catch {
+    return { ok: false, reason: "error" };
+  }
+}
+
+/**
+ * Classify a record-only item in place (the "Classify now" affordance on the item detail page).
+ * Equivalent to enrichItemAction but redirect-based: after enrichment, revalidates the item and
+ * the closet, then redirects back to the item detail. Rate-limited on "classify" budget.
+ */
+export async function classifyNowAction(formData: FormData) {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) redirect("/");
+
+  const rateKey = await resolveRateKey();
+  if (!checkRateLimit("classify", rateKey).allowed) {
+    redirect(`/items/${id}?error=` + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  await timeAndLog({ event: "action", action: "classifyNow", userId }, async () => {
+    await enrichItem(id, userId);
+  });
+  revalidatePath(`/items/${id}`);
+  revalidatePath("/");
+  redirect(`/items/${id}`);
+}
+
+/**
+ * Typeahead suggestion — returns up to 6 {id,name} matches from the user's closet. Lightweight:
+ * reuses searchCloset (name filter) and returns only the id + name (no facets). Called client-side
+ * (debounced) for the quick-add combobox.
+ */
+export async function suggestItemsAction(formData: FormData): Promise<{ id: string; name: string }[]> {
+  const { userId } = await getUserIdOrGuest();
+  const q = String(formData.get("q") ?? "").trim();
+  if (!q || q.length < 2) return [];
+  const { items } = await searchCloset("capability" as GroupingKey, { search: q, limit: 6 }, userId);
+  return items.map((i) => ({ id: i.id, name: i.name }));
+}
+
+// ---- curation + portability: tags, collections, export (ADR-0024 / Phase 4) ----
+
+const SetItemTagsInput = z.object({
+  id: z.string().min(1),
+  tags: z.string().max(1000), // raw comma/space separated string
+});
+
+/**
+ * Set free-form user tags on an item. Accepts a raw comma/space-separated string; normalization
+ * (trim/dedupe/lowercase) is done in core via `normalizeTags`. Write-gated; revalidates the item
+ * detail and the closet so tag chips update immediately.
+ */
+export async function setItemTagsAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = SetItemTagsInput.safeParse({
+    id: formData.get("id"),
+    tags: formData.get("tags") ?? "",
+  });
+  if (!parsed.success) {
+    const id = String(formData.get("id") ?? "");
+    redirect(`/items/${id}?tagsError=1`);
+  }
+  const { id, tags } = parsed.data;
+  try {
+    await setItemTags(id, tags, userId);
+  } catch {
+    redirect(`/items/${id}?tagsError=1`);
+  }
+  revalidatePath(`/items/${id}`);
+  revalidatePath("/");
+  redirect(`/items/${id}`);
+}
+
+const CreateCollectionInput = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120),
+});
+
+/** Create a new collection; redirects to the new collection's page. */
+export async function createCollectionAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = CreateCollectionInput.safeParse({ name: formData.get("name") });
+  if (!parsed.success) {
+    redirect("/collections?error=" + encodeURIComponent("Collection name is required."));
+  }
+  let col;
+  try {
+    col = await createCollection(parsed.data.name, userId);
+  } catch {
+    redirect("/collections?error=" + encodeURIComponent("Could not create collection — try again."));
+  }
+  revalidatePath("/collections");
+  redirect(`/collections/${col.id}`);
+}
+
+const RenameCollectionInput = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1, "Name is required").max(120),
+});
+
+/** Rename a collection; stays on the collections list. */
+export async function renameCollectionAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = RenameCollectionInput.safeParse({
+    id: formData.get("id"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) {
+    redirect("/collections?renameError=1");
+  }
+  try {
+    await renameCollection(parsed.data.id, parsed.data.name, userId);
+  } catch {
+    redirect("/collections?renameError=1");
+  }
+  revalidatePath("/collections");
+  redirect("/collections");
+}
+
+const CollectionIdInput = z.object({ id: z.string().min(1) });
+
+/** Delete a collection (cascade removes memberships; items themselves are untouched). */
+export async function deleteCollectionAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = CollectionIdInput.safeParse({ id: formData.get("id") });
+  if (!parsed.success) redirect("/collections");
+  try {
+    await deleteCollection(parsed.data.id, userId);
+  } catch {
+    redirect("/collections?deleteError=1");
+  }
+  revalidatePath("/collections");
+  redirect("/collections");
+}
+
+const CollectionItemInput = z.object({
+  collectionId: z.string().min(1),
+  itemId: z.string().min(1),
+});
+
+/** Add an item to a collection. Idempotent. Returns a JSON-serialisable result (no redirect) so the
+ *  client component can update checked state without a full reload. */
+export async function addItemToCollectionAction(formData: FormData): Promise<{ ok: boolean }> {
+  const userId = await requireUserId();
+  const parsed = CollectionItemInput.safeParse({
+    collectionId: formData.get("collectionId"),
+    itemId: formData.get("itemId"),
+  });
+  if (!parsed.success) return { ok: false };
+  try {
+    await addItemToCollection(parsed.data.collectionId, parsed.data.itemId, userId);
+    revalidatePath(`/items/${parsed.data.itemId}`);
+    revalidatePath(`/collections/${parsed.data.collectionId}`);
+    revalidatePath("/collections");
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Remove an item from a collection. Returns a JSON-serialisable result. */
+export async function removeItemFromCollectionAction(formData: FormData): Promise<{ ok: boolean }> {
+  const userId = await requireUserId();
+  const parsed = CollectionItemInput.safeParse({
+    collectionId: formData.get("collectionId"),
+    itemId: formData.get("itemId"),
+  });
+  if (!parsed.success) return { ok: false };
+  try {
+    await removeItemFromCollection(parsed.data.collectionId, parsed.data.itemId, userId);
+    revalidatePath(`/items/${parsed.data.itemId}`);
+    revalidatePath(`/collections/${parsed.data.collectionId}`);
+    revalidatePath("/collections");
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Remove an item from a collection via a redirect-based form (used in collection detail page). */
+export async function removeItemFromCollectionRedirectAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = CollectionItemInput.safeParse({
+    collectionId: formData.get("collectionId"),
+    itemId: formData.get("itemId"),
+  });
+  if (!parsed.success) return;
+  try {
+    await removeItemFromCollection(parsed.data.collectionId, parsed.data.itemId, userId);
+  } catch {
+    // no-op: silently ignore
+  }
+  revalidatePath(`/collections/${parsed.data.collectionId}`);
+  revalidatePath("/collections");
+  redirect(`/collections/${parsed.data.collectionId}`);
 }
 
 /** Sign out the current user and redirect to /login. */

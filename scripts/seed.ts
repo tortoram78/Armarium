@@ -54,6 +54,10 @@ async function seedEntry(entry: SeedEntry): Promise<void> {
     draft: false,
     rawText: entry.input.text,
     classification,
+    // All seed corpus items are real gear (apparel, sleeping bags, etc.) — tag them so the
+    // isGearClassified predicate and domain-aware UI can distinguish them from non-gear records.
+    // A future non-gear seed entry should explicitly set domains: [] here.
+    inventory: { domains: ["gear"] },
   });
 }
 

@@ -139,6 +139,115 @@ steps 1–2 as its item source.
 
 ---
 
+## Shipped — Closet-database: turning the closet into a first-class inventory (all five phases complete 2026-06-25)
+
+The product inversion approved on 2026-06-25 (ADR-0021 / ADR-0022 / ADR-0023; DESIGN.md §19):
+ownership becomes the root entity; classification/enrichment is an optional async follow-up;
+the closet becomes a general-purpose, any-domain personal inventory database. All five phases
+are additive over the existing capability-first hybrid — the facet core, evidence contract,
+capability predicates, enrichment pipeline, and trip engine are reused unchanged.
+
+### Closet P1 — Foundation — **SHIPPED** *(commit "Phase 1")*
+
+**Goal:** any possession can be recorded instantly; the full inventory layer is live; the
+closet is a real, browsable database rather than a classification side-effect.
+
+Delivered:
+- Additive schema migration: `ownership_status`, `quantity`, `condition`, `acquired_at`,
+  `price_paid_cents`, `acquired_from`, `storage_location`, `size`, `color`, `user_notes`,
+  `domains` columns on `items`; backfill `inInventory → ownership_status`.
+- `recordOwnership(name)` path: instant persist via all-unknown classification + DEFAULT_INVENTORY.
+  Capture latency under 1 second.
+- Degrade-not-throw: corpus miss / LLM error → all-unknown, never throw.
+- Domain gating: `isGearClassified(it)` = `domains.includes('gear') OR hasAnyKnownFacet(it)`.
+  A non-gear possession renders identity + inventory + "Add details" only; gear-specific sections
+  are hidden. `groupCloset` gains a trailing "Unclassified — add details" bucket so record-only
+  items remain visible in grouped views.
+
+**Gating docs:** DESIGN.md §19 + ADR-0021 + ADR-0022 + ADR-0023.
+
+---
+
+### Closet P2 — Browse at scale — **SHIPPED** *(commit "Phase 2")*
+
+**Goal:** a closet with 50–500 items is navigable, searchable, and actionable without scrolling
+through a flat list.
+
+Delivered:
+- Filters (status, condition) + sort (newest / name).
+- Keyset pagination: `listItemsPage` (formerly dead code) is now the live path; load-more
+  appends the next page in place.
+- Grid / dense-list toggle.
+- Inline actions (⋯ menu): change status, change quantity, rename, delete.
+- Bulk select: set status / delete across multiple items.
+- `renameItem` updates both `items.name` and `classification.name` in sync.
+
+---
+
+### Closet P3 — Capture at scale — **SHIPPED** *(commit "Phase 3")*
+
+**Goal:** adding a large existing collection is not a one-item-at-a-time exercise.
+
+Delivered:
+- **Batch paste-a-list** (`POST /items/batch`): `recordOwnershipBatch` creates all items
+  instantly; a client-orchestrated view then enriches each via `enrichItemAction`
+  (concurrency cap 3, rate-limit backoff), streaming per-item status. No server job queue;
+  no new infrastructure — the browser drives follow-up calls.
+- **`enrichItem`** re-runs the classify pipeline on an existing item in place; promotes to
+  `domains:['gear']` only when the classifier finds real gear signal.
+- **Dedupe**: `src/core/dedupe.ts` `findDuplicate` powers a quiet quick-add banner (view /
+  add anyway / +1 quantity). Typeahead over owned items; in-place "Classify now" on detail.
+
+---
+
+### Closet P4 — Curation and portability — **SHIPPED** *(commit "Phase 4")*
+
+**Goal:** users can organize their closet their way and take their data with them.
+
+Delivered:
+- **Collections (kits):** `collections` + `collection_items` tables (RLS, migration 0009);
+  `/collections` + `/collections/[id]`; `CollectionPicker` on item detail; add / remove /
+  rename / delete. Collections are personal curation — explicitly NOT a hardcoded category
+  and NOT a capability input. See ADR-0024.
+- **User tags:** `user_tags text[]` (GIN-indexed) on inventory meta; tag editor on item
+  detail; clickable tag chips; `?tag=` closet filter. See ADR-0024.
+- **CSV export:** `GET /api/export` streams the full closet (RFC-4180 quoted). No new
+  dependency; plain text generation. See ADR-0024.
+
+**Deferred from this pass (both require their own DESIGN.md section + ADR before build):**
+- Apparel as a second modeled domain — the `domains = ['apparel']` extension point is live
+  from P1, but the full facet ontology, classification prompt, and capability predicates
+  for apparel need a dedicated design pass.
+
+---
+
+### Closet P5 — Self-building catalog — **SHIPPED** *(commit "Phase 5")*
+
+**Goal:** the catalog builds itself; adding items requires minimal user effort.
+
+Delivered:
+- **`searchCatalog(query, limit)`** queries the global `llm_draft_cache` (the self-building KB,
+  ADR-0007 / ADR-0013) for add-time autocomplete. Reads global drafts only — never per-user
+  overrides — so there is no cross-tenant leak. See ADR-0025.
+- **`addFromCatalog(hit, userId)`** one-taps a known product into the closet with inherited
+  specs (hard-fact demotion guard applies at insert time). Items arrive classified rather than
+  all-unknown, skipping the background enrichment round-trip.
+- This is the user-facing payoff of the self-building cache that has been running since Phase 2.
+
+**Designed-next: not built this pass (each requires ADR + provider decision before build):**
+- **Photo / vision capture.** The evidence resolver already designates `source:'vision_inferred'`
+  as an extension point (ADR-0018). Vision capture requires a runtime vision API that cannot
+  satisfy the hermetic gate without a dedicated mock path, and background-removal would add a
+  dependency (ask-first rule). Write the ADR + provider decision first.
+- **GTIN-keyed `canonical_products` table** (DESIGN.md §15 element 1). The right long-term
+  canonical store requires a GTIN/barcode pipeline (unlocked backlog, deferred until after
+  Phase 3 URL enrichment) to populate stable keys. The `llm_draft_cache` is sufficient as the
+  catalog source at current corpus size; promote to a canonical table when the GTIN pipeline
+  is ready.
+- **Apparel as a second modeled domain** — see P4 note above.
+
+---
+
 ## Unlocked backlog (build when prioritized; each gated on its own ADR + dep/infra decision)
 
 The hard block on these items was lifted on 2026-06-21 (ADR-0009). They are no longer prohibited
