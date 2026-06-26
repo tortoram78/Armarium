@@ -33,12 +33,13 @@ export type Condition = (typeof CONDITION)[number];
 // ----------------------------------------------------------------------------------------------------
 
 /**
- * The set of behavioral domains for which full facet-sets are modeled. Gear is the only fully-modeled
- * domain in v1; apparel/electronics/collectibles are future extension points. `domains: string[]` on an
- * item marks which behavioral facet-sets apply and is NEVER a routing discriminator (no-hardcoded-
- * categories invariant). A record-only / non-gear item has `domains: []`.
+ * The set of behavioral domains for which full facet-sets are modeled. 'gear' and 'apparel' are
+ * the two fully-modeled domains; electronics/collectibles are future extension points.
+ * `domains: string[]` on an item marks which behavioral facet-sets apply and is NEVER a routing
+ * discriminator (no-hardcoded-categories invariant). A record-only / non-gear item has `domains: []`.
+ * An item can hold multiple domains simultaneously (e.g. a fleece is both gear and apparel).
  */
-export const KNOWN_DOMAINS = ["gear"] as const;
+export const KNOWN_DOMAINS = ["gear", "apparel"] as const;
 export type KnownDomain = (typeof KNOWN_DOMAINS)[number];
 
 // ----------------------------------------------------------------------------------------------------

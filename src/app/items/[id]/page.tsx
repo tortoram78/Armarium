@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { getItem, resolveItem, isItemGear, listCollections, collectionsForItem } from "@/server/app-service";
+import { getItem, resolveItem, isItemGear, isItemApparel, listCollections, collectionsForItem } from "@/server/app-service";
 import { getSignedItemImageUrl } from "@/server/item-images";
 import { evaluateCapability, CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/core/capabilities";
 import {
@@ -119,6 +119,8 @@ export default async function ItemDetailPage({
 
   // Domain gate — gear-specific UI is shown only when the item is classified into the gear domain.
   const isGear = isItemGear(item);
+  // Apparel domain gate — apparel-specific UI is shown only when the item is classified into the apparel domain.
+  const isApparel = isItemApparel(item);
 
   const c = item.classification;
 
@@ -143,6 +145,9 @@ export default async function ItemDetailPage({
 
   const priceDollars =
     c.identity.price_cents.value !== null ? c.identity.price_cents.value / 100 : null;
+
+  // Eyebrow label: "Gear · apparel" when both; "Apparel" when apparel-only; "Gear" when gear-only; "Possession" when neither.
+  const eyebrowLabel = isGear && isApparel ? "Gear · apparel" : isGear ? "Gear" : isApparel ? "Apparel" : "Possession";
 
   // Header meta line differs by domain: gear shows capability count; non-gear shows honest "not yet classified"
   const metaCapabilityNode = isGear ? (
@@ -182,7 +187,7 @@ export default async function ItemDetailPage({
       <header className="space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
           <div className="min-w-0 max-w-2xl">
-            <p className="eyebrow mb-3">{isGear ? "Gear" : "Possession"}</p>
+            <p className="eyebrow mb-3">{eyebrowLabel}</p>
             <h1 className="display-xl text-foreground">{item.name}</h1>
             {showIdentityLine && (
               <p className="mt-3 text-[0.975rem] text-muted-foreground">{identityLine}</p>
@@ -326,8 +331,8 @@ export default async function ItemDetailPage({
         </div>
       </section>
 
-      {/* ── Materials & composition — GEAR ONLY (non-gear items typically have no material breakdown) ── */}
-      {isGear && (c.materials.length > 0 || c.treatments.length > 0) && (
+      {/* ── Materials & composition — GEAR or APPAREL (fabric facets matter for both domains) ── */}
+      {(isGear || isApparel) && (c.materials.length > 0 || c.treatments.length > 0) && (
         <section>
           <SectionHead
             title="Material & composition"
@@ -375,8 +380,8 @@ export default async function ItemDetailPage({
         </section>
       )}
 
-      {/* ── Universal facets — GEAR ONLY ── */}
-      {isGear && (
+      {/* ── Universal facets — GEAR or APPAREL (warmth/breathability/moisture matter for apparel too) ── */}
+      {(isGear || isApparel) && (
         <section>
           <SectionHead title="Universal facets" />
           <div className="panel px-5 py-1">
@@ -444,6 +449,60 @@ export default async function ItemDetailPage({
                 </div>
               );
             })}
+          </div>
+        </section>
+      )}
+
+      {/* ── Apparel — APPAREL ONLY (ADR-0026 apparel-domain facets) ── */}
+      {isApparel && (
+        <section>
+          <SectionHead title="Apparel" />
+          <div className="panel space-y-4 p-5">
+            {/* Garment role — multilabel chips */}
+            <div>
+              <p className="eyebrow mb-2">Garment role</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(!c.groups.apparel || c.groups.apparel.garment_role.length === 0) ? (
+                  <span className="text-sm italic text-accent">None — verify</span>
+                ) : (
+                  c.groups.apparel.garment_role.map((v) => (
+                    <Badge key={v} variant="subtle">{titleize(v)}</Badge>
+                  ))
+                )}
+              </div>
+            </div>
+            {/* Formality, fit, pattern — Evidence<ordinal/enum> single values */}
+            <div className="border-t border-border/60 pt-4">
+              <SpecRow e={c.groups.apparel?.formality ?? null} label="Formality" />
+              <SpecRow e={c.groups.apparel?.fit ?? null} label="Fit" />
+              <SpecRow e={c.groups.apparel?.pattern ?? null} label="Pattern" />
+            </div>
+            {/* Care — multilabel chips */}
+            <div>
+              <p className="eyebrow mb-2">Care</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(!c.groups.apparel || c.groups.apparel.care.length === 0) ? (
+                  <span className="text-sm italic text-accent">None — verify</span>
+                ) : (
+                  c.groups.apparel.care.map((v) => (
+                    <Badge key={v} variant="subtle">{titleize(v)}</Badge>
+                  ))
+                )}
+              </div>
+            </div>
+            {/* Occasion — multilabel chips */}
+            <div>
+              <p className="eyebrow mb-2">Occasion</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(!c.groups.apparel || c.groups.apparel.occasion.length === 0) ? (
+                  <span className="text-sm italic text-accent">None — verify</span>
+                ) : (
+                  c.groups.apparel.occasion.map((v) => (
+                    <Badge key={v} variant="subtle">{titleize(v)}</Badge>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </section>
       )}
@@ -566,7 +625,7 @@ export default async function ItemDetailPage({
         )}
       </section>
 
-      {/* ── Classify affordance — shown for non-gear items (no behavioral facets yet) ── */}
+      {/* ── Classify affordance — shown when no domain (gear or apparel) has been assigned yet ── */}
       {item.inventory.domains.length === 0 && (
         <section>
           <div className="panel flex flex-wrap items-center justify-between gap-4 bg-muted/30 p-5">

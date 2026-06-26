@@ -7,7 +7,7 @@ import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
 import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
-import { isGearClassified, hasAnyKnownFacet } from "@/core/domains";
+import { isGearClassified, isApparelClassified, modeledDomainsOf } from "@/core/domains";
 import { findDuplicateIn, type DedupeFields } from "@/core/dedupe";
 import { recordOnlyClassification } from "@/core/record";
 import { normalizeTags, type InventoryMeta, type OwnershipStatus, type Condition } from "@/core/inventory";
@@ -44,6 +44,18 @@ export function resolveItem(i: StoredItem): ResolvedItem {
  *  Reads the real `domains` marker OR any known gear facet signal (backfill-safe; see src/core/domains). */
 export function isItemGear(i: StoredItem): boolean {
   return isGearClassified(resolveItem(i));
+}
+
+/** Whether an item is classified into the apparel domain (ADR-0026) — gates the apparel facet UI. */
+export function isItemApparel(i: StoredItem): boolean {
+  return isApparelClassified(resolveItem(i));
+}
+
+/** The modeled domains a classification shows signal in (['gear'], ['apparel'], ['gear','apparel'], or
+ *  []). The single source for marking `inventory.domains` on classify/enrich — a fleece becomes both,
+ *  a dress apparel-only, a no-signal item stays an unclassified possession (ADR-0023/0026). */
+function domainsForClassification(c: ItemClassification): string[] {
+  return modeledDomainsOf(resolveFromClassification("_", c));
 }
 
 export async function getAllItems(userId = DEFAULT_USER_ID): Promise<StoredItem[]> {
@@ -237,11 +249,12 @@ export async function enrichItem(
   // written back as this user's authoritative correction.
   await repo.updateClassification(userId, id, classification);
   await repo.replaceItemEvidence(userId, id, claims);
-  // Promote to the gear domain ONLY when the classifier actually found gear signal. A quick-added item
-  // (a water bottle, a camera) carries no gear intent; if enrichment yields nothing it stays an honest
-  // possession (domains []), not a gear item with empty facet sections. Unknown is first-class.
-  if (hasAnyKnownFacet(resolveFromClassification(id, classification, existing.inventory))) {
-    await repo.updateInventory(userId, id, { domains: ["gear"] });
+  // Promote to whatever modeled domains the classifier actually found signal in (gear, apparel, or both)
+  // — ADR-0023/0026. A quick-added item with no signal (a water bottle, a camera) stays an honest
+  // possession (domains []), never a domain item with empty facet sections. Unknown is first-class.
+  const domains = modeledDomainsOf(resolveFromClassification(id, classification, existing.inventory));
+  if (domains.length > 0) {
+    await repo.updateInventory(userId, id, { domains });
   }
   return repo.getItem(userId, id);
 }
@@ -342,13 +355,12 @@ export async function addFromCatalog(key: string, userId = DEFAULT_USER_ID): Pro
   const hit = await getCacheRepository().lookup(userId, key);
   if (!hit) return null;
   const classification = hit.classification;
-  const isGear = hasAnyKnownFacet(resolveFromClassification("catalog", classification));
   const item = await getRepository().addItem(userId, {
     name: classification.name,
     inInventory: true,
     draft: false,
     classification,
-    inventory: { ownershipStatus: "owned", domains: isGear ? ["gear"] : [] },
+    inventory: { ownershipStatus: "owned", domains: domainsForClassification(classification) },
   });
   // Give the inherited item an auditable provenance trail (degraded — the source was the cache).
   await getRepository().replaceItemEvidence(userId, item.id, decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION));
@@ -501,9 +513,8 @@ export async function classifyToDraft(
     await cache.putDraft(key, name, classification, MODEL_ID);
   }
 
-  // domains:['gear'] marks the item as classified into the gear domain (ADR-0023) — the classify path
-  // always produces a gear assessment, so it is gear even when most facets resolve unknown.
-  const item = await getRepository().addItem(userId, { name, inInventory, draft: true, rawText: text, classification, inventory: { domains: ["gear"] } });
+  // Mark the modeled domains the classification shows signal in (gear, apparel, or both) — ADR-0023/0026.
+  const item = await getRepository().addItem(userId, { name, inInventory, draft: true, rawText: text, classification, inventory: { domains: domainsForClassification(classification) } });
   // Persist the claim set as the item's provenance backing store (a no-op-safe REPLACE, user-scoped).
   await getRepository().replaceItemEvidence(userId, item.id, claims);
   const mode = deps.classifier?.mode ?? classifierMode();
@@ -639,7 +650,7 @@ export async function enrichFromUrlToDraft(
     draft: true,
     rawText: text,
     classification,
-    inventory: { domains: ["gear"] }, // URL enrichment is a gear assessment → mark the gear domain (ADR-0023)
+    inventory: { domains: domainsForClassification(classification) }, // mark modeled domains (ADR-0023/0026)
   });
   // Persist the full claim set (manufacturer + inference + derived) as the item's provenance backing store.
   await getRepository().replaceItemEvidence(userId, item.id, claims);

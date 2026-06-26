@@ -1,15 +1,17 @@
 # Armarium — DESIGN (Phase 0 synthesis)
 
 > **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 + ops hardening + item photos delivered;
-> closet-database Phases 1–5 (possession model inversion through self-building catalog) all shipped.**
+> closet-database Phases 1–5 (possession model inversion through self-building catalog) all shipped;
+> apparel domain ontology (second modeled domain) designed and shipped.**
 > This document began as the Phase 0 design synthesis (9 investigation agents → 3 competing
 > architectures → 3 adversarial audits) and is updated as each phase lands. Phase 1 (core +
 > schema), Phase 2 (usable web app + NL parser + review lifecycle + Postgres + self-building cache
 > + layering-system reasoning), Phase 3 step 1 (real auth + multi-user), Phase 3 step 2
 > (manufacturer URL enrichment), Phase 3 step 3 (weather auto-conditions), the ops-hardening
 > bundle (rate limiting + structured logging + error boundaries), item photos (display-only,
-> private Supabase Storage), and the full closet-database inversion (§19 + §20 — Phases 1–5) are
-> all reflected below. See ADR-0021 / 0022 / 0023 (Phase 1), ADR-0024 (Phase 4), ADR-0025 (Phase 5).
+> private Supabase Storage), the full closet-database inversion (§19 + §20 — Phases 1–5), and the
+> apparel domain ontology (§21) are all reflected below. See ADR-0021 / 0022 / 0023 (Phase 1),
+> ADR-0024 (Phase 4), ADR-0025 (Phase 5), ADR-0026 (apparel domain).
 > Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
 > [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
 > [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
@@ -26,7 +28,8 @@
 > [ADR-0022](docs/decisions/0022-decouple-ownership-from-classification.md) *(decouple ownership from classification: record-only + async enrichment)*,
 > [ADR-0023](docs/decisions/0023-multi-domain-possession-model.md) *(multi-domain possession model: three-ring architecture)*,
 > [ADR-0024](docs/decisions/0024-collections-tags-export.md) *(collections + user tags + CSV export: personal curation orthogonal to facets)*,
-> [ADR-0025](docs/decisions/0025-self-building-catalog.md) *(self-building catalog: `llm_draft_cache` as add-time autocomplete + spec inheritance)*.
+> [ADR-0025](docs/decisions/0025-self-building-catalog.md) *(self-building catalog: `llm_draft_cache` as add-time autocomplete + spec inheritance)*,
+> [ADR-0026](docs/decisions/0026-apparel-domain-ontology.md) *(apparel domain ontology: second modeled domain — six soft JSONB facets, no migration)*.
 
 ## 0. TL;DR
 
@@ -1144,6 +1147,63 @@ pipeline, evidence resolver, auth/RLS model, and trip engine are **unchanged thr
 - **GTIN-keyed `canonical_products` table** (DESIGN.md §15 element 1) — deferred until the
   barcode/GTIN enrichment pipeline is built (unlocked backlog; sequenced after Phase 3 URL
   enrichment; see ADR-0009).
-- **Apparel as a second fully-modeled domain** — `domains = ['apparel']` is storable from Phase 1;
-  the facet ontology, classification prompt, and capability predicates require a dedicated design
-  section and ADR (the gear domain is the template; apparel is the same scale of work).
+- **Apparel domain ontology** — shipped; see §21 and ADR-0026.
+- **Apparel capability predicates** (size-range fit, care compatibility, seasonal suitability,
+  occasion match) — deferred; each requires its own DESIGN.md addition and ADR before
+  implementation. Apparel items are inventory-visible and facet-queryable now; they are excluded
+  from trip packing picks until capability gates are defined.
+
+---
+
+## 21. Apparel domain ontology (second modeled domain)
+
+See [ADR-0026](docs/decisions/0026-apparel-domain-ontology.md) for full rationale and rejected
+alternatives. This section records the contract that code owners implement against.
+
+### 21.1 Relationship to the three-ring possession model
+
+The three-ring model (§19.1, ADR-0023) is unchanged. Apparel is a second behavioral facet-set
+that populates Ring 3 for items where `'apparel' ∈ domains`. `domains` remains a pluggable
+marker array, never a routing discriminator. A merino base layer carries
+`domains: ['gear', 'apparel']`; the UI renders each domain's facet section according to which
+domains have populated signal.
+
+### 21.2 The apparel facet group
+
+Six new facets in the `apparel` group of the registry — all soft, non-capability-gating, tier
+`jsonb`. They live in `items.classification` JSONB with **no migration and no new group table**.
+
+| Facet | Kind | Levels / members | Notes |
+|-------|------|-----------------|-------|
+| `garment_role` | multilabel | `top / bottom / dress / outerwear / underlayer / footwear / headwear / accessory / full_body` | Structural facet; analogous to `layering_role` for gear. Enables outfit assembly: a top + a bottom, or a dress alone. A hoodie is `[top, outerwear]`. |
+| `formality` | ordinal | `loungewear < casual < smart_casual < business_casual < business < formal` | "Work wardrobe" = `formality ≥ business_casual`. Range predicate, not a routing key. |
+| `fit` | nominal | `slim / tailored / regular / relaxed / oversized` | |
+| `pattern` | nominal | `solid / striped / plaid / checked / floral / graphic / colorblock / other` | |
+| `care` | multilabel | `machine_wash / hand_wash / dry_clean / line_dry / tumble_dry / iron` | "Machine-washable tops" = `garment_role ∋ top AND care ∋ machine_wash`. |
+| `occasion` | multilabel | `work / everyday / athletic / evening / formal_event / lounge / travel / outdoor` | |
+
+**Reuse (not duplication):** apparel items inherit the universal fabric facets already on every
+`items` row — `warmth`, `breathability`, `moisture_management`, `conditions_fit`, and the full
+`item_insulation` sub-model. Clothing is fabric; no apparel-specific copy of these facets is
+needed.
+
+### 21.3 Domains as markers, not categories (apparel edition)
+
+The no-hardcoded-buckets invariant (ADR-0003, CLAUDE.md rule #1) applies unchanged:
+
+- "Business attire" → `formality ≥ business_casual`
+- "Machine-washable tops" → `garment_role ∋ top AND care ∋ machine_wash`
+- "Summer dresses" → `garment_role ∋ dress AND conditions_fit ∋ warm`
+- "Outfit: top + bottom" → pair items where `garment_role ∋ top` with `garment_role ∋ bottom`
+
+No code path reads `garment_role` or `occasion` as a switch/if that routes to a different
+recommendation branch. `domains` governs which reasoning pipelines run; it never drives query
+routing.
+
+### 21.4 Deferred: apparel capability predicates
+
+No apparel facet gates a capability in this phase. Apparel items are fully storable, queryable,
+and browsable; they are excluded from trip packing picks (same floor as unclassified gear items)
+until capability predicates are designed. The first natural candidates — occasion-match,
+care-compatibility, seasonal suitability — each require a DESIGN.md addition and ADR before
+implementation.

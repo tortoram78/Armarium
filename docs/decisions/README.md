@@ -36,3 +36,4 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0023 — Multi-domain possession model: three-ring architecture + pluggable facet-sets](0023-multi-domain-possession-model.md) — Accepted
 - [0024 — Collections, user tags, and CSV export](0024-collections-tags-export.md) — Accepted
 - [0025 — Self-building product catalog: surface `llm_draft_cache` as add-time autocomplete](0025-self-building-catalog.md) — Accepted
+- [0026 — Apparel domain ontology: second modeled domain](0026-apparel-domain-ontology.md) — Accepted

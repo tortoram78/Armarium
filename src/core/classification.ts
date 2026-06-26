@@ -108,12 +108,25 @@ const footwearGroup = z.object({
   water_management: evidence(z.enum(L.WATER_MANAGEMENT)),
 });
 
+// ---- apparel group (domain:"apparel", all soft, tier:"jsonb", capabilityGate:false) ----
+// Apparel reuses the universal fabric facets (warmth, breathability, moisture_management,
+// conditions_fit) and materials — clothing is fabric. These 6 facets are apparel-specific.
+const apparelGroup = z.object({
+  garment_role: z.array(z.enum(L.GARMENT_ROLE)),
+  formality: evidence(z.enum(L.FORMALITY)),
+  fit: evidence(z.enum(L.FIT)),
+  pattern: evidence(z.enum(L.PATTERN)),
+  care: z.array(z.enum(L.CARE)),
+  occasion: z.array(z.enum(L.OCCASION)),
+});
+
 const groups = z.object({
   insulation: insulationGroup.optional(),
   sleep: sleepGroup.optional(),
   shell: shellGroup.optional(),
   carry: carryGroup.optional(),
   footwear: footwearGroup.optional(),
+  apparel: apparelGroup.optional(),
 });
 
 export const ItemClassificationSchema = z.object({
@@ -134,6 +147,7 @@ export type FacetGroups = z.infer<typeof groups>;
 export type InsulationGroup = z.infer<typeof insulationGroup>;
 export type SleepGroup = z.infer<typeof sleepGroup>;
 export type ShellGroup = z.infer<typeof shellGroup>;
+export type ApparelGroup = z.infer<typeof apparelGroup>;
 
 /** Validate raw model output. Throws on invalid input — unvalidated text never proceeds. */
 export function parseClassification(raw: unknown): ItemClassification {

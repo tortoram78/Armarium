@@ -57,6 +57,18 @@ const groupField = (
   group,
 });
 
+/** A multilabel field inside a group (plain string[], no Evidence envelope). */
+const groupMultilabel = (
+  group: L.GroupKey,
+  key: string,
+): FacetPathDef => ({
+  key: `groups.${group}.${key}`,
+  fact: "soft",
+  shape: "multilabel",
+  path: ["groups", group, key],
+  group,
+});
+
 const identityHard = (key: string): FacetPathDef => ({
   key: `identity.${key}`,
   fact: "hard",
@@ -127,6 +139,14 @@ export const FACET_PATHS: readonly FacetPathDef[] = [
   groupField("footwear", "ankle_height", "soft"),
   groupField("footwear", "crampon_compat", "hard"),
   groupField("footwear", "water_management", "soft"),
+
+  // apparel group (all soft, tier:jsonb, capabilityGate:false)
+  groupMultilabel("apparel", "garment_role"),
+  groupField("apparel", "formality", "soft"),
+  groupField("apparel", "fit", "soft"),
+  groupField("apparel", "pattern", "soft"),
+  groupMultilabel("apparel", "care"),
+  groupMultilabel("apparel", "occasion"),
 ];
 
 /** Fast lookup by key. */

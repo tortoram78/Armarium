@@ -55,11 +55,31 @@ export const ANKLE_HEIGHT = ["low", "mid", "high"] as const;
 export const CRAMPON_COMPAT = ["none", "C1", "C2", "C3"] as const;
 export const WATER_MANAGEMENT = ["fast_drain_breathable", "dwr", "waterproof_membrane"] as const;
 
+// ---- apparel sub-model ----
+// garment_role: structural facet (multilabel) — analogous to layering_role for clothing
+export const GARMENT_ROLE = [
+  "top", "bottom", "dress", "outerwear", "underlayer", "footwear", "headwear", "accessory", "full_body",
+] as const;
+// formality: ordinal scale (low → high)
+export const FORMALITY = [
+  "loungewear", "casual", "smart_casual", "business_casual", "business", "formal",
+] as const;
+// fit: nominal
+export const FIT = ["slim", "tailored", "regular", "relaxed", "oversized"] as const;
+// pattern: nominal
+export const PATTERN = ["solid", "striped", "plaid", "checked", "floral", "graphic", "colorblock", "other"] as const;
+// care: multilabel
+export const CARE = ["machine_wash", "hand_wash", "dry_clean", "line_dry", "tumble_dry", "iron"] as const;
+// occasion: multilabel
+export const OCCASION = [
+  "work", "everyday", "athletic", "evening", "formal_event", "lounge", "travel", "outdoor",
+] as const;
+
 // ---- material library ----
 export const CONSTRUCTION_TYPE = [
   "woven", "knit", "grid_fleece", "pile_fleece", "membrane", "insulation_fill", "other",
 ] as const;
-export const GROUP_KEYS = ["insulation", "sleep", "shell", "carry", "footwear"] as const;
+export const GROUP_KEYS = ["insulation", "sleep", "shell", "carry", "footwear", "apparel"] as const;
 
 // ---- value-type unions derived from the vocab ----
 export type Waterproofness = (typeof WATERPROOFNESS)[number];
@@ -90,6 +110,12 @@ export type CramponCompat = (typeof CRAMPON_COMPAT)[number];
 export type WaterManagement = (typeof WATER_MANAGEMENT)[number];
 export type ConstructionType = (typeof CONSTRUCTION_TYPE)[number];
 export type GroupKey = (typeof GROUP_KEYS)[number];
+export type GarmentRole = (typeof GARMENT_ROLE)[number];
+export type Formality = (typeof FORMALITY)[number];
+export type Fit = (typeof FIT)[number];
+export type Pattern = (typeof PATTERN)[number];
+export type Care = (typeof CARE)[number];
+export type Occasion = (typeof OCCASION)[number];
 
 /** Rank of an ordinal value within its (low->high) scale; -1 if not found. */
 export function rank<const T extends readonly string[]>(scale: T, value: string | null | undefined): number {
