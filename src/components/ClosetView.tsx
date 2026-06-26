@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRef, useState, useEffect, useOptimistic, useCallback, useTransition } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Plus, Search, LayoutGrid, List, X, ChevronDown, Check } from "lucide-react";
@@ -69,6 +70,12 @@ interface Props {
   }>;
   /** Server action for bulk operations. */
   bulkUpdateAction?: (formData: FormData) => Promise<void>;
+  /** Typeahead suggestions action. */
+  suggestItemsAction?: (formData: FormData) => Promise<{ id: string; name: string }[]>;
+  /** Duplicate warning: the name that triggered a dup check redirect. */
+  dupName?: string;
+  /** Duplicate warning: the existing item's id. */
+  dupId?: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────────────────────────
@@ -722,6 +729,150 @@ function PaginatedGrid({
   );
 }
 
+// ── Quick-add with typeahead (client) ─────────────────────────────────────────────────────────────
+
+interface QuickAddProps {
+  recordOwnershipAction: (formData: FormData) => Promise<void> | void;
+  suggestItemsAction?: (formData: FormData) => Promise<{ id: string; name: string }[]>;
+}
+
+function QuickAdd({ recordOwnershipAction, suggestItemsAction }: QuickAddProps) {
+  const [value, setValue] = useState("");
+  const [suggestions, setSuggestions] = useState<{ id: string; name: string }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+
+  // Close on outside click
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+        setActiveSuggestion(-1);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const fetchSuggestions = useCallback(
+    async (q: string) => {
+      if (!suggestItemsAction || q.length < 2) {
+        setSuggestions([]);
+        return;
+      }
+      const fd = new FormData();
+      fd.set("q", q);
+      const results = await suggestItemsAction(fd);
+      setSuggestions(results);
+      setShowSuggestions(results.length > 0);
+      setActiveSuggestion(-1);
+    },
+    [suggestItemsAction],
+  );
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
+    setValue(v);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(v), 200);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showSuggestions || suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveSuggestion((i) => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveSuggestion((i) => Math.max(i - 1, -1));
+    } else if (e.key === "Enter" && activeSuggestion >= 0) {
+      e.preventDefault();
+      const s = suggestions[activeSuggestion];
+      if (s) {
+        setShowSuggestions(false);
+        router.push(`/items/${s.id}`);
+      }
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+      setActiveSuggestion(-1);
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <form action={recordOwnershipAction} className="flex gap-3">
+        <div className="relative flex-1 min-w-0">
+          <input
+            ref={inputRef}
+            type="text"
+            name="name"
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+            placeholder="Add anything you own — just type a name"
+            autoComplete="off"
+            className={cn(
+              "flex h-11 w-full rounded-md border border-input bg-card px-3.5 py-2 text-sm text-foreground",
+              "placeholder:text-muted-foreground/70",
+              "transition-[border-color,box-shadow] duration-200 ease-crisp",
+              "focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",
+            )}
+          />
+          {/* Suggestions dropdown */}
+          {showSuggestions && suggestions.length > 0 && (
+            <div
+              className={cn(
+                "absolute left-0 top-full z-50 mt-1 w-full rounded-md border border-border bg-card",
+                "shadow-[0_4px_16px_0_hsl(var(--shadow-soft)/0.16)] py-1",
+              )}
+            >
+              <p className="px-3 py-1 text-[0.675rem] uppercase tracking-wider text-muted-foreground/60">
+                Already own
+              </p>
+              {suggestions.map((s, i) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setShowSuggestions(false);
+                    router.push(`/items/${s.id}`);
+                  }}
+                  className={cn(
+                    "w-full px-3 py-1.5 text-left text-sm transition-colors",
+                    i === activeSuggestion
+                      ? "bg-secondary text-foreground"
+                      : "text-foreground hover:bg-secondary",
+                  )}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          type="submit"
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-4 py-2.5",
+            "text-sm font-medium text-primary-foreground",
+            "shadow-[0_1px_2px_0_hsl(var(--shadow-soft))]",
+            "transition-colors duration-200 ease-crisp hover:bg-primary/92 active:translate-y-px",
+          )}
+        >
+          <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
+          Add
+        </button>
+      </form>
+    </div>
+  );
+}
+
 // ── Main ClosetView ────────────────────────────────────────────────────────────────────────────────
 
 export function ClosetView({
@@ -742,6 +893,9 @@ export function ClosetView({
   deleteItemAction,
   loadMoreAction,
   bulkUpdateAction,
+  suggestItemsAction,
+  dupName,
+  dupId,
 }: Props) {
   const reduceMotion = useReducedMotion();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -838,7 +992,52 @@ export function ClosetView({
         </Link>
       </motion.header>
 
-      {/* ── Quick-add form (primary capture) — hidden for guests ── */}
+      {/* ── Duplicate warning banner ── */}
+      {dupName && dupId && !isGuest && recordOwnershipAction && (
+        <div className="panel border-l-2 border-l-accent bg-accent/5 px-4 py-3">
+          <p className="text-sm text-foreground">
+            You may already own{" "}
+            <span className="font-medium">&ldquo;{dupName}&rdquo;</span>.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+            <Link
+              href={`/items/${dupId}`}
+              className="text-foreground underline underline-offset-2 hover:text-primary transition-colors"
+            >
+              View it
+            </Link>
+            <span aria-hidden className="text-muted-foreground/40">·</span>
+            <form
+              action={async (fd) => {
+                recordOwnershipAction(fd);
+              }}
+            >
+              <input type="hidden" name="name" value={dupName} />
+              <input type="hidden" name="force" value="1" />
+              <button type="submit" className="text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors">
+                Add anyway
+              </button>
+            </form>
+            <span aria-hidden className="text-muted-foreground/40">·</span>
+            {updateInventoryAction && (
+              <form
+                action={async (fd) => {
+                  updateInventoryAction(fd);
+                }}
+              >
+                <input type="hidden" name="id" value={dupId} />
+                <input type="hidden" name="ownershipStatus" value="owned" />
+                <input type="hidden" name="quantity" value="2" />
+                <button type="submit" className="text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors">
+                  +1 quantity
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Quick-add panel (primary capture) — hidden for guests ── */}
       {!isGuest && recordOwnershipAction && (
         <motion.div
           {...(reduceMotion ? {} : { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35, ease: EASE, delay: 0.05 } })}
@@ -849,36 +1048,18 @@ export function ClosetView({
             Own something? Just type its name — Armarium records it instantly. Add specs and a manufacturer
             link later.
           </p>
-          <form action={recordOwnershipAction} className="flex gap-3">
-            <input
-              type="text"
-              name="name"
-              placeholder="Add anything you own — just type a name"
-              autoComplete="off"
-              className={cn(
-                "flex h-11 min-w-0 flex-1 rounded-md border border-input bg-card px-3.5 py-2 text-sm text-foreground",
-                "placeholder:text-muted-foreground/70",
-                "transition-[border-color,box-shadow] duration-200 ease-crisp",
-                "focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",
-              )}
-            />
-            <button
-              type="submit"
-              className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-4 py-2.5",
-                "text-sm font-medium text-primary-foreground",
-                "shadow-[0_1px_2px_0_hsl(var(--shadow-soft))]",
-                "transition-colors duration-200 ease-crisp hover:bg-primary/92 active:translate-y-px",
-              )}
-            >
-              <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
-              Add
-            </button>
-          </form>
+          <QuickAdd
+            recordOwnershipAction={recordOwnershipAction}
+            suggestItemsAction={suggestItemsAction}
+          />
           <p className="mt-3 text-[0.8rem] text-muted-foreground/70">
             For manufacturer specs or a product link,{" "}
             <Link href="/items/new" className="underline underline-offset-2 hover:text-foreground transition-colors">
               use the full add flow
+            </Link>
+            {" · "}
+            <Link href="/items/batch" className="underline underline-offset-2 hover:text-foreground transition-colors">
+              paste a list
             </Link>
             .
           </p>

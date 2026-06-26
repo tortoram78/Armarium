@@ -482,6 +482,10 @@ export async function planPreviewAction(formData: FormData) {
  * Rate-limited on the "classify" budget (shares the same token bucket as classify — it's a write
  * path but much cheaper; reuse the key to prevent unbounded append spam). On success the item
  * appears immediately in the closet (non-draft, owned).
+ *
+ * Duplicate check (ADR-0022 §Phase 3): before creating, look for a likely-already-owned item. If
+ * found and no `force` flag, redirect home with a ?dup banner so the user can bump quantity, view
+ * the original, or add anyway. With `force=1` (or no dup), create as normal.
  */
 export async function recordOwnershipAction(formData: FormData) {
   const userId = await requireUserId();
@@ -489,10 +493,20 @@ export async function recordOwnershipAction(formData: FormData) {
   if (!name) {
     redirect("/?error=" + encodeURIComponent("Enter a name for the item."));
   }
+  const force = String(formData.get("force") ?? "") === "1";
   const key = await resolveRateKey();
   if (!checkRateLimit("classify", key).allowed) {
     redirect("/?error=" + encodeURIComponent(RATE_LIMITED_MSG));
   }
+
+  // Duplicate guard — skip when force=1 (user chose "add anyway")
+  if (!force) {
+    const dup = await findDuplicate(name, userId);
+    if (dup) {
+      redirect(`/?dup=${encodeURIComponent(name)}&dupId=${encodeURIComponent(dup.id)}`);
+    }
+  }
+
   await timeAndLog({ event: "action", action: "recordOwnership", userId }, async () => {
     await recordOwnership(name, userId);
     revalidatePath("/");
@@ -579,7 +593,7 @@ export async function renameItemAction(formData: FormData) {
   redirect(`/items/${parsed.data.id}`);
 }
 
-import { searchCloset } from "@/server/app-service";
+import { searchCloset, findDuplicate, recordOwnershipBatch, enrichItem, isItemGear } from "@/server/app-service";
 import { type GroupingKey } from "@/core/closet";
 
 /**
@@ -680,6 +694,124 @@ export async function bulkUpdateClosetAction(formData: FormData) {
     }
   }
   revalidatePath("/");
+}
+
+// ---- capture at scale: batch add + async enrichment + dedupe (ADR-0022 §Phase 3) ----
+
+/**
+ * Batch record-only capture from a pasted list (ADR-0022 §Phase 3). Splits the textarea on newlines,
+ * dedupes identical lines within the paste, rate-limits lightly (reuse "classify" budget), calls
+ * `recordOwnershipBatch` for the instant write (no LLM), then redirects to the `?ids=` streaming
+ * view where the browser enriches each item client-side.
+ */
+export async function recordOwnershipBatchAction(formData: FormData) {
+  const userId = await requireUserId();
+  const raw = String(formData.get("names") ?? "").trim();
+  if (!raw) {
+    redirect("/items/batch?error=" + encodeURIComponent("Paste at least one item name."));
+  }
+
+  // Split, trim, drop blanks, dedupe WITHIN the paste (preserve first occurrence order).
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const l of lines) {
+    const key = l.toLowerCase();
+    if (!seen.has(key)) { seen.add(key); unique.push(l); }
+  }
+  if (unique.length === 0) {
+    redirect("/items/batch?error=" + encodeURIComponent("No item names found — paste one per line."));
+  }
+
+  const rateKey = await resolveRateKey();
+  if (!checkRateLimit("classify", rateKey).allowed) {
+    redirect("/items/batch?error=" + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  const created = await timeAndLog({ event: "action", action: "recordOwnershipBatch", userId }, async () => {
+    const items = await recordOwnershipBatch(unique, userId);
+    revalidatePath("/");
+    return items;
+  });
+
+  const ids = created.map((i) => i.id).join(",");
+  redirect(`/items/batch?ids=${encodeURIComponent(ids)}`);
+}
+
+/**
+ * Enrich a single existing item in place — the async per-item call the batch streaming view fires
+ * from the browser. Rate-limited on the "classify" budget. Returns a serialisable result object
+ * (no redirect) so the client component can update per-row state.
+ *
+ * Returns `{ ok:true, id, classified, badges }` on success, or `{ ok:false, reason }` on
+ * rate-limit or missing item. Never throws (degrades safely).
+ */
+export async function enrichItemAction(formData: FormData): Promise<
+  | { ok: true; id: string; classified: boolean; badges: string[] }
+  | { ok: false; reason: string }
+> {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { ok: false, reason: "missing_id" };
+
+  const rateKey = await resolveRateKey();
+  if (!checkRateLimit("classify", rateKey).allowed) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  try {
+    const updated = await timeAndLog({ event: "action", action: "enrichItem", userId }, async () => {
+      return enrichItem(id, userId);
+    });
+    if (!updated) return { ok: false, reason: "not_found" };
+
+    const { deriveDisplayTags } = await import("@/core/tags");
+    const badges = deriveDisplayTags(updated.classification.universal)
+      .slice(0, 4)
+      .map((t) => t.label);
+    return { ok: true, id, classified: isItemGear(updated), badges };
+  } catch {
+    return { ok: false, reason: "error" };
+  }
+}
+
+/**
+ * Classify a record-only item in place (the "Classify now" affordance on the item detail page).
+ * Equivalent to enrichItemAction but redirect-based: after enrichment, revalidates the item and
+ * the closet, then redirects back to the item detail. Rate-limited on "classify" budget.
+ */
+export async function classifyNowAction(formData: FormData) {
+  const userId = await requireUserId();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) redirect("/");
+
+  const rateKey = await resolveRateKey();
+  if (!checkRateLimit("classify", rateKey).allowed) {
+    redirect(`/items/${id}?error=` + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  await timeAndLog({ event: "action", action: "classifyNow", userId }, async () => {
+    await enrichItem(id, userId);
+  });
+  revalidatePath(`/items/${id}`);
+  revalidatePath("/");
+  redirect(`/items/${id}`);
+}
+
+/**
+ * Typeahead suggestion — returns up to 6 {id,name} matches from the user's closet. Lightweight:
+ * reuses searchCloset (name filter) and returns only the id + name (no facets). Called client-side
+ * (debounced) for the quick-add combobox.
+ */
+export async function suggestItemsAction(formData: FormData): Promise<{ id: string; name: string }[]> {
+  const { userId } = await getUserIdOrGuest();
+  const q = String(formData.get("q") ?? "").trim();
+  if (!q || q.length < 2) return [];
+  const { items } = await searchCloset("capability" as GroupingKey, { search: q, limit: 6 }, userId);
+  return items.map((i) => ({ id: i.id, name: i.name }));
 }
 
 /** Sign out the current user and redirect to /login. */

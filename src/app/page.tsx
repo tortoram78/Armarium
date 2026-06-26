@@ -6,7 +6,7 @@ import { OWNERSHIP_STATUS, CONDITION, type OwnershipStatus, type Condition } fro
 import { getUserIdOrGuest } from "@/lib/auth";
 import { ClosetView } from "@/components/ClosetView";
 import { GuestBanner } from "@/components/GuestBanner";
-import { recordOwnershipAction, renameItemAction, updateInventoryAction, deleteItemAction, loadMoreClosetAction, bulkUpdateClosetAction } from "@/app/actions";
+import { recordOwnershipAction, renameItemAction, updateInventoryAction, deleteItemAction, loadMoreClosetAction, bulkUpdateClosetAction, suggestItemsAction } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +21,8 @@ export default async function ClosetPage({
     sort?: string;
     view?: string;
     error?: string;
+    dup?: string;
+    dupId?: string;
   };
 }) {
   // READ gate — never redirects. A guest (auth configured, no session) is served the seeded SAMPLE closet
@@ -128,6 +130,9 @@ export default async function ClosetPage({
         deleteItemAction={deleteItemAction}
         loadMoreAction={loadMoreClosetAction}
         bulkUpdateAction={bulkUpdateClosetAction}
+        suggestItemsAction={suggestItemsAction}
+        dupName={searchParams.dup}
+        dupId={searchParams.dupId}
       />
     </div>
   );

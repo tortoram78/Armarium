@@ -7,7 +7,8 @@ import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
 import { MODEL_ID } from "@/core/config";
 import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
-import { isGearClassified } from "@/core/domains";
+import { isGearClassified, hasAnyKnownFacet } from "@/core/domains";
+import { findDuplicateIn, type DedupeFields } from "@/core/dedupe";
 import { recordOnlyClassification } from "@/core/record";
 import type { InventoryMeta, OwnershipStatus, Condition } from "@/core/inventory";
 import { groupCloset, type GroupingKey } from "@/core/closet";
@@ -146,6 +147,99 @@ export async function renameItem(
   userId = DEFAULT_USER_ID,
 ): Promise<StoredItem | null> {
   return getRepository().updateItemName(userId, id, name);
+}
+
+// ---- capture at scale: batch record-only + per-item async enrichment + dedupe (ADR-0022 §Phase 3) ----
+
+/** Helper: read the dedupe fields off a stored item (name + manufacturer identity). */
+function dedupeFields(i: StoredItem): DedupeFields {
+  return { name: i.name, brand: i.classification.identity.brand.value, model: i.classification.identity.model.value };
+}
+
+/**
+ * Find an already-owned item that likely duplicates `name` (ADR-0022 §Phase 3 dedupe). Used by the
+ * quick-add / batch flows to offer "you may already own this — bump quantity?" instead of a silent dup.
+ * Conservative (a missed dup beats a false block); a bare name has no brand/model so it matches mainly on
+ * normalized name. Reads through `getRepositoryFor` so a guest's sample closet is deduped too.
+ */
+export async function findDuplicate(name: string, userId = DEFAULT_USER_ID): Promise<StoredItem | null> {
+  const items = (await getRepositoryFor(userId).listItems(userId)).filter((i) => !i.draft);
+  type Row = DedupeFields & { _item: StoredItem };
+  const rows: Row[] = items.map((i) => ({ ...dedupeFields(i), _item: i }));
+  return findDuplicateIn<Row>({ name }, rows)?._item ?? null;
+}
+
+/**
+ * Record many possessions at once (ADR-0022 §Phase 3 batch). Each line becomes an instant record-only
+ * item — NO LLM, never blocking — exactly like `recordOwnership`. Enrichment is the per-item async
+ * follow-up the client orchestrates afterward (see `enrichItem`). Blank lines are skipped; returns the
+ * created items in input order so the batch UI can drive enrichment over their ids.
+ */
+export async function recordOwnershipBatch(names: string[], userId = DEFAULT_USER_ID): Promise<StoredItem[]> {
+  const created: StoredItem[] = [];
+  for (const raw of names) {
+    const name = raw.trim();
+    if (!name) continue;
+    created.push(await recordOwnership(name, userId));
+  }
+  return created;
+}
+
+/**
+ * Enrich an EXISTING item in place (ADR-0022 §Phase 3): re-run the classify pipeline on the item's name
+ * and overlay the resolved classification + evidence onto the row, marking the gear domain. This is the
+ * non-blocking follow-up to record-only capture — the browser fires it per item after a batch/quick add,
+ * so facets stream in while the item already lives in the closet. Cache-aware (the self-building KB,
+ * user-scoped) and degrade-safe (offline non-corpus names resolve to all-unknown, never throw). Does NOT
+ * write a user override (this is inference, not a user correction). Returns the updated item, or null if
+ * it isn't the user's. Mirrors `classifyToDraft` but updates instead of creating a draft.
+ */
+export async function enrichItem(
+  id: string,
+  userId = DEFAULT_USER_ID,
+  deps: ClassifyToDraftDeps = {},
+): Promise<StoredItem | null> {
+  const repo = getRepository();
+  const existing = await repo.getItem(userId, id);
+  if (!existing) return null;
+  const name = existing.name;
+
+  const cache = getCacheRepository();
+  const key = normalizeCacheKey(name);
+  const hit = await cache.lookup(userId, key);
+
+  let classification: ItemClassification;
+  let claims: EvidenceClaim[] = [];
+  if (hit) {
+    classification = hit.classification;
+    claims = decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION);
+  } else {
+    const handle = deps.classifier ?? getClassifier();
+    if (handle.kind === "claims") {
+      const output = await handle.classify({ name, text: existing.rawText ?? undefined });
+      const ingested = ingestLlmClaims(output);
+      const resolved = resolveFromClaims(name, ingested.claims);
+      classification = resolved.classification;
+      claims = resolved.claims;
+    } else {
+      classification = deriveAndResolve(await handle.classify({ name, text: existing.rawText ?? undefined }));
+      claims = decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION);
+    }
+    await cache.putDraft(key, name, classification, MODEL_ID);
+  }
+
+  // Overlay the resolved classification + provenance onto the existing row. Raw repo.updateClassification
+  // (NOT updateItemClassification) — enrichment is inference, not a user override, so it must not be
+  // written back as this user's authoritative correction.
+  await repo.updateClassification(userId, id, classification);
+  await repo.replaceItemEvidence(userId, id, claims);
+  // Promote to the gear domain ONLY when the classifier actually found gear signal. A quick-added item
+  // (a water bottle, a camera) carries no gear intent; if enrichment yields nothing it stays an honest
+  // possession (domains []), not a gear item with empty facet sections. Unknown is first-class.
+  if (hasAnyKnownFacet(resolveFromClassification(id, classification, existing.inventory))) {
+    await repo.updateInventory(userId, id, { domains: ["gear"] });
+  }
+  return repo.getItem(userId, id);
 }
 
 export async function planAndSave(

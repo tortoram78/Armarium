@@ -9,6 +9,7 @@ import {
   setItemImageAction,
   removeItemImageAction,
   updateInventoryAction,
+  classifyNowAction,
 } from "@/app/actions";
 import { FacetEditor } from "@/components/FacetEditor";
 import { InventoryEditor } from "@/components/InventoryEditor";
@@ -555,16 +556,26 @@ export default async function ItemDetailPage({
             <div>
               <p className="text-sm font-medium text-foreground">Add details and classify</p>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                This item was recorded quickly. Add specs or a manufacturer link to unlock capabilities and
-                packing recommendations.
+                This item was recorded quickly. Classify it now to unlock capabilities, or add specs and
+                a manufacturer link for richer results.
               </p>
             </div>
-            <Link
-              href={`/items/new?name=${encodeURIComponent(item.name)}`}
-              className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92"
-            >
-              Add details
-            </Link>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {!isGuest && (
+                <form action={classifyNowAction}>
+                  <input type="hidden" name="id" value={item.id} />
+                  <Button type="submit" size="sm">
+                    Classify now
+                  </Button>
+                </form>
+              )}
+              <Link
+                href={`/items/new?name=${encodeURIComponent(item.name)}`}
+                className="inline-flex items-center rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-secondary"
+              >
+                Add specs / link
+              </Link>
+            </div>
           </div>
         </section>
       )}
