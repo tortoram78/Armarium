@@ -8,6 +8,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
+// The streaming enrich (enrichItemAction, one per item) runs the live classifier from THIS route — raise
+// the serverless ceiling so a slow per-item classify doesn't time out at the ~15s default. (Hobby = 60s.)
+export const maxDuration = 60;
 
 /**
  * GET (no ?ids): show the paste-a-list form.
