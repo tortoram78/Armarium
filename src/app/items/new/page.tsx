@@ -1,6 +1,7 @@
-import { addItemAction } from "@/app/actions";
+import { addItemAction, searchCatalogAction, addFromCatalogAction } from "@/app/actions";
 import { getClassifier } from "@/server/services";
 import { SubmitButton } from "@/components/SubmitButton";
+import { CatalogNameField } from "@/components/CatalogNameField";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -50,12 +51,11 @@ export default function NewItemPage({
         <form action={addItemAction} className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="name">Item name</Label>
-            <Input
-              id="name"
-              name="name"
+            <CatalogNameField
+              searchCatalogAction={searchCatalogAction}
+              addFromCatalogAction={addFromCatalogAction}
               defaultValue={searchParams.name ?? ""}
               placeholder="e.g. Arc'teryx Beta AR Jacket"
-              autoComplete="off"
             />
           </div>
 

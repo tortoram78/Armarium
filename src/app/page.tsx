@@ -14,6 +14,8 @@ import {
   loadMoreClosetAction,
   bulkUpdateClosetAction,
   suggestItemsAction,
+  searchCatalogAction,
+  addFromCatalogAction,
 } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
@@ -147,6 +149,8 @@ export default async function ClosetPage({
         loadMoreAction={loadMoreClosetAction}
         bulkUpdateAction={bulkUpdateClosetAction}
         suggestItemsAction={suggestItemsAction}
+        searchCatalogAction={searchCatalogAction}
+        addFromCatalogAction={addFromCatalogAction}
         dupName={searchParams.dup}
         dupId={searchParams.dupId}
       />

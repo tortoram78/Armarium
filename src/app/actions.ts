@@ -598,8 +598,52 @@ import {
   setItemTags,
   createCollection, renameCollection, deleteCollection,
   addItemToCollection, removeItemFromCollection,
+  searchCatalog, addFromCatalog,
+  type CatalogSuggestion,
 } from "@/server/app-service";
 import { type GroupingKey } from "@/core/closet";
+
+// ---- self-building catalog: add-time autocomplete with specs (ADR-0025 / Phase 5) ----
+
+// Re-export the type so client components can import it from actions.ts without touching app-service.
+export type { CatalogSuggestion };
+
+/**
+ * Name-search the self-building product catalog for add-time autocomplete. READ gate only —
+ * typeahead is read-only (no write) so `getUserIdOrGuest` is correct; no redirect. Returns []
+ * for empty/short query to keep the round-trip count low.
+ */
+export async function searchCatalogAction(formData: FormData): Promise<CatalogSuggestion[]> {
+  const { userId } = await getUserIdOrGuest();
+  const q = String(formData.get("q") ?? "").trim();
+  if (!q || q.length < 2) return [];
+  return searchCatalog(q, userId, 6);
+}
+
+/**
+ * One-tap add from the catalog — inherits the previously-classified specs instead of creating a
+ * bare record-only item. Write-gated (`requireUserId`); rate-limited on the "classify" budget
+ * (same token bucket as classify — prevents unbounded catalog-copy spam). Redirects to the new
+ * item or falls back to "/" if the catalog key is gone.
+ */
+export async function addFromCatalogAction(formData: FormData) {
+  const userId = await requireUserId();
+  const key = String(formData.get("key") ?? "").trim();
+  if (!key) redirect("/");
+
+  const rateKey = await resolveRateKey();
+  if (!checkRateLimit("classify", rateKey).allowed) {
+    redirect("/?error=" + encodeURIComponent(RATE_LIMITED_MSG));
+  }
+
+  const item = await timeAndLog({ event: "action", action: "addFromCatalog", userId }, async () => {
+    const result = await addFromCatalog(key, userId);
+    if (result) revalidatePath("/");
+    return result;
+  });
+
+  redirect(item ? `/items/${item.id}` : "/");
+}
 
 /**
  * Load the next page of the flat closet ("All" view) — cursor-keyed, filter-aware.

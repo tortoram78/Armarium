@@ -74,8 +74,12 @@ interface Props {
   }>;
   /** Server action for bulk operations. */
   bulkUpdateAction?: (formData: FormData) => Promise<void>;
-  /** Typeahead suggestions action. */
+  /** Typeahead suggestions action (owned-closet matches). */
   suggestItemsAction?: (formData: FormData) => Promise<{ id: string; name: string }[]>;
+  /** Catalog autocomplete action (self-building KB — returns items with specs). */
+  searchCatalogAction?: (formData: FormData) => Promise<{ key: string; name: string; brand: string | null; model: string | null }[]>;
+  /** One-tap catalog add action — adds an item with inherited specs by catalog key. */
+  addFromCatalogAction?: (formData: FormData) => Promise<void>;
   /** Duplicate warning: the name that triggered a dup check redirect. */
   dupName?: string;
   /** Duplicate warning: the existing item's id. */
@@ -752,21 +756,30 @@ function PaginatedGrid({
   );
 }
 
-// ── Quick-add with typeahead (client) ─────────────────────────────────────────────────────────────
+// ── Quick-add with dual-source typeahead (client) ─────────────────────────────────────────────────
+
+/** A single flat item for keyboard navigation — tagged by source. */
+type SuggestionItem =
+  | { source: "owned"; id: string; name: string }
+  | { source: "catalog"; key: string; name: string; brand: string | null; model: string | null };
 
 interface QuickAddProps {
   recordOwnershipAction: (formData: FormData) => Promise<void> | void;
   suggestItemsAction?: (formData: FormData) => Promise<{ id: string; name: string }[]>;
+  searchCatalogAction?: (formData: FormData) => Promise<{ key: string; name: string; brand: string | null; model: string | null }[]>;
+  addFromCatalogAction?: (formData: FormData) => Promise<void>;
 }
 
-function QuickAdd({ recordOwnershipAction, suggestItemsAction }: QuickAddProps) {
+function QuickAdd({ recordOwnershipAction, suggestItemsAction, searchCatalogAction, addFromCatalogAction }: QuickAddProps) {
   const [value, setValue] = useState("");
-  const [suggestions, setSuggestions] = useState<{ id: string; name: string }[]>([]);
+  // Flat list of all suggestions across both sources — owned first, then catalog (deduped by name).
+  const [allSuggestions, setAllSuggestions] = useState<SuggestionItem[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const addFromCatalogFormRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
 
   // Close on outside click
@@ -774,7 +787,7 @@ function QuickAdd({ recordOwnershipAction, suggestItemsAction }: QuickAddProps) 
     function onDoc(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setShowSuggestions(false);
-        setActiveSuggestion(-1);
+        setActiveIdx(-1);
       }
     }
     document.addEventListener("mousedown", onDoc);
@@ -783,18 +796,45 @@ function QuickAdd({ recordOwnershipAction, suggestItemsAction }: QuickAddProps) 
 
   const fetchSuggestions = useCallback(
     async (q: string) => {
-      if (!suggestItemsAction || q.length < 2) {
-        setSuggestions([]);
+      if (q.length < 2) {
+        setAllSuggestions([]);
+        setShowSuggestions(false);
         return;
       }
       const fd = new FormData();
       fd.set("q", q);
-      const results = await suggestItemsAction(fd);
-      setSuggestions(results);
-      setShowSuggestions(results.length > 0);
-      setActiveSuggestion(-1);
+
+      // Fire both in parallel — owned closet + global catalog.
+      const [ownedResults, catalogResults] = await Promise.all([
+        suggestItemsAction ? suggestItemsAction(fd) : Promise.resolve([] as { id: string; name: string }[]),
+        searchCatalogAction ? searchCatalogAction(fd) : Promise.resolve([] as { key: string; name: string; brand: string | null; model: string | null }[]),
+      ]);
+
+      // Build the owned set so catalog can dedupe by normalized name.
+      const ownedNames = new Set(ownedResults.map((o) => o.name.trim().toLowerCase()));
+
+      const owned: SuggestionItem[] = ownedResults.map((o) => ({
+        source: "owned",
+        id: o.id,
+        name: o.name,
+      }));
+
+      const catalog: SuggestionItem[] = catalogResults
+        .filter((c) => !ownedNames.has(c.name.trim().toLowerCase()))
+        .map((c) => ({
+          source: "catalog",
+          key: c.key,
+          name: c.name,
+          brand: c.brand,
+          model: c.model,
+        }));
+
+      const merged = [...owned, ...catalog];
+      setAllSuggestions(merged);
+      setShowSuggestions(merged.length > 0);
+      setActiveIdx(-1);
     },
-    [suggestItemsAction],
+    [suggestItemsAction, searchCatalogAction],
   );
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -804,29 +844,50 @@ function QuickAdd({ recordOwnershipAction, suggestItemsAction }: QuickAddProps) 
     debounceRef.current = setTimeout(() => fetchSuggestions(v), 200);
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (!showSuggestions || suggestions.length === 0) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActiveSuggestion((i) => Math.min(i + 1, suggestions.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveSuggestion((i) => Math.max(i - 1, -1));
-    } else if (e.key === "Enter" && activeSuggestion >= 0) {
-      e.preventDefault();
-      const s = suggestions[activeSuggestion];
-      if (s) {
-        setShowSuggestions(false);
-        router.push(`/items/${s.id}`);
+  function activateSuggestion(item: SuggestionItem) {
+    setShowSuggestions(false);
+    setActiveIdx(-1);
+    if (item.source === "owned") {
+      router.push(`/items/${item.id}`);
+    } else {
+      // One-tap catalog add — submit the hidden form with the catalog key.
+      if (addFromCatalogFormRef.current) {
+        const keyInput = addFromCatalogFormRef.current.querySelector<HTMLInputElement>('input[name="key"]');
+        if (keyInput) keyInput.value = item.key;
+        addFromCatalogFormRef.current.requestSubmit();
       }
-    } else if (e.key === "Escape") {
-      setShowSuggestions(false);
-      setActiveSuggestion(-1);
     }
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showSuggestions || allSuggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(i + 1, allSuggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(i - 1, -1));
+    } else if (e.key === "Enter" && activeIdx >= 0) {
+      e.preventDefault();
+      const item = allSuggestions[activeIdx];
+      if (item) activateSuggestion(item);
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+      setActiveIdx(-1);
+    }
+  }
+
+  const ownedSuggestions = allSuggestions.filter((s) => s.source === "owned");
+  const catalogSuggestions = allSuggestions.filter((s) => s.source === "catalog");
+
   return (
     <div ref={containerRef} className="relative">
+      {/* Hidden form for catalog add — submitted programmatically on selection. */}
+      {addFromCatalogAction && (
+        <form ref={addFromCatalogFormRef} action={addFromCatalogAction} className="hidden" aria-hidden>
+          <input type="hidden" name="key" value="" />
+        </form>
+      )}
       <form action={recordOwnershipAction} className="flex gap-3">
         <div className="relative flex-1 min-w-0">
           <input
@@ -836,9 +897,12 @@ function QuickAdd({ recordOwnershipAction, suggestItemsAction }: QuickAddProps) 
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+            onFocus={() => { if (allSuggestions.length > 0) setShowSuggestions(true); }}
             placeholder="Add anything you own — just type a name"
             autoComplete="off"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-activedescendant={activeIdx >= 0 ? `qa-suggestion-${activeIdx}` : undefined}
             className={cn(
               "flex h-11 w-full rounded-md border border-input bg-card px-3.5 py-2 text-sm text-foreground",
               "placeholder:text-muted-foreground/70",
@@ -846,36 +910,90 @@ function QuickAdd({ recordOwnershipAction, suggestItemsAction }: QuickAddProps) 
               "focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",
             )}
           />
-          {/* Suggestions dropdown */}
-          {showSuggestions && suggestions.length > 0 && (
+          {/* Dual-source suggestions dropdown */}
+          {showSuggestions && allSuggestions.length > 0 && (
             <div
+              role="listbox"
               className={cn(
                 "absolute left-0 top-full z-50 mt-1 w-full rounded-md border border-border bg-card",
                 "shadow-[0_4px_16px_0_hsl(var(--shadow-soft)/0.16)] py-1",
               )}
             >
-              <p className="px-3 py-1 text-[0.675rem] uppercase tracking-wider text-muted-foreground/60">
-                Already own
-              </p>
-              {suggestions.map((s, i) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setShowSuggestions(false);
-                    router.push(`/items/${s.id}`);
-                  }}
-                  className={cn(
-                    "w-full px-3 py-1.5 text-left text-sm transition-colors",
-                    i === activeSuggestion
-                      ? "bg-secondary text-foreground"
-                      : "text-foreground hover:bg-secondary",
-                  )}
-                >
-                  {s.name}
-                </button>
-              ))}
+              {/* Group 1: In your closet */}
+              {ownedSuggestions.length > 0 && (
+                <>
+                  <p className="px-3 py-1 text-[0.675rem] uppercase tracking-wider text-muted-foreground/60">
+                    In your closet
+                  </p>
+                  {ownedSuggestions.map((s) => {
+                    const globalIdx = allSuggestions.indexOf(s);
+                    return (
+                      <button
+                        key={s.id}
+                        id={`qa-suggestion-${globalIdx}`}
+                        role="option"
+                        aria-selected={globalIdx === activeIdx}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          activateSuggestion(s);
+                        }}
+                        className={cn(
+                          "w-full px-3 py-1.5 text-left text-sm transition-colors",
+                          globalIdx === activeIdx
+                            ? "bg-secondary text-foreground"
+                            : "text-foreground hover:bg-secondary",
+                        )}
+                      >
+                        {s.name}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+              {/* Group 2: Add from catalog */}
+              {catalogSuggestions.length > 0 && (
+                <>
+                  <p className={cn(
+                    "px-3 py-1 text-[0.675rem] uppercase tracking-wider text-muted-foreground/60",
+                    ownedSuggestions.length > 0 && "mt-1 border-t border-border/40 pt-2",
+                  )}>
+                    Add from catalog — with specs
+                  </p>
+                  {catalogSuggestions.map((s) => {
+                    const globalIdx = allSuggestions.indexOf(s);
+                    const subtitle = [s.brand, s.model].filter(Boolean).join(" · ");
+                    return (
+                      <button
+                        key={s.key}
+                        id={`qa-suggestion-${globalIdx}`}
+                        role="option"
+                        aria-selected={globalIdx === activeIdx}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          activateSuggestion(s);
+                        }}
+                        className={cn(
+                          "w-full px-3 py-1.5 text-left text-sm transition-colors",
+                          globalIdx === activeIdx
+                            ? "bg-secondary text-foreground"
+                            : "text-foreground hover:bg-secondary",
+                        )}
+                      >
+                        <span className="flex items-baseline justify-between gap-3">
+                          <span>{s.name}</span>
+                          {subtitle && (
+                            <span className="shrink-0 text-[0.75rem] text-muted-foreground/70">
+                              {subtitle}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -918,6 +1036,8 @@ export function ClosetView({
   loadMoreAction,
   bulkUpdateAction,
   suggestItemsAction,
+  searchCatalogAction,
+  addFromCatalogAction,
   dupName,
   dupId,
 }: Props) {
@@ -1091,6 +1211,8 @@ export function ClosetView({
           <QuickAdd
             recordOwnershipAction={recordOwnershipAction}
             suggestItemsAction={suggestItemsAction}
+            searchCatalogAction={searchCatalogAction}
+            addFromCatalogAction={addFromCatalogAction}
           />
           <p className="mt-3 text-[0.8rem] text-muted-foreground/70">
             For manufacturer specs or a product link,{" "}

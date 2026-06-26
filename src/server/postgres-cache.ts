@@ -18,7 +18,7 @@
 //   - `putDraft` / `putUserOverride` — upsert via `onConflictDoUpdate`; `created_at` preserved on
 //     collision (only `updated_at` + payload columns are overwritten).
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, ilike, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { llmDraftCache, userOverrides } from "@/db/schema";
 import type { ClassificationCacheRepository } from "@/core/cache";
@@ -70,5 +70,19 @@ export const postgresCache: ClassificationCacheRepository = {
         target: [userOverrides.userId, userOverrides.key],
         set: { name, classification, updatedAt: now },
       });
+  },
+
+  async searchCatalog(query, limit) {
+    const q = query.trim();
+    if (!q) return [];
+    const db = getDb();
+    // Name ILIKE over the GLOBAL draft store; shortest names first (closest match), then alphabetical.
+    const rows = await db
+      .select({ key: llmDraftCache.key, name: llmDraftCache.name, classification: llmDraftCache.classification })
+      .from(llmDraftCache)
+      .where(ilike(llmDraftCache.name, `%${q}%`))
+      .orderBy(sql`char_length(${llmDraftCache.name})`, llmDraftCache.name)
+      .limit(limit);
+    return rows.map((r) => ({ key: r.key, name: r.name, classification: r.classification }));
   },
 };

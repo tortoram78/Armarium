@@ -308,6 +308,53 @@ export async function exportClosetCsv(userId = DEFAULT_USER_ID): Promise<string>
   return [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n");
 }
 
+// ---- self-building product catalog: add-time autocomplete with specs (ADR-0025) ----
+
+/** A catalog suggestion surfaced as the user types — a previously-classified product they can add WITH
+ *  its specs in one tap. Drawn from the GLOBAL draft store (the self-building KB), never a user override. */
+export interface CatalogSuggestion {
+  key: string;
+  name: string;
+  brand: string | null;
+  model: string | null;
+}
+
+/** Name-search the self-building catalog for add-time autocomplete (ADR-0025). */
+export async function searchCatalog(query: string, _userId = DEFAULT_USER_ID, limit = 6): Promise<CatalogSuggestion[]> {
+  const hits = await getCacheRepository().searchCatalog(query, limit);
+  return hits.map((h) => ({
+    key: h.key,
+    name: h.name,
+    brand: h.classification.identity.brand.value,
+    model: h.classification.identity.model.value,
+  }));
+}
+
+/**
+ * Add a product from the catalog by its cache key — inherits the previously-classified specs in one tap
+ * (ADR-0025), instead of a record-only all-unknown item. The classification comes from the GLOBAL draft
+ * store (another user's enrichment, or the seed) via `lookup` — which returns this user's override first
+ * if they happen to have one, else the shared draft. Lands straight in the closet (the specs are already
+ * validated; the user chose the product) and can be corrected later. Marks the gear domain when the
+ * inherited classification carries real gear signal. Returns null if the key is gone.
+ */
+export async function addFromCatalog(key: string, userId = DEFAULT_USER_ID): Promise<StoredItem | null> {
+  const hit = await getCacheRepository().lookup(userId, key);
+  if (!hit) return null;
+  const classification = hit.classification;
+  const isGear = hasAnyKnownFacet(resolveFromClassification("catalog", classification));
+  const item = await getRepository().addItem(userId, {
+    name: classification.name,
+    inInventory: true,
+    draft: false,
+    classification,
+    inventory: { ownershipStatus: "owned", domains: isGear ? ["gear"] : [] },
+  });
+  // Give the inherited item an auditable provenance trail (degraded — the source was the cache).
+  await getRepository().replaceItemEvidence(userId, item.id, decomposeToClaims(classification, OFFLINE_EXTRACTOR_VERSION));
+  return item;
+}
+
 export async function planAndSave(
   name: string,
   conditions: TripConditions,

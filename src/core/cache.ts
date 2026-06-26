@@ -32,6 +32,15 @@ export interface CacheLookupHit {
   modelId: string | null;
 }
 
+/** A catalog suggestion: a previously-classified product the user can add WITH its specs in one tap
+ *  (the self-building product catalog — ADR-0025). Drawn from the GLOBAL draft store only (never a
+ *  user's private override), so it is shareable across users without leaking anyone's corrections. */
+export interface CatalogHit {
+  key: string;
+  name: string;
+  classification: ItemClassification;
+}
+
 /**
  * The self-building classification knowledge base (split store — ADR-0012 Element 5).
  *
@@ -49,6 +58,9 @@ export interface ClassificationCacheRepository {
   putDraft(key: string, name: string, classification: ItemClassification, modelId: string | null, source?: DraftSource): Promise<void>;
   /** Upsert a PER-USER override (correction/confirmation), scoped to `userId`. Never seen by other users. */
   putUserOverride(userId: string, key: string, name: string, classification: ItemClassification): Promise<void>;
+  /** Name-search the GLOBAL draft store for add-time autocomplete (ADR-0025 self-building catalog).
+   *  Returns up to `limit` products, best name match first. Never reads per-user overrides. */
+  searchCatalog(query: string, limit: number): Promise<CatalogHit[]>;
 }
 
 /**
