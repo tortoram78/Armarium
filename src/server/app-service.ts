@@ -215,6 +215,7 @@ export async function enrichItem(
   id: string,
   userId = DEFAULT_USER_ID,
   deps: ClassifyToDraftDeps = {},
+  opts: { webSearch?: boolean } = {},
 ): Promise<StoredItem | null> {
   const repo = getRepository();
   const existing = await repo.getItem(userId, id);
@@ -253,20 +254,25 @@ export async function enrichItem(
 
   // AUTHORITATIVE OVERLAY (ADR-0028): pull manufacturer/retailer specs for the NAME via the citation-gated
   // web-search enricher and overlay them — identity (brand/model/price/weight) + composition WIN over the
-  // classifier's inference (rule #2: authoritative beats inferred). This is what makes "Auto-fill from
-  // name" return real specs for any allowlisted brand instead of leaving hard facts unknown. Degrade-safe:
-  // the keyless handle is inert (`available:false`) so the hermetic path is unchanged; a failed/empty
-  // search keeps the inference-only classification; NEVER throws. (Caveat: the manufacturer specs are
-  // overlaid on the resolved classification, not added to the persisted claim trail — acceptable since
-  // reads use the classification jsonb as source of truth; a fuller claims merge is future work.)
-  const webSearch = deps.webSearch ?? getWebSearchEnricher().enrich;
-  try {
-    const ws = await webSearch({ name });
-    if (ws.sourceUrl !== null) {
-      classification = applyManufacturerOverlay(classification, toManufacturerEvidence(ws.extracted));
+  // classifier's inference (rule #2). This is what makes "Auto-fill from name" return real specs.
+  //
+  // OPT-IN (cost discipline — ADR-0030): the web-search call is EXPENSIVE (an outbound `web_search` loop,
+  // billable, slow). It runs ONLY on the EXPLICIT single-item path (`opts.webSearch`, i.e. the user pressed
+  // "Auto-fill from name") or when a `deps.webSearch` is injected (tests). The AUTOMATIC post-capture /
+  // batch enrichment path does NOT pass it, so a paste-a-list of 200 items does not fire 200 web searches.
+  // Degrade-safe: a failed/empty search keeps the inference-only classification; NEVER throws. (Caveat: the
+  // overlay is applied to the resolved classification, not the persisted claim trail — reads use the
+  // classification jsonb as source of truth; a fuller claims merge is future work.)
+  const wsEnrich = deps.webSearch ?? (opts.webSearch ? getWebSearchEnricher().enrich : null);
+  if (wsEnrich) {
+    try {
+      const ws = await wsEnrich({ name });
+      if (ws.sourceUrl !== null) {
+        classification = applyManufacturerOverlay(classification, toManufacturerEvidence(ws.extracted));
+      }
+    } catch {
+      /* web-search unavailable/failed — keep the inference-only classification (degrade, never throw). */
     }
-  } catch {
-    /* web-search unavailable/failed — keep the inference-only classification (degrade, never throw). */
   }
 
   // Overlay the resolved classification + provenance onto the existing row. Raw repo.updateClassification

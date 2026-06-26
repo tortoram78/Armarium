@@ -837,8 +837,11 @@ export async function classifyNowAction(formData: FormData) {
   const id = String(formData.get("id") ?? "").trim();
   if (!id) redirect("/");
 
+  // "Auto-fill from name" runs the EXPENSIVE web-search enrichment (ADR-0030), so it spends the tighter
+  // "enrich" budget (outbound network) rather than the looser "classify" one — even though enrichItem also
+  // runs the classifier. The automatic batch path (enrichItemAction) stays on "classify" + no web search.
   const rateKey = await resolveRateKey();
-  if (!checkRateLimit("classify", rateKey).allowed) {
+  if (!checkRateLimit("enrich", rateKey).allowed) {
     redirect(`/items/${id}?error=` + encodeURIComponent(RATE_LIMITED_MSG));
   }
 
@@ -847,7 +850,7 @@ export async function classifyNowAction(formData: FormData) {
   // user can retry. (redirect() throws NEXT_REDIRECT by design, AFTER this guarded block.)
   try {
     await timeAndLog({ event: "action", action: "classifyNow", userId }, async () => {
-      await enrichItem(id, userId);
+      await enrichItem(id, userId, {}, { webSearch: true });
     });
   } catch {
     redirect(`/items/${id}`);
