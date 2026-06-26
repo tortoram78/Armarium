@@ -1,15 +1,15 @@
 # Armarium — DESIGN (Phase 0 synthesis)
 
 > **Status: LIVE — Phase 2 complete; Phase 3 steps 1–3 + ops hardening + item photos delivered;
-> closet-database inversion (possession model + inventory layer) is the active phase.**
+> closet-database Phases 1–5 (possession model inversion through self-building catalog) all shipped.**
 > This document began as the Phase 0 design synthesis (9 investigation agents → 3 competing
 > architectures → 3 adversarial audits) and is updated as each phase lands. Phase 1 (core +
 > schema), Phase 2 (usable web app + NL parser + review lifecycle + Postgres + self-building cache
 > + layering-system reasoning), Phase 3 step 1 (real auth + multi-user), Phase 3 step 2
 > (manufacturer URL enrichment), Phase 3 step 3 (weather auto-conditions), the ops-hardening
-> bundle (rate limiting + structured logging + error boundaries), and item photos (display-only,
-> private Supabase Storage) are all reflected below. The possession-model inversion (§19) is the
-> current active work — see ADR-0021, ADR-0022, ADR-0023.
+> bundle (rate limiting + structured logging + error boundaries), item photos (display-only,
+> private Supabase Storage), and the full closet-database inversion (§19 + §20 — Phases 1–5) are
+> all reflected below. See ADR-0021 / 0022 / 0023 (Phase 1), ADR-0024 (Phase 4), ADR-0025 (Phase 5).
 > Source artifacts: [`docs/phase0/`](docs/phase0/). Key decisions:
 > [ADR-0003](docs/decisions/0003-facet-ontology-and-data-model.md),
 > [ADR-0004](docs/decisions/0004-llm-classification-contract.md),
@@ -24,7 +24,9 @@
 > [ADR-0018](docs/decisions/0018-item-photos.md) *(item photos: display-only, private bucket, signed-URL delivery)*,
 > [ADR-0021](docs/decisions/0021-inventory-and-ownership-lifecycle.md) *(inventory layer + ownership-status lifecycle)*,
 > [ADR-0022](docs/decisions/0022-decouple-ownership-from-classification.md) *(decouple ownership from classification: record-only + async enrichment)*,
-> [ADR-0023](docs/decisions/0023-multi-domain-possession-model.md) *(multi-domain possession model: three-ring architecture)*.
+> [ADR-0023](docs/decisions/0023-multi-domain-possession-model.md) *(multi-domain possession model: three-ring architecture)*,
+> [ADR-0024](docs/decisions/0024-collections-tags-export.md) *(collections + user tags + CSV export: personal curation orthogonal to facets)*,
+> [ADR-0025](docs/decisions/0025-self-building-catalog.md) *(self-building catalog: `llm_draft_cache` as add-time autocomplete + spec inheritance)*.
 
 ## 0. TL;DR
 
@@ -1098,3 +1100,50 @@ default; `condition = 'end_of_life'` surfaces it as a gap candidate.
 
 See [ADR-0022](docs/decisions/0022-decouple-ownership-from-classification.md) for full rationale
 and rejected alternatives.
+
+---
+
+## 20. Closet-database Phases 2–5 — what shipped (status as of 2026-06-25)
+
+All five closet-database phases landed. The facet/evidence core, capability predicates, enrichment
+pipeline, evidence resolver, auth/RLS model, and trip engine are **unchanged throughout** — Phases
+1–5 are purely additive over the capability-first hybrid described in §6.
+
+- **Phase 1 (foundation):** instant record-only capture (`recordOwnership` under 1 s); full
+  inventory layer live (`ownership_status`, `quantity`, `condition`, `acquired_at`,
+  `price_paid_cents`, `acquired_from`, `storage_location`, `size`, `color`, `user_notes`,
+  `domains`); domain-gated UI (`isGearClassified`); "Unclassified" bucket in grouped views.
+  ADR-0021 / ADR-0022 / ADR-0023.
+
+- **Phase 2 (browse at scale):** status/condition filters, newest/name sort, keyset pagination
+  wired to `listItemsPage`, grid/dense-list toggle, inline ⋯ actions (rename, status, quantity,
+  delete), bulk select with set-status/delete. `renameItem` updates `items.name` and
+  `classification.name` in sync.
+
+- **Phase 3 (capture at scale):** `POST /items/batch` paste-a-list with client-orchestrated
+  concurrent enrichment (cap 3, rate-limit backoff); `enrichItem` re-classifies an existing item
+  in place, promoting to `domains:['gear']` only on real gear signal; `findDuplicate` dedupe
+  (`src/core/dedupe.ts`) powers a quick-add banner and +1 quantity shortcut.
+
+- **Phase 4 (curation + portability):** M:N collections (`collections` + `collection_items`,
+  migration 0009, RLS); `/collections` + `/collections/[id]`; `CollectionPicker` on item detail.
+  `user_tags text[]` (GIN-indexed) with clickable chips and `?tag=` closet filter. `GET /api/export`
+  streaming CSV (RFC-4180, no new dep). Collections and tags are personal curation — they have no
+  effect on capability predicates, the evidence resolver, or trip packing. ADR-0024.
+
+- **Phase 5 (self-building catalog):** `searchCatalog(query, limit)` queries the global
+  `llm_draft_cache` for add-time autocomplete (reads global drafts only — no cross-tenant leak).
+  `addFromCatalog` one-taps a known product into the closet with inherited specs and the hard-fact
+  demotion guard applied at insert time. This is the user-facing payoff of the KB that has been
+  building since Phase 2. ADR-0025.
+
+**Designed-next, not built (each requires ADR + provider decision before any code):**
+- **Photo / vision capture** — `source:'vision_inferred'` extension point exists in the evidence
+  resolver (ADR-0018); runtime vision API + hermetic-gate strategy + background-removal dep
+  decision must precede implementation.
+- **GTIN-keyed `canonical_products` table** (DESIGN.md §15 element 1) — deferred until the
+  barcode/GTIN enrichment pipeline is built (unlocked backlog; sequenced after Phase 3 URL
+  enrichment; see ADR-0009).
+- **Apparel as a second fully-modeled domain** — `domains = ['apparel']` is storable from Phase 1;
+  the facet ontology, classification prompt, and capability predicates require a dedicated design
+  section and ADR (the gear domain is the template; apparel is the same scale of work).

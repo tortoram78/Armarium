@@ -34,3 +34,5 @@ question — the facet ontology, schema shape, the classification contract, auth
 - [0021 — Inventory layer + ownership-status lifecycle replacing the inInventory boolean](0021-inventory-and-ownership-lifecycle.md) — Accepted
 - [0022 — Decouple ownership from classification: record-only capture + async enrichment](0022-decouple-ownership-from-classification.md) — Accepted
 - [0023 — Multi-domain possession model: three-ring architecture + pluggable facet-sets](0023-multi-domain-possession-model.md) — Accepted
+- [0024 — Collections, user tags, and CSV export](0024-collections-tags-export.md) — Accepted
+- [0025 — Self-building product catalog: surface `llm_draft_cache` as add-time autocomplete](0025-self-building-catalog.md) — Accepted
