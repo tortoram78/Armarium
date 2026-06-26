@@ -10,7 +10,7 @@ import { resolveFromClassification, type ResolvedItem } from "@/core/resolved";
 import { isGearClassified, hasAnyKnownFacet } from "@/core/domains";
 import { findDuplicateIn, type DedupeFields } from "@/core/dedupe";
 import { recordOnlyClassification } from "@/core/record";
-import type { InventoryMeta, OwnershipStatus, Condition } from "@/core/inventory";
+import { normalizeTags, type InventoryMeta, type OwnershipStatus, type Condition } from "@/core/inventory";
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
 import type { RecommendationResult } from "@/core/recommend";
@@ -34,7 +34,7 @@ import {
 import { userCorrectionClaims } from "@/core/corrections";
 import type { TripConditions } from "@/core/conditions";
 import type { ItemClassification } from "@/core/classification";
-import type { StoredItem, StoredTrip, EvidenceClaim } from "@/core/ports";
+import type { StoredItem, StoredTrip, EvidenceClaim, Collection } from "@/core/ports";
 
 export function resolveItem(i: StoredItem): ResolvedItem {
   return resolveFromClassification(i.id, i.classification, i.inventory);
@@ -117,6 +117,8 @@ export async function searchCloset(
     search?: string;
     status?: OwnershipStatus;
     condition?: Condition;
+    collectionId?: string;
+    tag?: string;
     sort?: "newest" | "name";
     cursor?: string;
     limit?: number;
@@ -127,6 +129,8 @@ export async function searchCloset(
     search: opts.search,
     status: opts.status,
     condition: opts.condition,
+    collectionId: opts.collectionId,
+    tag: opts.tag,
     sort: opts.sort ?? "newest",
     cursor: opts.cursor,
     limit: opts.limit ?? 60,
@@ -240,6 +244,68 @@ export async function enrichItem(
     await repo.updateInventory(userId, id, { domains: ["gear"] });
   }
   return repo.getItem(userId, id);
+}
+
+// ---- curation + portability: collections (kits), tags, CSV export (ADR-0024) ----
+
+/** Set an item's free-form user tags (ADR-0024). Tags are user-curated cross-cutting labels — never
+ *  facets/categories. Accepts a raw comma/newline string or array; normalized (trim/dedupe) in core. */
+export async function setItemTags(id: string, raw: string | string[], userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().updateInventory(userId, id, { userTags: normalizeTags(raw) });
+}
+
+export async function createCollection(name: string, userId = DEFAULT_USER_ID): Promise<Collection> {
+  return getRepository().createCollection(userId, name);
+}
+export async function listCollections(userId = DEFAULT_USER_ID): Promise<Collection[]> {
+  return getRepositoryFor(userId).listCollections(userId);
+}
+export async function renameCollection(id: string, name: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().renameCollection(userId, id, name);
+}
+export async function deleteCollection(id: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().deleteCollection(userId, id);
+}
+export async function addItemToCollection(collectionId: string, itemId: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().addItemToCollection(userId, collectionId, itemId);
+}
+export async function removeItemFromCollection(collectionId: string, itemId: string, userId = DEFAULT_USER_ID): Promise<void> {
+  return getRepository().removeItemFromCollection(userId, collectionId, itemId);
+}
+/** Which collections contain this item — for the item-detail "in collections" control. */
+export async function collectionsForItem(itemId: string, userId = DEFAULT_USER_ID): Promise<Collection[]> {
+  return getRepositoryFor(userId).collectionsForItem(userId, itemId);
+}
+
+/** One CSV cell — RFC-4180 quoting (wrap + double internal quotes when the value has a comma/quote/newline). */
+function csvCell(v: unknown): string {
+  const s = v == null ? "" : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * Export the user's whole closet as CSV (ADR-0024 — anti-lock-in / data portability). Pure string build,
+ * no new dependency; drafts excluded. One row per owned item with identity + the full inventory layer +
+ * tags + domains. Called by the export route handler, which streams it as a download.
+ */
+export async function exportClosetCsv(userId = DEFAULT_USER_ID): Promise<string> {
+  const items = (await getRepositoryFor(userId).listItems(userId)).filter((i) => !i.draft);
+  const header = [
+    "Name", "Brand", "Model", "Status", "Quantity", "Condition", "Acquired", "Price paid",
+    "Acquired from", "Storage location", "Size", "Color", "Tags", "Notes", "Domains",
+  ];
+  const rows = items.map((i) => {
+    const inv = i.inventory;
+    const id = i.classification.identity;
+    return [
+      i.name, id.brand.value ?? "", id.model.value ?? "", inv.ownershipStatus, inv.quantity,
+      inv.condition ?? "", inv.acquiredAt ?? "",
+      inv.pricePaidCents != null ? (inv.pricePaidCents / 100).toFixed(2) : "",
+      inv.acquiredFrom ?? "", inv.storageLocation ?? "", inv.size ?? "", inv.color ?? "",
+      inv.userTags.join("; "), (inv.userNotes ?? "").replace(/\r?\n/g, " "), inv.domains.join("; "),
+    ];
+  });
+  return [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n");
 }
 
 export async function planAndSave(

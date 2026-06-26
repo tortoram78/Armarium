@@ -593,7 +593,12 @@ export async function renameItemAction(formData: FormData) {
   redirect(`/items/${parsed.data.id}`);
 }
 
-import { searchCloset, findDuplicate, recordOwnershipBatch, enrichItem, isItemGear } from "@/server/app-service";
+import {
+  searchCloset, findDuplicate, recordOwnershipBatch, enrichItem, isItemGear,
+  setItemTags,
+  createCollection, renameCollection, deleteCollection,
+  addItemToCollection, removeItemFromCollection,
+} from "@/server/app-service";
 import { type GroupingKey } from "@/core/closet";
 
 /**
@@ -812,6 +817,162 @@ export async function suggestItemsAction(formData: FormData): Promise<{ id: stri
   if (!q || q.length < 2) return [];
   const { items } = await searchCloset("capability" as GroupingKey, { search: q, limit: 6 }, userId);
   return items.map((i) => ({ id: i.id, name: i.name }));
+}
+
+// ---- curation + portability: tags, collections, export (ADR-0024 / Phase 4) ----
+
+const SetItemTagsInput = z.object({
+  id: z.string().min(1),
+  tags: z.string().max(1000), // raw comma/space separated string
+});
+
+/**
+ * Set free-form user tags on an item. Accepts a raw comma/space-separated string; normalization
+ * (trim/dedupe/lowercase) is done in core via `normalizeTags`. Write-gated; revalidates the item
+ * detail and the closet so tag chips update immediately.
+ */
+export async function setItemTagsAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = SetItemTagsInput.safeParse({
+    id: formData.get("id"),
+    tags: formData.get("tags") ?? "",
+  });
+  if (!parsed.success) {
+    const id = String(formData.get("id") ?? "");
+    redirect(`/items/${id}?tagsError=1`);
+  }
+  const { id, tags } = parsed.data;
+  try {
+    await setItemTags(id, tags, userId);
+  } catch {
+    redirect(`/items/${id}?tagsError=1`);
+  }
+  revalidatePath(`/items/${id}`);
+  revalidatePath("/");
+  redirect(`/items/${id}`);
+}
+
+const CreateCollectionInput = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120),
+});
+
+/** Create a new collection; redirects to the new collection's page. */
+export async function createCollectionAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = CreateCollectionInput.safeParse({ name: formData.get("name") });
+  if (!parsed.success) {
+    redirect("/collections?error=" + encodeURIComponent("Collection name is required."));
+  }
+  let col;
+  try {
+    col = await createCollection(parsed.data.name, userId);
+  } catch {
+    redirect("/collections?error=" + encodeURIComponent("Could not create collection — try again."));
+  }
+  revalidatePath("/collections");
+  redirect(`/collections/${col.id}`);
+}
+
+const RenameCollectionInput = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1, "Name is required").max(120),
+});
+
+/** Rename a collection; stays on the collections list. */
+export async function renameCollectionAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = RenameCollectionInput.safeParse({
+    id: formData.get("id"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) {
+    redirect("/collections?renameError=1");
+  }
+  try {
+    await renameCollection(parsed.data.id, parsed.data.name, userId);
+  } catch {
+    redirect("/collections?renameError=1");
+  }
+  revalidatePath("/collections");
+  redirect("/collections");
+}
+
+const CollectionIdInput = z.object({ id: z.string().min(1) });
+
+/** Delete a collection (cascade removes memberships; items themselves are untouched). */
+export async function deleteCollectionAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = CollectionIdInput.safeParse({ id: formData.get("id") });
+  if (!parsed.success) redirect("/collections");
+  try {
+    await deleteCollection(parsed.data.id, userId);
+  } catch {
+    redirect("/collections?deleteError=1");
+  }
+  revalidatePath("/collections");
+  redirect("/collections");
+}
+
+const CollectionItemInput = z.object({
+  collectionId: z.string().min(1),
+  itemId: z.string().min(1),
+});
+
+/** Add an item to a collection. Idempotent. Returns a JSON-serialisable result (no redirect) so the
+ *  client component can update checked state without a full reload. */
+export async function addItemToCollectionAction(formData: FormData): Promise<{ ok: boolean }> {
+  const userId = await requireUserId();
+  const parsed = CollectionItemInput.safeParse({
+    collectionId: formData.get("collectionId"),
+    itemId: formData.get("itemId"),
+  });
+  if (!parsed.success) return { ok: false };
+  try {
+    await addItemToCollection(parsed.data.collectionId, parsed.data.itemId, userId);
+    revalidatePath(`/items/${parsed.data.itemId}`);
+    revalidatePath(`/collections/${parsed.data.collectionId}`);
+    revalidatePath("/collections");
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Remove an item from a collection. Returns a JSON-serialisable result. */
+export async function removeItemFromCollectionAction(formData: FormData): Promise<{ ok: boolean }> {
+  const userId = await requireUserId();
+  const parsed = CollectionItemInput.safeParse({
+    collectionId: formData.get("collectionId"),
+    itemId: formData.get("itemId"),
+  });
+  if (!parsed.success) return { ok: false };
+  try {
+    await removeItemFromCollection(parsed.data.collectionId, parsed.data.itemId, userId);
+    revalidatePath(`/items/${parsed.data.itemId}`);
+    revalidatePath(`/collections/${parsed.data.collectionId}`);
+    revalidatePath("/collections");
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Remove an item from a collection via a redirect-based form (used in collection detail page). */
+export async function removeItemFromCollectionRedirectAction(formData: FormData) {
+  const userId = await requireUserId();
+  const parsed = CollectionItemInput.safeParse({
+    collectionId: formData.get("collectionId"),
+    itemId: formData.get("itemId"),
+  });
+  if (!parsed.success) return;
+  try {
+    await removeItemFromCollection(parsed.data.collectionId, parsed.data.itemId, userId);
+  } catch {
+    // no-op: silently ignore
+  }
+  revalidatePath(`/collections/${parsed.data.collectionId}`);
+  revalidatePath("/collections");
+  redirect(`/collections/${parsed.data.collectionId}`);
 }
 
 /** Sign out the current user and redirect to /login. */

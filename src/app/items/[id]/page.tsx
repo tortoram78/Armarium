@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { getItem, resolveItem, isItemGear } from "@/server/app-service";
+import { getItem, resolveItem, isItemGear, listCollections, collectionsForItem } from "@/server/app-service";
 import { getSignedItemImageUrl } from "@/server/item-images";
 import { evaluateCapability, CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/core/capabilities";
 import {
@@ -10,10 +10,16 @@ import {
   removeItemImageAction,
   updateInventoryAction,
   classifyNowAction,
+  setItemTagsAction,
+  addItemToCollectionAction,
+  removeItemFromCollectionAction,
+  createCollectionAction,
 } from "@/app/actions";
 import { FacetEditor } from "@/components/FacetEditor";
 import { InventoryEditor } from "@/components/InventoryEditor";
 import { ItemImageUploader } from "@/components/ItemImageUploader";
+import { TagsEditor } from "@/components/TagsEditor";
+import { CollectionPicker } from "@/components/CollectionPicker";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +27,9 @@ import Link from "next/link";
 import { getUserIdOrGuest } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
+
+// Parallel data fetch for collections (needed for add-to-collection picker on item detail).
+// Guests see no picker (write-gated), so we skip these reads for them.
 
 function titleize(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -82,7 +91,7 @@ export default async function ItemDetailPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { facetError?: string; edit?: string; imageError?: string; inventoryError?: string };
+  searchParams: { facetError?: string; edit?: string; imageError?: string; inventoryError?: string; tagsError?: string };
 }) {
   // READ gate — never redirects. A guest views a sample item from the seeded closet; the write affordances
   // (inventory toggle, delete, facet editor, photo upload) are hidden for a guest since their actions are
@@ -97,6 +106,14 @@ export default async function ItemDetailPage({
   // unconfigured (the hermetic build / dev), OR the object is missing — the lead-image block is then
   // skipped and the spec sheet renders text-first (no broken image).
   const imageUrl = await getSignedItemImageUrl(item.imagePath ?? null);
+
+  // Collections: only needed for authenticated users (picker is hidden for guests).
+  const [allCollections, itemCollections] = isGuest
+    ? [[], []]
+    : await Promise.all([
+        listCollections(userId),
+        collectionsForItem(params.id, userId),
+      ]);
 
   const resolved = resolveItem(item);
 
@@ -577,6 +594,41 @@ export default async function ItemDetailPage({
               </Link>
             </div>
           </div>
+        </section>
+      )}
+
+      {/* ── Tags — free-form user labels (Phase 4). Always shown; editor hidden for guests. ── */}
+      <section>
+        <SectionHead title="Tags" />
+        {searchParams.tagsError && (
+          <p className="mb-3 panel border-l-2 border-l-accent bg-accent/5 px-4 py-3 text-sm leading-relaxed text-accent">
+            Tags could not be saved — please try again.
+          </p>
+        )}
+        {isGuest && item.inventory.userTags.length === 0 ? (
+          <p className="text-[0.95rem] text-muted-foreground italic">No tags.</p>
+        ) : (
+          <TagsEditor
+            itemId={item.id}
+            tags={item.inventory.userTags}
+            isGuest={isGuest}
+            action={setItemTagsAction}
+          />
+        )}
+      </section>
+
+      {/* ── Collections (kits) — Phase 4. Picker hidden for guests. ── */}
+      {!isGuest && (
+        <section>
+          <SectionHead title="Collections" />
+          <CollectionPicker
+            itemId={item.id}
+            collections={allCollections}
+            memberOf={itemCollections}
+            addAction={addItemToCollectionAction}
+            removeAction={removeItemFromCollectionAction}
+            createCollectionAction={createCollectionAction}
+          />
         </section>
       )}
 

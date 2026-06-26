@@ -6,7 +6,15 @@ import { OWNERSHIP_STATUS, CONDITION, type OwnershipStatus, type Condition } fro
 import { getUserIdOrGuest } from "@/lib/auth";
 import { ClosetView } from "@/components/ClosetView";
 import { GuestBanner } from "@/components/GuestBanner";
-import { recordOwnershipAction, renameItemAction, updateInventoryAction, deleteItemAction, loadMoreClosetAction, bulkUpdateClosetAction, suggestItemsAction } from "@/app/actions";
+import {
+  recordOwnershipAction,
+  renameItemAction,
+  updateInventoryAction,
+  deleteItemAction,
+  loadMoreClosetAction,
+  bulkUpdateClosetAction,
+  suggestItemsAction,
+} from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +31,7 @@ export default async function ClosetPage({
     error?: string;
     dup?: string;
     dupId?: string;
+    tag?: string;
   };
 }) {
   // READ gate — never redirects. A guest (auth configured, no session) is served the seeded SAMPLE closet
@@ -53,6 +62,9 @@ export default async function ClosetPage({
   // View toggle: grid (default) or list
   const activeView = searchParams.view === "list" ? "list" : "grid";
 
+  // Tag filter — from ?tag= query param (set by clicking a tag chip)
+  const activeTag = (searchParams.tag ?? "").trim() || undefined;
+
   // First page — limit 36 for the grid SSR; grouped views use a generous fetch (no pagination)
   const pageLimit = grouped ? 200 : 36;
 
@@ -62,6 +74,7 @@ export default async function ClosetPage({
       search: searchQ || undefined,
       status: activeStatus,
       condition: activeCondition,
+      tag: activeTag,
       sort: activeSort,
       limit: pageLimit,
     },
@@ -89,6 +102,8 @@ export default async function ClosetPage({
       isRecordOnly: it.inventory.domains.length === 0 && tags.length === 0,
       // Domain-gating: true = full gear UI; false = possession/record treatment
       isGear: isItemGear(it),
+      // User-curated tags for clickable tag filter
+      userTags: it.inventory.userTags,
     };
   });
 
@@ -122,6 +137,7 @@ export default async function ClosetPage({
         activeCondition={activeCondition}
         activeSort={activeSort}
         activeView={activeView}
+        activeTag={activeTag}
         nextCursor={grouped ? null : (nextCursor ?? null)}
         isGuest={isGuest}
         recordOwnershipAction={recordOwnershipAction}

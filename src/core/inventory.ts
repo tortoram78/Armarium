@@ -76,6 +76,11 @@ export interface InventoryMeta {
    * unknown or non-gear items use []. This is a set membership marker, NOT a routing discriminator.
    */
   domains: string[];
+  /**
+   * Free-form user-curated tags (e.g. "ultralight", "borrowed", "climbing"). Orthogonal to facets —
+   * NOT a capability input, NOT a hardcoded category. Purely a user cross-cutting label. Defaults to [].
+   */
+  userTags: string[];
 }
 
 // ----------------------------------------------------------------------------------------------------
@@ -94,6 +99,7 @@ export const InventoryMetaSchema = z.object({
   color: z.string().nullable().default(null),
   userNotes: z.string().nullable().default(null),
   domains: z.array(z.string()).default([]),
+  userTags: z.array(z.string()).default([]),
 });
 
 // ----------------------------------------------------------------------------------------------------
@@ -113,6 +119,7 @@ export const DEFAULT_INVENTORY: InventoryMeta = {
   color: null,
   userNotes: null,
   domains: [],
+  userTags: [],
 };
 
 // ----------------------------------------------------------------------------------------------------
@@ -136,4 +143,38 @@ export function itemMatchesSearch(
   const q = normalizeSearch(query);
   const norm = (s: string | null | undefined) => (s ? normalizeSearch(s) : "");
   return norm(fields.name).includes(q) || norm(fields.brand).includes(q) || norm(fields.model).includes(q);
+}
+
+// ----------------------------------------------------------------------------------------------------
+// Tag helpers — for the user-curated tags feature
+// ----------------------------------------------------------------------------------------------------
+
+/**
+ * Normalize a raw tag input (a string with comma/newline delimiters, or an already-split array)
+ * into a clean, deduplicated array of trimmed tags. Preserves the user's chosen casing but
+ * deduplicates case-insensitively (first occurrence wins). Filters out empty strings.
+ *
+ * @example
+ *   normalizeTags("ultralight, Climbing,  climbing")  → ["ultralight", "Climbing"]
+ *   normalizeTags(["  wet  ", "RAIN", "rain"])         → ["wet", "RAIN"]
+ */
+export function normalizeTags(raw: string[] | string): string[] {
+  const parts: string[] = Array.isArray(raw)
+    ? raw
+    : raw.split(/[,\n]+/);
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(trimmed);
+    }
+  }
+
+  return result;
 }

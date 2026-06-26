@@ -20,7 +20,7 @@
 // test/repo.cross-tenant.test.ts is the guard that proves the app-layer scope holds across the whole
 // method surface (it runs against the memory repo, which shares this isolation contract).
 
-import { eq, and, or, lt, desc, asc, ilike, sql } from "drizzle-orm";
+import { eq, and, or, lt, desc, asc, ilike, sql, count, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Db } from "@/db/client";
 import { getDb } from "./db";
@@ -32,6 +32,8 @@ import {
   itemCarry,
   itemFootwear,
   itemEvidence,
+  collections,
+  collectionItems,
 } from "@/db/schema";
 import type {
   GearRepository,
@@ -42,6 +44,7 @@ import type {
   PageOpts,
   ItemsPage,
   EvidenceClaim,
+  Collection,
 } from "@/core/ports";
 import type { ItemClassification } from "@/core/classification";
 import type { TripConditions } from "@/core/conditions";
@@ -136,6 +139,7 @@ function rowToStoredItem(row: {
   color?: string | null;
   userNotes?: string | null;
   domains?: string[] | null;
+  userTags?: string[] | null;
 }): StoredItem {
   // Map typed inventory columns → InventoryMeta. Fall through to DEFAULT_INVENTORY for any column that
   // is null/undefined (rows predating the 0008 migration get DB column defaults, so this is belt-and-
@@ -152,6 +156,7 @@ function rowToStoredItem(row: {
     color: row.color ?? DEFAULT_INVENTORY.color,
     userNotes: row.userNotes ?? DEFAULT_INVENTORY.userNotes,
     domains: row.domains ?? DEFAULT_INVENTORY.domains,
+    userTags: row.userTags ?? DEFAULT_INVENTORY.userTags,
   };
 
   return {
@@ -514,6 +519,27 @@ export const postgresRepository: GearRepository = {
       // Array membership: `$domain = ANY(items.domains)`
       predicates.push(sql`${opts.domain} = ANY(${items.domains})`);
     }
+    if (opts.tag) {
+      // Case-insensitive tag membership: any element of user_tags ILIKE the target tag.
+      // Uses the GIN index on user_tags via the @> operator after lower-casing both sides.
+      const tagLower = opts.tag.trim().toLowerCase();
+      predicates.push(sql`lower(${tagLower}) = ANY(SELECT lower(t) FROM unnest(${items.userTags}) AS t)`);
+    }
+    if (opts.collectionId) {
+      // Scope to items in the collection — also verify the collection belongs to this user
+      // (a non-owned collectionId must return 0 rows, not all items). We use an EXISTS subquery
+      // that checks BOTH the collection_items membership AND the collection's user_id.
+      predicates.push(
+        sql`EXISTS (
+          SELECT 1
+          FROM ${collectionItems} ci
+          JOIN ${collections} c ON c.id = ci.collection_id
+          WHERE ci.item_id = ${items.id}
+            AND ci.collection_id = ${opts.collectionId}
+            AND c.user_id = ${userId}
+        )`,
+      );
+    }
 
     // Keyset boundary for newest-first pagination — only when no name sort.
     if (sort === "newest" && cur) {
@@ -607,6 +633,7 @@ export const postgresRepository: GearRepository = {
         color: inv.color ?? null,
         userNotes: inv.userNotes ?? null,
         domains: inv.domains,
+        userTags: inv.userTags,
         ...projectIdentity(c),
         ...projectUniversal(c),
         ...projectMultilabel(c),
@@ -724,6 +751,7 @@ export const postgresRepository: GearRepository = {
     if ("color" in patch) set.color = patch.color ?? null;
     if ("userNotes" in patch) set.userNotes = patch.userNotes ?? null;
     if ("domains" in patch) set.domains = patch.domains;
+    if ("userTags" in patch) set.userTags = patch.userTags;
     if (Object.keys(set).length === 0) return; // empty patch → no query needed
     await db
       .update(items)
@@ -920,5 +948,172 @@ export const postgresRepository: GearRepository = {
     // The result snapshot is a column on the trip row, so deleting the row removes it too — no
     // separate cleanup needed. User-scoped to enforce ownership.
     await db.delete(trips).where(and(eq(trips.userId, userId), eq(trips.id, id)));
+  },
+
+  // ---- collections ----
+
+  async createCollection(userId, name) {
+    const db = getDb();
+    const id = randomUUID();
+    const returned = await db
+      .insert(collections)
+      .values({ id, userId, name })
+      .returning();
+    const row = returned[0];
+    if (!row) throw new Error(`insert returned no row for collection ${id}`);
+    return {
+      id: row.id,
+      userId: row.userId,
+      name: row.name,
+      itemCount: 0,
+      createdAt: row.createdAt.toISOString(),
+    };
+  },
+
+  async listCollections(userId) {
+    const db = getDb();
+    // Fetch collections with their item counts in a single join query. Newest-first via createdAt.
+    const rows = await db
+      .select({
+        id: collections.id,
+        userId: collections.userId,
+        name: collections.name,
+        createdAt: collections.createdAt,
+        itemCount: count(collectionItems.itemId),
+      })
+      .from(collections)
+      .leftJoin(collectionItems, eq(collectionItems.collectionId, collections.id))
+      .where(eq(collections.userId, userId))
+      .groupBy(collections.id)
+      .orderBy(desc(collections.createdAt));
+
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      name: r.name,
+      itemCount: Number(r.itemCount),
+      createdAt: r.createdAt.toISOString(),
+    }));
+  },
+
+  async renameCollection(userId, id, name) {
+    const db = getDb();
+    await db
+      .update(collections)
+      .set({ name })
+      .where(and(eq(collections.userId, userId), eq(collections.id, id)));
+  },
+
+  async deleteCollection(userId, id) {
+    const db = getDb();
+    // The collection_items rows are removed by DB cascade (onDelete: "cascade" FK). Items themselves
+    // are NOT deleted — only the membership rows. User-scoped via AND user_id = $userId.
+    await db
+      .delete(collections)
+      .where(and(eq(collections.userId, userId), eq(collections.id, id)));
+  },
+
+  async addItemToCollection(userId, collectionId, itemId) {
+    const db = getDb();
+    // Verify BOTH the collection and the item belong to this user before inserting. A non-owned id
+    // on either side is a silent no-op — the ownership checks are the SOLE live tenant isolation.
+    const [collOwner, itemOwner] = await Promise.all([
+      db
+        .select({ id: collections.id })
+        .from(collections)
+        .where(and(eq(collections.userId, userId), eq(collections.id, collectionId))),
+      db
+        .select({ id: items.id })
+        .from(items)
+        .where(and(eq(items.userId, userId), eq(items.id, itemId))),
+    ]);
+    if (!collOwner[0] || !itemOwner[0]) return;
+
+    // Idempotent: ON CONFLICT DO NOTHING — a duplicate add is silently ignored.
+    await db
+      .insert(collectionItems)
+      .values({ collectionId, itemId })
+      .onConflictDoNothing();
+  },
+
+  async removeItemFromCollection(userId, collectionId, itemId) {
+    const db = getDb();
+    // Verify collection ownership before deleting the membership row. A non-owned collection id
+    // silently does nothing — the user-scoped check is the SOLE live tenant isolation.
+    const collOwner = await db
+      .select({ id: collections.id })
+      .from(collections)
+      .where(and(eq(collections.userId, userId), eq(collections.id, collectionId)));
+    if (!collOwner[0]) return;
+
+    await db
+      .delete(collectionItems)
+      .where(and(eq(collectionItems.collectionId, collectionId), eq(collectionItems.itemId, itemId)));
+  },
+
+  async listCollectionItemIds(userId, collectionId) {
+    const db = getDb();
+    // Verify collection ownership; return [] for non-owned or empty collections.
+    const collOwner = await db
+      .select({ id: collections.id })
+      .from(collections)
+      .where(and(eq(collections.userId, userId), eq(collections.id, collectionId)));
+    if (!collOwner[0]) return [];
+
+    const rows = await db
+      .select({ itemId: collectionItems.itemId })
+      .from(collectionItems)
+      .where(eq(collectionItems.collectionId, collectionId))
+      .orderBy(desc(collectionItems.addedAt));
+
+    return rows.map((r) => r.itemId);
+  },
+
+  async collectionsForItem(userId, itemId) {
+    const db = getDb();
+    // Verify item ownership; return [] if the item isn't the user's.
+    const itemOwner = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.userId, userId), eq(items.id, itemId)));
+    if (!itemOwner[0]) return [];
+
+    // 1. Find all collection ids that contain this item, user-scoped.
+    const memberRows = await db
+      .select({ collectionId: collectionItems.collectionId })
+      .from(collectionItems)
+      .innerJoin(collections, eq(collections.id, collectionItems.collectionId))
+      .where(
+        and(
+          eq(collectionItems.itemId, itemId),
+          eq(collections.userId, userId),
+        ),
+      );
+
+    if (memberRows.length === 0) return [];
+    const collIds = memberRows.map((r) => r.collectionId);
+
+    // 2. Fetch those collections with full item counts.
+    const rows = await db
+      .select({
+        id: collections.id,
+        userId: collections.userId,
+        name: collections.name,
+        createdAt: collections.createdAt,
+        itemCount: count(collectionItems.itemId),
+      })
+      .from(collections)
+      .leftJoin(collectionItems, eq(collectionItems.collectionId, collections.id))
+      .where(inArray(collections.id, collIds))
+      .groupBy(collections.id)
+      .orderBy(desc(collections.createdAt));
+
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      name: r.name,
+      itemCount: Number(r.itemCount),
+      createdAt: r.createdAt.toISOString(),
+    }));
   },
 };

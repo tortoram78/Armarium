@@ -27,6 +27,8 @@ export interface ItemSummary {
   isRecordOnly?: boolean;
   /** True when the item is classified into the gear domain. */
   isGear?: boolean;
+  /** User-curated tags (Phase 4 — clickable to filter by tag). */
+  userTags?: string[];
 }
 
 interface Group {
@@ -51,6 +53,8 @@ interface Props {
   activeSort?: "newest" | "name";
   /** Active view mode (grid | list). */
   activeView?: "grid" | "list";
+  /** Active tag filter (undefined = no tag filter). */
+  activeTag?: string;
   /** Opaque cursor for the next page in the All view; null = last page. */
   nextCursor?: string | null;
   /** Whether the current session is a guest (hides write affordances). */
@@ -93,7 +97,7 @@ function statusLabel(s: string): string | null {
 
 /** Build a URL preserving all current filter params, overriding only the given key. */
 function buildFilterHref(
-  current: { q: string; status: string; condition: string; sort: string; view: string; group: string },
+  current: { q: string; status: string; condition: string; sort: string; view: string; group: string; tag: string },
   override: Partial<typeof current>,
 ): string {
   const merged = { ...current, ...override };
@@ -104,6 +108,7 @@ function buildFilterHref(
   if (merged.condition) p.set("condition", merged.condition);
   if (merged.sort && merged.sort !== "newest") p.set("sort", merged.sort);
   if (merged.view && merged.view !== "grid") p.set("view", merged.view);
+  if (merged.tag) p.set("tag", merged.tag);
   const qs = p.toString();
   return qs ? `/?${qs}` : "/";
 }
@@ -344,6 +349,7 @@ function ItemCard({
   renameAction?: (formData: FormData) => Promise<void> | void;
   updateAction?: (formData: FormData) => Promise<void> | void;
   deleteAction?: (formData: FormData) => Promise<void> | void;
+  activeTag?: string;
 }) {
   const hasImage = Boolean(item.imageUrl);
   const statusMark = item.ownershipStatus ? statusLabel(item.ownershipStatus) : null;
@@ -454,6 +460,23 @@ function ItemCard({
               ))
             )}
           </div>
+          {/* User-curated tag chips — clickable to filter by that tag */}
+          {item.userTags && item.userTags.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-1" onClick={(e) => e.preventDefault()}>
+              {item.userTags.map((t) => (
+                <a
+                  key={t}
+                  href={`/?tag=${encodeURIComponent(t)}`}
+                  className={cn(
+                    "inline-flex items-center rounded border px-1.5 py-0.5 text-[0.65rem] font-medium transition-colors",
+                    "border-border/60 bg-muted/50 text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  )}
+                >
+                  {t}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       </Link>
     </div>
@@ -885,6 +908,7 @@ export function ClosetView({
   activeCondition = "",
   activeSort = "newest",
   activeView = "grid",
+  activeTag = "",
   nextCursor = null,
   isGuest = false,
   recordOwnershipAction,
@@ -903,7 +927,7 @@ export function ClosetView({
   const verifyCount = items.filter((it) => it.needsVerify && !it.isRecordOnly && it.isGear !== false).length;
   const isAll = activeGroup === "all";
   const hasSearch = searchQ.length > 0;
-  const hasActiveFilter = Boolean(activeStatus) || Boolean(activeCondition) || activeSort !== "newest";
+  const hasActiveFilter = Boolean(activeStatus) || Boolean(activeCondition) || activeSort !== "newest" || Boolean(activeTag);
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -940,6 +964,7 @@ export function ClosetView({
     sort: activeSort,
     view: activeView,
     group: isAll ? "all" : activeGroup,
+    tag: activeTag,
   };
 
   const OWNERSHIP_STATUS_OPTIONS = ["wishlist", "owned", "loaned", "retired", "sold"] as const;
@@ -977,19 +1002,34 @@ export function ClosetView({
           </p>
         </div>
 
-        {/* Secondary CTA — full add flow with specs + link */}
-        <Link
-          href="/items/new"
-          className={cn(
-            "inline-flex shrink-0 items-center gap-2 rounded-md border border-border bg-card px-5 py-2.5",
-            "text-sm font-medium text-foreground",
-            "shadow-[0_1px_2px_0_hsl(var(--shadow-soft))]",
-            "transition-colors duration-200 ease-crisp hover:bg-secondary hover:text-foreground active:translate-y-px",
+        {/* Masthead actions: add with details + export CSV */}
+        <div className="flex shrink-0 items-center gap-2">
+          {!isGuest && (
+            <a
+              href="/api/export"
+              className={cn(
+                "inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5",
+                "text-sm font-medium text-muted-foreground",
+                "shadow-[0_1px_2px_0_hsl(var(--shadow-soft))]",
+                "transition-colors duration-200 ease-crisp hover:bg-secondary hover:text-foreground",
+              )}
+            >
+              Export CSV
+            </a>
           )}
-        >
-          <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
-          Add with details
-        </Link>
+          <Link
+            href="/items/new"
+            className={cn(
+              "inline-flex items-center gap-2 rounded-md border border-border bg-card px-5 py-2.5",
+              "text-sm font-medium text-foreground",
+              "shadow-[0_1px_2px_0_hsl(var(--shadow-soft))]",
+              "transition-colors duration-200 ease-crisp hover:bg-secondary hover:text-foreground active:translate-y-px",
+            )}
+          >
+            <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+            Add with details
+          </Link>
+        </div>
       </motion.header>
 
       {/* ── Duplicate warning banner ── */}
@@ -1264,10 +1304,27 @@ export function ClosetView({
                 </div>
               </div>
 
+              {/* Active tag chip with clear affordance */}
+              {activeTag && (
+                <div className="flex items-center gap-1.5">
+                  <span className="eyebrow text-[0.7rem]">Tag</span>
+                  <Link
+                    href={buildFilterHref(filterState, { tag: "" })}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/8 px-2 py-0.5",
+                      "text-[0.75rem] font-medium text-primary transition-colors hover:bg-primary/14",
+                    )}
+                  >
+                    {activeTag}
+                    <X className="h-2.5 w-2.5" aria-hidden />
+                  </Link>
+                </div>
+              )}
+
               {/* Clear all filters affordance */}
               {hasActiveFilter && (
                 <Link
-                  href={buildFilterHref({ q: searchQ, status: "", condition: "", sort: "newest", view: activeView, group: filterState.group }, {})}
+                  href={buildFilterHref({ q: searchQ, status: "", condition: "", sort: "newest", view: activeView, group: filterState.group, tag: "" }, {})}
                   className="flex items-center gap-1 text-[0.75rem] text-accent hover:text-accent/80 transition-colors"
                 >
                   <X className="h-3 w-3" />

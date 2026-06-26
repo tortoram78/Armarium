@@ -10,6 +10,7 @@ import {
   CONDITION,
   normalizeSearch,
   itemMatchesSearch,
+  normalizeTags,
   type InventoryMeta,
 } from "@/core/inventory";
 import { recordOnlyClassification } from "@/core/record";
@@ -33,6 +34,7 @@ describe("InventoryMetaSchema", () => {
     expect(result.color).toBeNull();
     expect(result.userNotes).toBeNull();
     expect(result.domains).toEqual([]);
+    expect(result.userTags).toEqual([]);
   });
 
   it("accepts all valid ownership statuses", () => {
@@ -81,6 +83,7 @@ describe("InventoryMetaSchema", () => {
       color: "orange",
       userNotes: "bought on sale",
       domains: ["gear"],
+      userTags: ["ultralight", "climbing"],
     };
     const result = InventoryMetaSchema.parse(payload);
     expect(result.ownershipStatus).toBe("owned");
@@ -88,6 +91,7 @@ describe("InventoryMetaSchema", () => {
     expect(result.condition).toBe("good");
     expect(result.pricePaidCents).toBe(19900);
     expect(result.domains).toEqual(["gear"]);
+    expect(result.userTags).toEqual(["ultralight", "climbing"]);
   });
 
   it("rejects negative pricePaidCents", () => {
@@ -113,6 +117,7 @@ describe("DEFAULT_INVENTORY", () => {
     expect(d.color).toBeNull();
     expect(d.userNotes).toBeNull();
     expect(d.domains).toEqual([]);
+    expect(d.userTags).toEqual([]);
   });
 
   it("is consistent with InventoryMetaSchema defaults (round-trip)", () => {
@@ -247,6 +252,70 @@ describe("normalizeSearch", () => {
     expect(normalizeSearch("  Hello   World  ")).toBe("hello world");
     expect(normalizeSearch("NANO\tPUFF")).toBe("nano puff");
     expect(normalizeSearch("already clean")).toBe("already clean");
+  });
+});
+
+// ----------------------------------------------------------------------------------------------------
+// normalizeTags
+// ----------------------------------------------------------------------------------------------------
+
+describe("normalizeTags", () => {
+  // Splitting from a single comma-delimited string
+  it("splits a comma-delimited string into trimmed tags", () => {
+    expect(normalizeTags("ultralight, climbing, rain")).toEqual(["ultralight", "climbing", "rain"]);
+  });
+
+  it("splits a newline-delimited string", () => {
+    expect(normalizeTags("ultralight\nclimbing\nrain")).toEqual(["ultralight", "climbing", "rain"]);
+  });
+
+  it("splits mixed comma and newline delimiters", () => {
+    expect(normalizeTags("ultralight,climbing\nrain")).toEqual(["ultralight", "climbing", "rain"]);
+  });
+
+  // Trimming
+  it("trims whitespace from each tag", () => {
+    expect(normalizeTags("  ultralight  ,  climbing  ")).toEqual(["ultralight", "climbing"]);
+  });
+
+  // Empty filtering
+  it("filters out empty strings produced by consecutive delimiters", () => {
+    expect(normalizeTags("ultralight,,climbing")).toEqual(["ultralight", "climbing"]);
+    expect(normalizeTags("ultralight\n\nclimbing")).toEqual(["ultralight", "climbing"]);
+  });
+
+  it("returns [] for an empty string", () => {
+    expect(normalizeTags("")).toEqual([]);
+  });
+
+  it("returns [] for a whitespace-only string", () => {
+    expect(normalizeTags("   ")).toEqual([]);
+  });
+
+  // Case-insensitive deduplication (first occurrence wins, preserves user casing)
+  it("deduplicates case-insensitively (first occurrence wins)", () => {
+    expect(normalizeTags("Climbing,climbing,CLIMBING")).toEqual(["Climbing"]);
+  });
+
+  it("preserves the casing of the first occurrence", () => {
+    expect(normalizeTags("Rain, rain, RAIN")).toEqual(["Rain"]);
+  });
+
+  it("deduplication is case-insensitive across distinct mixed-case tags", () => {
+    expect(normalizeTags("ultralight, UltraLight, ULTRALIGHT, hiking")).toEqual(["ultralight", "hiking"]);
+  });
+
+  // Array input
+  it("accepts a pre-split array and deduplicates it", () => {
+    expect(normalizeTags(["  wet  ", "RAIN", "rain"])).toEqual(["wet", "RAIN"]);
+  });
+
+  it("accepts an array of already-clean tags without modification", () => {
+    expect(normalizeTags(["ultralight", "climbing", "rain"])).toEqual(["ultralight", "climbing", "rain"]);
+  });
+
+  it("filters empty strings from an array input", () => {
+    expect(normalizeTags(["ultralight", "", "  ", "rain"])).toEqual(["ultralight", "rain"]);
   });
 });
 

@@ -90,8 +90,32 @@ export interface PageOpts {
    * the in-memory impl uses Array.includes. Useful for showing only fully-classified 'gear' items.
    */
   domain?: string;
+  /**
+   * Filter to items belonging to this collection (by collection id). Verifies the collection belongs to
+   * the same userId — a non-owned collectionId returns an empty page. Composed with all other filters.
+   */
+  collectionId?: string;
+  /**
+   * Filter to items where this tag is a member of `userTags` (case-insensitive). Postgres uses
+   * `ILIKE ANY(user_tags)` equivalently; the in-memory impl uses a case-insensitive includes check.
+   */
+  tag?: string;
   /** Sort order. 'newest' (default) = createdAt desc, id desc. 'name' = alphabetical ascending. */
   sort?: "newest" | "name";
+}
+
+/**
+ * A user-curated named collection of items. Collections have no behavioral semantics — they are a
+ * curation/browsing tool, entirely orthogonal to facets/capabilities. `itemCount` is the number of
+ * items currently in the collection (denormalized for display; computed on read).
+ */
+export interface Collection {
+  id: string;
+  userId: string;
+  name: string;
+  /** Number of items currently in the collection. Computed on read; not a stored column. */
+  itemCount: number;
+  createdAt: string;
 }
 
 /** A single page of items plus the cursor to fetch the next one (`null` when exhausted). */
@@ -190,4 +214,40 @@ export interface GearRepository {
   cloneTrip(userId: string, id: string): Promise<StoredTrip>;
   /** Delete a saved trip (and its result snapshot), user-scoped. No-op if it isn't the user's. */
   deleteTrip(userId: string, id: string): Promise<void>;
+
+  // ---- collections: user-curated named sets of items ----
+  // Collections are curation/browsing tools; they carry NO behavioral semantics and are NOT facet
+  // inputs. Every method is user-scoped — a non-owned id is always a no-op or returns empty/null.
+
+  /** Create a new empty collection for the user. Returns the persisted Collection (itemCount = 0). */
+  createCollection(userId: string, name: string): Promise<Collection>;
+  /**
+   * List all collections for the user, newest first, each with the current itemCount. An empty
+   * array is returned (not an error) when the user has no collections.
+   */
+  listCollections(userId: string): Promise<Collection[]>;
+  /** Rename a collection in place. No-op if the collection doesn't belong to the user. */
+  renameCollection(userId: string, id: string, name: string): Promise<void>;
+  /**
+   * Delete a collection and all its membership rows (cascade via FK). No-op if the collection
+   * doesn't belong to the user. Does NOT delete the items themselves.
+   */
+  deleteCollection(userId: string, id: string): Promise<void>;
+  /**
+   * Add an item to a collection. Idempotent — a duplicate add is silently ignored. Verifies BOTH
+   * the collection AND the item belong to the same userId; a non-owned id on either side is a no-op.
+   */
+  addItemToCollection(userId: string, collectionId: string, itemId: string): Promise<void>;
+  /** Remove an item from a collection. No-op if either id is not owned or the membership doesn't exist. */
+  removeItemFromCollection(userId: string, collectionId: string, itemId: string): Promise<void>;
+  /**
+   * List item ids in a collection. Returns [] if the collection doesn't belong to the user or is empty.
+   * Ordered by `addedAt` descending (most recently added first).
+   */
+  listCollectionItemIds(userId: string, collectionId: string): Promise<string[]>;
+  /**
+   * Return all collections (with itemCount) that contain the given item. Used by the item detail page
+   * to show which collections an item belongs to. Returns [] if the item isn't the user's.
+   */
+  collectionsForItem(userId: string, itemId: string): Promise<Collection[]>;
 }
