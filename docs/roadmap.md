@@ -10,6 +10,21 @@ dependency/infra decision before any implementation. See `CLAUDE.md` and ADR-000
 
 ---
 
+## Active track — Packing engine rebuild (decided 2026-06-26; see ADR-0027)
+
+The recommendation engine is being rebuilt from a **capability auditor** (9 thermal/clothing
+capabilities → satisfied/verify/gap) into a **packing planner** (trip → one quantified, gear-first
+checklist covering the 10 Essentials + big 3 + consumables, with owned/verify/gap + quantities per
+line). Architecture: a deterministic, hermetic **`Need`-model skeleton** (Layer A, reuses the
+faceted matcher for "what you own") plus an **additive, Zod-validated LLM breadth/narration layer**
+(Layer B, proposes needs only — never asserts ownership). Owner decisions locked: comprehensive
+gear-first list · deterministic floor first / LLM later · trip-type chip + free text input. Folds in
+the approved Open-Meteo weather (step 3) and catalog gap-fill (step 4). Build gated on the Phase 0
+`DESIGN.md` update. Phases 0–4 in ADR-0027. **Next:** Phase 0 DESIGN section → Phase 1 (the
+deterministic checklist).
+
+---
+
 ## Done this phase
 
 **Verify → correct → re-plan loop** (`src/core/corrections.ts`, `src/server/app-service.ts`):

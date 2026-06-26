@@ -142,7 +142,10 @@ export function getWebSearchEnricher(): WebSearchEnricherHandle {
   if (apiKey) {
     const anthropic = new Anthropic({ apiKey, timeout: 50_000, maxRetries: 1 });
     const onUsage = logLlmUsage("search");
-    return { enrich: (query) => extractViaWebSearch(query, { anthropic, onUsage }), available: true };
+    // OPEN enrichment (ADR-0029): `allowlist: []` lifts the domain hardcap so web search spans the whole
+    // web for ANY brand. Honesty is preserved by the citation gate in core (the cited URL must be one the
+    // search tool actually returned). No SSRF surface here — Claude's server does the fetching, not ours.
+    return { enrich: (query) => extractViaWebSearch(query, { anthropic, onUsage, allowlist: [] }), available: true };
   }
   // Keyless: an inert handle — `available:false` means app-service never invokes `enrich`.
   const empty: WebSearchResult = {

@@ -28,6 +28,7 @@ import type { LlmClaimsOutput } from "@/core/classify/claims";
 import {
   parseProductHtml,
   toManufacturerEvidence,
+  applyManufacturerOverlay,
   type ExtractedProduct,
   type WebSearchResult,
 } from "@/core/enrich";
@@ -250,6 +251,24 @@ export async function enrichItem(
     return existing;
   }
 
+  // AUTHORITATIVE OVERLAY (ADR-0028): pull manufacturer/retailer specs for the NAME via the citation-gated
+  // web-search enricher and overlay them — identity (brand/model/price/weight) + composition WIN over the
+  // classifier's inference (rule #2: authoritative beats inferred). This is what makes "Auto-fill from
+  // name" return real specs for any allowlisted brand instead of leaving hard facts unknown. Degrade-safe:
+  // the keyless handle is inert (`available:false`) so the hermetic path is unchanged; a failed/empty
+  // search keeps the inference-only classification; NEVER throws. (Caveat: the manufacturer specs are
+  // overlaid on the resolved classification, not added to the persisted claim trail — acceptable since
+  // reads use the classification jsonb as source of truth; a fuller claims merge is future work.)
+  const webSearch = deps.webSearch ?? getWebSearchEnricher().enrich;
+  try {
+    const ws = await webSearch({ name });
+    if (ws.sourceUrl !== null) {
+      classification = applyManufacturerOverlay(classification, toManufacturerEvidence(ws.extracted));
+    }
+  } catch {
+    /* web-search unavailable/failed — keep the inference-only classification (degrade, never throw). */
+  }
+
   // Overlay the resolved classification + provenance onto the existing row. Raw repo.updateClassification
   // (NOT updateItemClassification) — enrichment is inference, not a user override, so it must not be
   // written back as this user's authoritative correction.
@@ -463,6 +482,14 @@ function resolvedComposition(name: string, claims: EvidenceClaim[]): ItemClassif
  *  an API key (the real handle is env-selected by `getClassifier()`). */
 export interface ClassifyToDraftDeps {
   classifier?: ReturnType<typeof getClassifier>;
+  /**
+   * Web-search product enrichment (ADR-0020, extended to the by-name path in ADR-0028). When available,
+   * the by-name enrichment overlays authoritative manufacturer/retailer identity + composition specs on
+   * top of the classifier's behavioral inference (citation-gated in core). Defaults to the env-selected
+   * `getWebSearchEnricher()`; injected in tests. The keyless handle is inert (`available:false`), so the
+   * hermetic gate is unchanged.
+   */
+  webSearch?: (query: { name?: string | null; url?: string | null }) => Promise<WebSearchResult>;
 }
 
 /**
@@ -578,7 +605,11 @@ export async function enrichFromUrlToDraft(
   deps: EnrichDeps = {},
   inInventory = true,
 ): Promise<EnrichResult> {
-  const fetchHtml = deps.fetchHtml ?? ((u: string) => fetchManufacturerHtml(u, deps.fetcherDeps));
+  // OPEN MODE (ADR-0029): `allowlist: []` lifts the domain hardcap so ANY public product URL can be
+  // fetched. SSRF is still fully defended by the fetcher's DNS-resolve-all + private/loopback/reserved-IP
+  // block + per-hop redirect re-validation; the host allowlist was defense-in-depth. A caller-supplied
+  // `fetcherDeps` (tests) still wins.
+  const fetchHtml = deps.fetchHtml ?? ((u: string) => fetchManufacturerHtml(u, { allowlist: [], ...deps.fetcherDeps }));
   const fetchScrapfly = deps.fetchScrapfly ?? ((u: string) => fetchViaScrapfly(u));
 
   // 1. DIRECT fetch first — free + fast. For non-walled brands this is the whole story.
