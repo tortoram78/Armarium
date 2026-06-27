@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getTrip } from "@/server/app-service";
+import { getTrip, planPackingFor } from "@/server/app-service";
 import {
   replanTripAction,
   renameTripAction,
@@ -10,7 +10,8 @@ import {
 } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { TripControls } from "@/components/TripControls";
-import { TripResultView, conditionsSummary } from "@/components/TripResultView";
+import { conditionsSummary } from "@/components/TripResultView";
+import { PackingPlanView } from "@/components/PackingPlanView";
 import { requireUserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -26,12 +27,14 @@ export default async function TripDetailPage({
   const trip = await getTrip(params.id, userId);
   if (!trip) notFound();
 
-  const result = trip.result;
   const conds = trip.conditions;
+  // Compute the packing checklist LIVE from the trip's conditions + the CURRENT closet (ADR-0027) — so a
+  // saved trip always reflects the gear you own now (no stale snapshot to re-plan).
+  const plan = await planPackingFor(trip.name, conds, userId);
 
-  const picksCount = result?.picks.length ?? 0;
-  const gapsCount = result?.gaps.length ?? 0;
-  const verifyCount = result?.uncertain.length ?? 0;
+  const ownedCount = plan.summary.owned;
+  const gapCount = plan.summary.gap;
+  const verifyCount = plan.summary.verify;
 
   return (
     <div className="mx-auto max-w-3xl space-y-10">
@@ -57,19 +60,13 @@ export default async function TripDetailPage({
                 </span>
               </span>
               <span aria-hidden className="text-muted-foreground/40">·</span>
-              <span>
-                <span className="data-mono text-foreground">{picksCount}</span>{" "}
-                {picksCount === 1 ? "pick" : "picks"}
+              <span className="text-primary">
+                <span className="data-mono">{ownedCount}</span> in your closet
               </span>
-              {gapsCount > 0 && (
-                <>
-                  <span aria-hidden className="text-muted-foreground/40">·</span>
-                  <span>
-                    <span className="data-mono text-foreground">{gapsCount}</span>{" "}
-                    {gapsCount === 1 ? "gap" : "gaps"}
-                  </span>
-                </>
-              )}
+              <span aria-hidden className="text-muted-foreground/40">·</span>
+              <span>
+                <span className="data-mono text-foreground">{gapCount}</span> to bring
+              </span>
               {verifyCount > 0 && (
                 <>
                   <span aria-hidden className="text-muted-foreground/40">·</span>
@@ -115,33 +112,23 @@ export default async function TripDetailPage({
         <p className="text-[0.95rem] leading-relaxed text-foreground">{conditionsSummary(conds)}</p>
       </section>
 
-      {!result ? (
-        <div className="panel px-6 py-16 text-center">
-          <p className="text-[0.95rem] leading-relaxed text-muted-foreground">
-            No recommendation result saved for this trip. Re-plan to generate one.
-          </p>
-        </div>
-      ) : (
-        <>
-          <TripResultView result={result} />
+      <PackingPlanView plan={plan} />
 
-          {/* Links */}
-          <div className="flex gap-6 border-t border-border pt-6 pb-4">
-            <Link
-              href="/plan"
-              className="text-sm text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
-            >
-              Plan another trip
-            </Link>
-            <Link
-              href="/"
-              className="text-sm text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
-            >
-              Back to closet
-            </Link>
-          </div>
-        </>
-      )}
+      {/* Links */}
+      <div className="flex gap-6 border-t border-border pt-6 pb-4">
+        <Link
+          href="/plan"
+          className="text-sm text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+        >
+          Plan another trip
+        </Link>
+        <Link
+          href="/"
+          className="text-sm text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+        >
+          Back to closet
+        </Link>
+      </div>
     </div>
   );
 }

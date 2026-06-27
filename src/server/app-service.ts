@@ -14,6 +14,7 @@ import { normalizeTags, type InventoryMeta, type OwnershipStatus, type Condition
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
 import type { RecommendationResult } from "@/core/recommend";
+import { planPacking, type PackingPlan } from "@/core/packing";
 import { deriveFromComposition } from "@/core/materials";
 import {
   resolveBehavioralFacets,
@@ -427,6 +428,21 @@ export async function planPreview(
 ): Promise<RecommendationResult> {
   const inv = await getInventoryResolved(userId);
   return planTrip(inv, name, conditions, description);
+}
+
+/**
+ * The REBUILT engine (ADR-0027): a trip → a quantified, gear-first packing CHECKLIST over the user's
+ * resolved closet. Deterministic and computed at view-time, so it always reflects the CURRENT closet and
+ * needs no persistence change (the saved trip stores only its conditions + the legacy result snapshot).
+ * Guest-aware via `getInventoryResolved` (a guest plans against the seeded sample closet).
+ */
+export async function planPackingFor(
+  name: string,
+  conditions: TripConditions,
+  userId = DEFAULT_USER_ID,
+): Promise<PackingPlan> {
+  const inv = await getInventoryResolved(userId);
+  return planPacking(inv, name, conditions);
 }
 
 // ---- add-by-name (review-before-save) ----

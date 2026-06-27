@@ -12,9 +12,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getUserIdOrGuest } from "@/lib/auth";
-import { planPreview } from "@/server/app-service";
+import { planPackingFor } from "@/server/app-service";
 import { decodeConditions, encodeConditions } from "@/lib/conditions-codec";
-import { TripResultView, conditionsSummary } from "@/components/TripResultView";
+import { conditionsSummary } from "@/components/TripResultView";
+import { PackingPlanView } from "@/components/PackingPlanView";
 import { GuestBanner } from "@/components/GuestBanner";
 
 export const dynamic = "force-dynamic";
@@ -37,12 +38,12 @@ export default async function PlanPreviewPage({
 
   const name = String(searchParams.name ?? "").trim() || "Trip preview";
 
-  // Re-run the REAL engine over the resolved closet — same reasoning as a saved plan, persistence dropped.
-  const result = await planPreview(name, conditions, undefined, userId);
+  // Run the REAL engine (ADR-0027) over the resolved closet — a full packing checklist, persistence dropped.
+  const plan = await planPackingFor(name, conditions, userId);
 
-  const picksCount = result.picks.length;
-  const gapsCount = result.gaps.length;
-  const verifyCount = result.uncertain.length;
+  const ownedCount = plan.summary.owned;
+  const gapCount = plan.summary.gap;
+  const verifyCount = plan.summary.verify;
 
   // The conditions ride along to /login so a returning user lands on a pre-filled /plan form.
   const encoded = encodeConditions(conditions);
@@ -72,19 +73,13 @@ export default async function PlanPreviewPage({
           <p className="eyebrow mb-3 text-accent">Preview · not saved</p>
           <h1 className="display-xl text-foreground">{name}</h1>
           <p className="mt-4 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.975rem] text-muted-foreground">
-            <span>
-              <span className="data-mono text-foreground">{picksCount}</span>{" "}
-              {picksCount === 1 ? "pick" : "picks"}
+            <span className="text-primary">
+              <span className="data-mono">{ownedCount}</span> in your closet
             </span>
-            {gapsCount > 0 && (
-              <>
-                <span aria-hidden className="text-muted-foreground/40">·</span>
-                <span>
-                  <span className="data-mono text-foreground">{gapsCount}</span>{" "}
-                  {gapsCount === 1 ? "gap" : "gaps"}
-                </span>
-              </>
-            )}
+            <span aria-hidden className="text-muted-foreground/40">·</span>
+            <span>
+              <span className="data-mono text-foreground">{gapCount}</span> to bring
+            </span>
             {verifyCount > 0 && (
               <>
                 <span aria-hidden className="text-muted-foreground/40">·</span>
@@ -111,8 +106,8 @@ export default async function PlanPreviewPage({
         <p className="text-[0.95rem] leading-relaxed text-foreground">{conditionsSummary(conditions)}</p>
       </section>
 
-      {/* The shared recommendation body — readonly (item deep-links would bounce a guest to /login). */}
-      <TripResultView result={result} readonly={isGuest} />
+      {/* The packing checklist body — readonly (item deep-links would bounce a guest to /login). */}
+      <PackingPlanView plan={plan} readonly={isGuest} />
 
       {/* Footer wall — repeat the save invitation after the result, plus a way back to edit conditions. */}
       <section className="panel elev-soft flex flex-wrap items-center justify-between gap-x-8 gap-y-5 border-l-2 border-l-accent p-6">
