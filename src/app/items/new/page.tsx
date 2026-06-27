@@ -35,8 +35,8 @@ export default function NewItemPage({
         <h1 className="display-xl text-foreground">Add an item</h1>
         <p className="mt-4 text-[0.975rem] leading-relaxed text-muted-foreground">
           Name the gear, paste a manufacturer link if you have one, and add anything else you know.
-          Armarium pulls authoritative specs from the link when it can and classifies the rest onto the
-          facets — you review before it&apos;s saved.
+          Armarium pulls authoritative specs from the link when it can and fills in the rest — you
+          confirm before saving. The link is optional; a name alone works fine.
           {mode === "offline" && (
             <span className="text-accent">
               {" "}

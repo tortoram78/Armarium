@@ -49,10 +49,11 @@ export default async function BatchPage({
 
         <header className="space-y-3">
           <p className="eyebrow">Batch add</p>
-          <h1 className="display-xl text-foreground">Classifying your gear</h1>
+          <h1 className="display-xl text-foreground">Your gear is saved</h1>
           <p className="text-[0.975rem] leading-relaxed text-muted-foreground">
-            All {seedItems.length} {seedItems.length === 1 ? "item" : "items"} are already in your
-            closet. Details are filling in now — you can leave this page at any time.
+            All {seedItems.length} {seedItems.length === 1 ? "item" : "items"} {seedItems.length === 1 ? "is" : "are"} in your closet.
+            Specs are auto-filling in the background — you can leave this page at any time.
+            The closet works fine without them.
           </p>
         </header>
 
@@ -75,8 +76,8 @@ export default async function BatchPage({
         <p className="eyebrow">Batch add</p>
         <h1 className="display-xl text-foreground">Paste a list</h1>
         <p className="text-[0.975rem] leading-relaxed text-muted-foreground">
-          Paste one item name (or manufacturer URL) per line. All items appear in your closet
-          instantly — Armarium then fills in the details in the background.
+          Paste one item name (or manufacturer URL) per line. Everything lands in your closet
+          immediately — Armarium auto-fills specs in the background. You can leave right after adding.
         </p>
       </header>
 

@@ -152,7 +152,7 @@ export function BatchEnrichView({ items, enrichAction }: Props) {
           <span className="data-mono text-foreground">{done}</span>
           {" / "}
           <span className="data-mono text-foreground">{total}</span>
-          {" classified"}
+          {" items processed"}
         </p>
         {/* Simple progress bar */}
         <div className="h-1.5 flex-1 rounded-full bg-secondary overflow-hidden">
@@ -238,29 +238,30 @@ function StatusDot({ status }: { status: RowStatus }) {
     return (
       <span
         className={cn(base, "bg-primary animate-pulse")}
-        aria-label="Classifying"
+        aria-label="Filling in specs"
       />
     );
   if (status === "classified")
-    return <span className={cn(base, "bg-green-500 dark:bg-green-400")} />;
+    return <span className={cn(base, "bg-primary/70")} />;
   if (status === "possession")
     return <span className={cn(base, "bg-muted-foreground/40")} />;
   if (status === "rate_limited")
-    return <span className={cn(base, "bg-amber-400 animate-pulse")} />;
-  // error
-  return <span className={cn(base, "bg-destructive/60")} />;
+    return <span className={cn(base, "bg-muted-foreground/40 animate-pulse")} />;
+  // error — item is saved; soften the dot to not alarm
+  return <span className={cn(base, "bg-muted-foreground/30")} />;
 }
 
 function StatusLabel({ status }: { status: RowStatus }) {
   if (status === "pending")
-    return <span className="text-xs text-muted-foreground/60">pending</span>;
+    return <span className="text-xs text-muted-foreground/60">queued</span>;
   if (status === "enriching")
-    return <span className="text-xs text-muted-foreground">classifying&hellip;</span>;
+    return <span className="text-xs text-muted-foreground">filling in&hellip;</span>;
   if (status === "classified")
-    return <span className="text-xs text-foreground">classified</span>;
+    return <span className="text-xs text-foreground">specs added</span>;
   if (status === "possession")
-    return <span className="text-xs text-muted-foreground/70">kept as possession</span>;
+    return <span className="text-xs text-muted-foreground/70">saved</span>;
   if (status === "rate_limited")
-    return <span className="text-xs text-amber-600 dark:text-amber-400">backing off&hellip;</span>;
-  return <span className="text-xs text-destructive/70">error</span>;
+    return <span className="text-xs text-muted-foreground/70">retrying&hellip;</span>;
+  // error — item is saved; specs just couldn't be auto-filled
+  return <span className="text-xs text-muted-foreground/60">saved without specs</span>;
 }
