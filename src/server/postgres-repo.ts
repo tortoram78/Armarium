@@ -498,16 +498,34 @@ export const postgresRepository: GearRepository = {
     // predicates (search, status, condition, domain) are appended with AND.
     const predicates = [eq(items.userId, userId)];
 
-    if (opts.search && opts.search.trim()) {
-      // Token-aware substring match: EVERY whitespace token must hit name/brand/model (case-insensitive),
-      // so "osprey atmos" matches "Atmos AG 65" by Osprey regardless of word order — closer to the core
-      // `searchScore` than a single %phrase% pattern. (Full trigram/typo-tolerant RANKING, to mirror the
-      // in-memory fuzzy scorer exactly, is the pg_trgm follow-up — see ADR-0031. Ordering is unchanged.)
+    const searchQuery = opts.search && opts.search.trim() ? opts.search.trim() : null;
+    if (searchQuery) {
+      // Typo-tolerant fuzzy match: a row qualifies when the whole query string scores above the
+      // pg_trgm similarity threshold (0.3) on any of name/brand/model, OR when every whitespace
+      // token hits at least one field with a conventional ILIKE (fast path for exact/prefix hits
+      // that pg_trgm would also accept but may score marginally).
+      // The GIN trigram indexes (items_name_trgm_idx, items_brand_trgm_idx, items_model_trgm_idx)
+      // created in migration 0010 allow Postgres to index-scan for similarity() predicates.
+      //
+      // Recall predicate: (similarity(name,q)>0.3 OR ILIKE) on any field.  This mirrors the
+      // core searchScore's typo-tolerance floor without the weighted ranking math (which is
+      // approximated by the ORDER BY GREATEST(similarity(...)) below).
       const esc = (s: string) => s.replace(/[\\%_]/g, (m) => "\\" + m);
-      const tokens = opts.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const tokens = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+      // Token ILIKE predicates: each token must match at least one of name/brand/model.
+      // This ensures "osprey atmos" still requires both words to be present.
       for (const tok of tokens) {
         const pat = `%${esc(tok)}%`;
-        predicates.push(or(ilike(items.name, pat), ilike(items.brand, pat), ilike(items.model, pat))!);
+        predicates.push(
+          or(
+            ilike(items.name, pat),
+            ilike(items.brand, pat),
+            ilike(items.model, pat),
+            // Trigram similarity fallback for typos: if no field contains the token as a
+            // substring, accept it when any field is sufficiently similar to the full query.
+            sql`(similarity(${items.name}, ${searchQuery}) > 0.3 OR similarity(${items.brand}, ${searchQuery}) > 0.3 OR similarity(${items.model}, ${searchQuery}) > 0.3)`,
+          )!,
+        );
       }
     }
     if (opts.status) {
@@ -542,8 +560,11 @@ export const postgresRepository: GearRepository = {
       );
     }
 
-    // Keyset boundary for newest-first pagination — only when no name sort.
-    if (sort === "newest" && cur) {
+    // Keyset boundary for newest-first pagination — only when not in search/name-sort modes.
+    // In search mode we use OFFSET-style pagination (same as sort==='name') so the relevance
+    // ORDER BY is stable across pages. The keyset cursor only applies to the non-search
+    // newest-first path.
+    if (sort === "newest" && !searchQuery && cur) {
       predicates.push(
         or(
           lt(items.createdAt, cur.createdAt),
@@ -554,17 +575,53 @@ export const postgresRepository: GearRepository = {
 
     const whereClause = predicates.length === 1 ? predicates[0]! : and(...predicates)!;
 
-    // Fetch limit + 1 to detect whether a further page exists without a second COUNT query.
-    const orderBy = sort === "name"
-      ? [asc(items.name), asc(items.id)]
-      : [desc(items.createdAt), desc(items.id)];
+    // OFFSET for search/name-sort modes — extracted from the opaque cursor.
+    const offsetBase =
+      (searchQuery || sort === "name") && opts.cursor
+        ? (() => {
+            try {
+              return parseInt(Buffer.from(opts.cursor, "base64url").toString("utf8"), 10) || 0;
+            } catch {
+              return 0;
+            }
+          })()
+        : 0;
 
-    const rows = await db
-      .select()
-      .from(items)
-      .where(whereClause)
-      .orderBy(...orderBy)
-      .limit(limit + 1);
+    // Fetch limit + 1 to detect whether a further page exists without a second COUNT query.
+    // ORDER BY:
+    //   - search mode: GREATEST(similarity(name,q), similarity(brand,q), similarity(model,q)) DESC
+    //     then created_at DESC, id DESC as tiebreak (matches the in-memory contract).
+    //   - name sort: alphabetical by name then id.
+    //   - default (newest): created_at DESC, id DESC (keyset path).
+    //
+    // We build two separate query paths so TypeScript can infer the result type without a
+    // complex intermediate annotation; both paths select the same columns from `items`.
+    const rows = await (searchQuery
+      ? db
+          .select()
+          .from(items)
+          .where(whereClause)
+          .orderBy(
+            // GREATEST returns the highest similarity score across the three fields — this
+            // approximates the core searchScore's per-field weighting without exact numeric parity.
+            // coalesce handles NULL brand/model so similarity() never sees a NULL argument.
+            sql`GREATEST(
+              similarity(${items.name}, ${searchQuery}),
+              similarity(coalesce(${items.brand},''), ${searchQuery}),
+              similarity(coalesce(${items.model},''), ${searchQuery})
+            ) DESC`,
+            desc(items.createdAt),
+            desc(items.id),
+          )
+          .limit(limit + 1)
+          .offset(offsetBase)
+      : db
+          .select()
+          .from(items)
+          .where(whereClause)
+          .orderBy(...(sort === "name" ? [asc(items.name), asc(items.id)] : [desc(items.createdAt), desc(items.id)]))
+          .limit(limit + 1)
+          .offset(sort === "name" ? offsetBase : 0));
 
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
@@ -572,20 +629,10 @@ export const postgresRepository: GearRepository = {
 
     let nextCursor: string | null = null;
     if (hasMore && last) {
-      if (sort === "name") {
-        // For name sort, encode the absolute offset as the cursor so the memory impl mirrors it.
-        // In Postgres we use keyset on (name, id) implicitly via LIMIT+1; the cursor carries the
-        // last-seen name+id for future support, but for now we store an opaque marker so the UI
-        // can call back with it and get the next chunk (offset-style, same as memory).
-        const offsetBase = opts.cursor
-          ? (() => {
-              try {
-                return parseInt(Buffer.from(opts.cursor, "base64url").toString("utf8"), 10) || 0;
-              } catch {
-                return 0;
-              }
-            })()
-          : 0;
+      if (searchQuery || sort === "name") {
+        // OFFSET-style cursor: encode the new absolute offset as an opaque base64url string.
+        // Both the search and name-sort modes use this convention so the UI can call back
+        // with the cursor and receive the next chunk at the correct position.
         nextCursor = Buffer.from(String(offsetBase + limit), "utf8").toString("base64url");
       } else {
         nextCursor = encodeCursor(last.createdAt, last.id);

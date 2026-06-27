@@ -71,6 +71,13 @@
       "when": 1782441608244,
       "tag": "0009_yielding_plazm",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782475200000,
+      "tag": "0010_pg_trgm_fuzzy_search",
+      "breakpoints": true
     }
   ]
 }
