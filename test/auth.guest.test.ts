@@ -5,15 +5,16 @@
 //     session/no-session by stubbing env + mocking the supabase getUser — NOT by relying on the
 //     ambient runtime env, since isAuthConfigured() reads NEXT_PUBLIC_* which are inlined at build).
 //   - GUEST_USER_ID is a fixed, in-memory-only UUID DISTINCT from DEFAULT_USER_ID.
-//   - requireUserId() is unchanged: it still resolves the real/dev user and is the gate for writes
-//     (a guest with no session has no real id → would redirect; here we assert the read helper does
-//     NOT short-circuit to a guest in requireUserId's place).
+//   - requireUserId()/getUserIdOrGuest() now ENFORCE email verification (ADR-0032): a configured session
+//     whose email is unconfirmed is treated as not-authenticated (requireUserId → /login; getUserIdOrGuest
+//     → guest), exactly like no session. Only a CONFIRMED session resolves to the real user id.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock the supabase server client so getCurrentUserId()'s dynamic import is intercepted. The mock's
 // getUser return is swapped per-test via the mutable `mockUser` ref below.
-let mockUser: { id: string } | null = null;
+let mockUser: { id: string; email_confirmed_at?: string | null; confirmed_at?: string | null } | null = null;
+const CONFIRMED = "2026-01-01T00:00:00Z"; // a confirmation timestamp → isEmailVerified true (ADR-0032)
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({
     auth: {
@@ -71,12 +72,19 @@ describe("getUserIdOrGuest — the 3 explicit states", () => {
     expect(r).toEqual({ userId: DEFAULT_USER_ID, isGuest: false });
   });
 
-  it("configured + a real session → { realUserId, isGuest:false }", async () => {
+  it("configured + a CONFIRMED session → { realUserId, isGuest:false }", async () => {
     configureAuth();
-    mockUser = { id: "11111111-2222-3333-4444-555555555555" };
+    mockUser = { id: "11111111-2222-3333-4444-555555555555", email_confirmed_at: CONFIRMED };
     const r = await getUserIdOrGuest();
     expect(r).toEqual({ userId: "11111111-2222-3333-4444-555555555555", isGuest: false });
     expect(r.isGuest).toBe(false);
+  });
+
+  it("configured + an UNCONFIRMED session → treated as guest (ADR-0032 email-verification gate)", async () => {
+    configureAuth();
+    mockUser = { id: "11111111-2222-3333-4444-555555555555", email_confirmed_at: null };
+    const r = await getUserIdOrGuest();
+    expect(r).toEqual({ userId: GUEST_USER_ID, isGuest: true });
   });
 
   it("configured + NO session → { GUEST_USER_ID, isGuest:true }", async () => {
@@ -94,10 +102,17 @@ describe("requireUserId — UNCHANGED: the gate for writes", () => {
     await expect(requireUserId()).resolves.toBe(DEFAULT_USER_ID);
   });
 
-  it("configured + a real session returns the real id (no redirect)", async () => {
+  it("configured + a CONFIRMED session returns the real id (no redirect)", async () => {
     configureAuth();
-    mockUser = { id: "99999999-8888-7777-6666-555555555555" };
+    mockUser = { id: "99999999-8888-7777-6666-555555555555", confirmed_at: CONFIRMED };
     await expect(requireUserId()).resolves.toBe("99999999-8888-7777-6666-555555555555");
+  });
+
+  it("configured + an UNCONFIRMED session REDIRECTS to /login (ADR-0032 email-verification gate)", async () => {
+    configureAuth();
+    mockUser = { id: "99999999-8888-7777-6666-555555555555", email_confirmed_at: null };
+    // An unconfirmed account is not authenticated for writes — gated out exactly like no session.
+    await expect(requireUserId()).rejects.toThrow("REDIRECT:/login");
   });
 
   it("configured + NO session REDIRECTS to /login (it never falls back to a guest)", async () => {

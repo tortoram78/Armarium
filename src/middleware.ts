@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured, isEmailVerified } from "@/lib/auth";
 import { updateSession } from "@/lib/supabase/middleware";
 
 // Paths that are always public — never redirect to /login.
 // /forgot-password and /update-password must be reachable while logged-out so
 // an unauthenticated user following a recovery link isn't bounced to /login.
-const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/forgot-password", "/update-password"];
+// /verify-email must be reachable by a signed-in-but-unconfirmed account (the email wall below).
+const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/forgot-password", "/update-password", "/verify-email"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
@@ -85,6 +86,20 @@ export async function middleware(req: NextRequest) {
   // Public pages always pass through even when authenticated.
   if (isPublicPath(pathname)) {
     return response;
+  }
+
+  // EMAIL-VERIFICATION WALL: a signed-in but UNCONFIRMED account may reach only public pages (incl.
+  // /verify-email, allowed above). For any app route, funnel it to /verify-email — carrying the refreshed
+  // session cookies (same Set-Cookie preservation as the /login redirect below; a bare redirect drops
+  // them and loops on mobile Safari). This runs before the guest clauses because an unconfirmed user HAS a
+  // session (so `user` is truthy); the verification gate, not the guest funnel, governs them.
+  if (user && !isEmailVerified(user)) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/verify-email";
+    const redirectRes = NextResponse.redirect(url);
+    response.cookies.getAll().forEach((c) => redirectRes.cookies.set(c));
+    redirectRes.headers.set("x-armarium-pathname", pathname);
+    return redirectRes;
   }
 
   // Guest funnel: a logged-out visitor may READ the sample closet / planner / a single item or trip.
