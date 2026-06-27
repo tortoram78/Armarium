@@ -498,16 +498,17 @@ export const postgresRepository: GearRepository = {
     // predicates (search, status, condition, domain) are appended with AND.
     const predicates = [eq(items.userId, userId)];
 
-    if (opts.search) {
-      // ILIKE over name, brand, model — mirrors itemMatchesSearch in the memory impl.
-      const pat = `%${opts.search.trim().replace(/%/g, "\\%")}%`;
-      predicates.push(
-        or(
-          ilike(items.name, pat),
-          ilike(items.brand, pat),
-          ilike(items.model, pat),
-        )!,
-      );
+    if (opts.search && opts.search.trim()) {
+      // Token-aware substring match: EVERY whitespace token must hit name/brand/model (case-insensitive),
+      // so "osprey atmos" matches "Atmos AG 65" by Osprey regardless of word order — closer to the core
+      // `searchScore` than a single %phrase% pattern. (Full trigram/typo-tolerant RANKING, to mirror the
+      // in-memory fuzzy scorer exactly, is the pg_trgm follow-up — see ADR-0031. Ordering is unchanged.)
+      const esc = (s: string) => s.replace(/[\\%_]/g, (m) => "\\" + m);
+      const tokens = opts.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      for (const tok of tokens) {
+        const pat = `%${esc(tok)}%`;
+        predicates.push(or(ilike(items.name, pat), ilike(items.brand, pat), ilike(items.model, pat))!);
+      }
     }
     if (opts.status) {
       predicates.push(eq(items.ownershipStatus, opts.status));

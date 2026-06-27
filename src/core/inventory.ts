@@ -132,18 +132,112 @@ export function normalizeSearch(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/** The fields a closet search ranks over. name/brand/model are the identity; tags are user labels. */
+export interface SearchFields {
+  name: string;
+  brand?: string | null;
+  model?: string | null;
+  tags?: readonly string[];
+}
+
+/** A field's character trigram set (for Dice-coefficient fuzzy similarity). Pads with spaces so short
+ *  strings still yield trigrams and word boundaries count. */
+function trigrams(s: string): Set<string> {
+  const padded = `  ${s} `;
+  const out = new Set<string>();
+  for (let i = 0; i < padded.length - 2; i++) out.add(padded.slice(i, i + 3));
+  return out;
+}
+
+/** Dice-coefficient similarity (0..1) over character trigrams — the typo-tolerance primitive
+ *  ("patagona" ≈ "patagonia"). Cheap, dependency-free, and the same shape pg_trgm uses in Postgres. */
+export function trigramSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (!a || !b) return 0;
+  const ta = trigrams(a);
+  const tb = trigrams(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let shared = 0;
+  for (const t of ta) if (tb.has(t)) shared++;
+  return (2 * shared) / (ta.size + tb.size);
+}
+
+/** Per-field weights — a name hit ranks above a brand hit above a model/tag hit. */
+const FIELD_WEIGHT = { name: 1, brand: 0.95, model: 0.9, tag: 0.85 } as const;
+
+/** The query's weighted field list, in rank order. */
+function weightedFields(fields: SearchFields): [string | null | undefined, number][] {
+  return [
+    [fields.name, FIELD_WEIGHT.name],
+    [fields.brand, FIELD_WEIGHT.brand],
+    [fields.model, FIELD_WEIGHT.model],
+    ...(fields.tags ?? []).map((t) => [t, FIELD_WEIGHT.tag] as [string, number]),
+  ];
+}
+
+/** How well one query token matches one field token: exact > prefix > substring > fuzzy(typo). 0 = miss. */
+function tokenMatch(fieldTok: string, queryTok: string): number {
+  if (fieldTok === queryTok) return 1;
+  if (fieldTok.startsWith(queryTok) || queryTok.startsWith(fieldTok)) return 0.85;
+  if (fieldTok.includes(queryTok)) return 0.72;
+  const sim = trigramSimilarity(fieldTok, queryTok);
+  return sim >= 0.5 ? 0.4 + sim * 0.3 : 0; // typo tolerance, always below a real substring hit
+}
+
 /**
- * True iff the item's name/brand/model contains the query as a case-insensitive substring.
- * Postgres mirrors this with ILIKE so both paths return the same items.
+ * Relevance score (0 = no match, higher = better) of an item against a free-text query, ranked across
+ * name/brand/model/tags with typo tolerance and word-order independence. The single source of truth for
+ * closet search ranking; the Postgres path mirrors it (token ILIKE now; pg_trgm ranking is ADR-0031 §next).
+ *
+ * Two signals, the higher wins: (a) a whole-PHRASE hit in one field (exact/prefix/substring), and
+ * (b) TOKEN COVERAGE — every query token must match some field token (possibly across different fields,
+ * possibly fuzzily); the score is the mean of per-token best matches. A query token that matches nothing
+ * sinks the token signal to 0, so unrelated queries score 0.
  */
-export function itemMatchesSearch(
-  fields: { name: string; brand?: string | null; model?: string | null },
-  query: string,
-): boolean {
-  if (!query) return true;
+export function searchScore(fields: SearchFields, query: string): number {
+  if (!query) return 1;
   const q = normalizeSearch(query);
-  const norm = (s: string | null | undefined) => (s ? normalizeSearch(s) : "");
-  return norm(fields.name).includes(q) || norm(fields.brand).includes(q) || norm(fields.model).includes(q);
+  if (!q) return 1;
+  const list = weightedFields(fields);
+
+  // (a) whole-phrase hit in a single field.
+  let phrase = 0;
+  for (const [raw, w] of list) {
+    if (!raw) continue;
+    const f = normalizeSearch(raw);
+    if (!f) continue;
+    if (f === q) phrase = Math.max(phrase, w);
+    else if (f.startsWith(q)) phrase = Math.max(phrase, w * 0.95);
+    else if (f.includes(q)) phrase = Math.max(phrase, w * 0.85);
+  }
+
+  // (b) token coverage across ALL fields.
+  const fieldToks: [string, number][] = [];
+  for (const [raw, w] of list) {
+    if (!raw) continue;
+    for (const ft of normalizeSearch(raw).split(" ").filter(Boolean)) fieldToks.push([ft, w]);
+  }
+  const qTokens = q.split(" ").filter(Boolean);
+  let sum = 0;
+  let coveredAll = true;
+  for (const qt of qTokens) {
+    let best = 0;
+    for (const [ft, w] of fieldToks) best = Math.max(best, tokenMatch(ft, qt) * w);
+    if (best === 0) coveredAll = false;
+    sum += best;
+  }
+  const tokenScore = coveredAll && qTokens.length > 0 ? (sum / qTokens.length) * 0.8 : 0;
+
+  return Math.max(phrase, tokenScore);
+}
+
+/**
+ * True iff the item is a relevant search hit (score above the fuzzy floor). Backward-compatible boolean
+ * wrapper over `searchScore` — now typo-tolerant and tag-aware, not just a substring test.
+ */
+export function itemMatchesSearch(fields: SearchFields, query: string): boolean {
+  if (!query) return true;
+  return searchScore(fields, query) > 0;
 }
 
 // ----------------------------------------------------------------------------------------------------
