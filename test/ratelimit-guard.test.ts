@@ -54,6 +54,14 @@ describe("checkRateLimit — per-op budgets", () => {
     expect(checkRateLimit("enrich", key).allowed).toBe(false);
   });
 
+  it("enforces the tight signup budget (5/min) to brake scripted mass-signup", () => {
+    const key = freshKey("signup");
+    for (let i = 0; i < 5; i++) expect(checkRateLimit("signup", key).allowed).toBe(true);
+    const denied = checkRateLimit("signup", key);
+    expect(denied.allowed).toBe(false);
+    expect(denied.retryAfterMs).toBeGreaterThan(0);
+  });
+
   it("gives each op an independent budget — exhausting one leaves the others open", () => {
     const key = freshKey("shared");
     // Drain classify (10) fully.
@@ -106,5 +114,5 @@ describe("resolveRateKey — identity precedence", () => {
   });
 });
 
-// Type-level smoke: the op union is exactly these four. (Compilation is the assertion.)
-const _ops: RateLimitOp[] = ["classify", "parse", "enrich", "weather"];
+// Type-level smoke: every op is a valid member of the union. (Compilation is the assertion.)
+const _ops: RateLimitOp[] = ["classify", "parse", "enrich", "weather", "signup"];

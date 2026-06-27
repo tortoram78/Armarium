@@ -7,12 +7,23 @@ import { isAuthConfigured } from "@/lib/auth";
  * Server action: create a new account via Supabase Auth.
  * Returns an error object on failure (surfaced in the client form),
  * or undefined on success (the SignupForm shows a confirmation message).
+ *
+ * Throttled per-IP on the "signup" budget (~5/min) to brake scripted mass-account creation. The check uses
+ * the distributed (Upstash) limiter when configured, else the in-memory fallback — see ratelimit-guard.ts.
+ * A reject returns a friendly message; internals are never leaked.
  */
 async function signupAction(formData: FormData): Promise<{ error: string } | undefined> {
   "use server";
   if (!isAuthConfigured()) {
     return { error: "Auth is not configured in this environment." };
   }
+
+  const { resolveRateKey, checkRateLimitAsync } = await import("@/server/ratelimit-guard");
+  const rateKey = await resolveRateKey();
+  if (!(await checkRateLimitAsync("signup", rateKey)).allowed) {
+    return { error: "Too many attempts — please wait a moment and try again." };
+  }
+
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = createClient();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
