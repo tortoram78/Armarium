@@ -6,7 +6,8 @@ import { updateSession } from "@/lib/supabase/middleware";
 // /forgot-password and /update-password must be reachable while logged-out so
 // an unauthenticated user following a recovery link isn't bounced to /login.
 // /verify-email must be reachable by a signed-in-but-unconfirmed account (the email wall below).
-const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/forgot-password", "/update-password", "/verify-email"];
+// "/t" is the public read-only shared-trip surface (token-gated; ADR-0033) — reachable logged-out.
+const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/forgot-password", "/update-password", "/verify-email", "/t"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));

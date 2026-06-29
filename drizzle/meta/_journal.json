@@ -78,6 +78,13 @@
       "when": 1782475200000,
       "tag": "0010_pg_trgm_fuzzy_search",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782561600000,
+      "tag": "0011_trip_share_token",
+      "breakpoints": true
     }
   ]
 }

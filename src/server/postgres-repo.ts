@@ -461,6 +461,7 @@ function rowToStoredTrip(row: {
   rawDescription: string | null;
   conditions: Record<string, unknown> | null;
   resultSnapshot: Record<string, unknown> | null;
+  shareToken?: string | null;
   createdAt: Date;
 }): StoredTrip {
   return {
@@ -470,6 +471,7 @@ function rowToStoredTrip(row: {
     description: row.rawDescription ?? undefined,
     conditions: (row.conditions ?? {}) as TripConditions,
     result: row.resultSnapshot ? (row.resultSnapshot as unknown as RecommendationResult) : undefined,
+    shareToken: row.shareToken ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -998,6 +1000,24 @@ export const postgresRepository: GearRepository = {
     // The result snapshot is a column on the trip row, so deleting the row removes it too — no
     // separate cleanup needed. User-scoped to enforce ownership.
     await db.delete(trips).where(and(eq(trips.userId, userId), eq(trips.id, id)));
+  },
+
+  async setTripShareToken(userId, id, token) {
+    const db = getDb();
+    // USER-SCOPED: only the owner can enable/clear sharing on their own trip.
+    await db
+      .update(trips)
+      .set({ shareToken: token, updatedAt: new Date() })
+      .where(and(eq(trips.userId, userId), eq(trips.id, id)));
+  },
+
+  async getTripByShareToken(token) {
+    const db = getDb();
+    // NOT user-scoped — the unguessable token is the capability. Empty token never matches (guard).
+    if (!token) return null;
+    const rows = await db.select().from(trips).where(eq(trips.shareToken, token));
+    const row = rows[0];
+    return row ? rowToStoredTrip(row) : null;
   },
 
   // ---- collections ----

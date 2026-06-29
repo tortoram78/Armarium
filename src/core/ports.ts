@@ -46,6 +46,8 @@ export interface StoredTrip {
   conditions: TripConditions;
   result?: RecommendationResult;
   createdAt: string;
+  /** Public share token (ADR-0033); null/undefined = not shared. */
+  shareToken?: string | null;
 }
 
 export interface AddItemInput {
@@ -214,6 +216,12 @@ export interface GearRepository {
   cloneTrip(userId: string, id: string): Promise<StoredTrip>;
   /** Delete a saved trip (and its result snapshot), user-scoped. No-op if it isn't the user's. */
   deleteTrip(userId: string, id: string): Promise<void>;
+  /** Set (or clear) a trip's public share token. USER-SCOPED — only the owner can enable sharing. */
+  setTripShareToken(userId: string, id: string, token: string | null): Promise<void>;
+  /** Look up a trip by its public share token — NOT user-scoped (the unguessable token IS the capability).
+   *  Returns null if no trip carries the token. The caller renders a read-only view; it never exposes the
+   *  owner's wider closet or other trips. */
+  getTripByShareToken(token: string): Promise<StoredTrip | null>;
 
   // ---- collections: user-curated named sets of items ----
   // Collections are curation/browsing tools; they carry NO behavioral semantics and are NOT facet

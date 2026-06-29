@@ -1,6 +1,8 @@
 // Application service — the thin layer the UI (pages, actions) calls. Ties the repository to the pure
 // core (resolve, group, plan). Pages never import core reasoning directly; they go through here.
 
+import { randomBytes } from "node:crypto";
+
 import { getRepository, getRepositoryFor, getCacheRepository, getClassifier, getTripParser, getWebSearchEnricher, getPackingEnricher, DEFAULT_USER_ID, type Classifier } from "./services";
 import { fetchManufacturerHtml, type FetcherDeps } from "./enrich-fetcher";
 import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
@@ -462,6 +464,43 @@ export async function planPackingFor(
     }
   }
   return plan;
+}
+
+// ---- shared trip link (ADR-0033) — read-only public packing list by unguessable token ----
+
+/**
+ * Enable public sharing for a saved trip — returns its (idempotent) share token. USER-SCOPED via the
+ * repo: only the owner can enable. Re-enabling returns the existing token (stable link). Null if the trip
+ * isn't the user's. The token is 144 bits of base64url randomness — unguessable, the sole capability.
+ */
+export async function enableTripShare(id: string, userId = DEFAULT_USER_ID): Promise<string | null> {
+  const repo = getRepository();
+  const trip = await repo.getTrip(userId, id);
+  if (!trip) return null;
+  if (trip.shareToken) return trip.shareToken;
+  const token = randomBytes(18).toString("base64url");
+  await repo.setTripShareToken(userId, id, token);
+  return token;
+}
+
+export interface SharedTripView {
+  name: string;
+  conditions: TripConditions;
+  plan: PackingPlan;
+}
+
+/**
+ * Resolve a public shared trip by token (NOT user-scoped — the token is the capability). The packing
+ * checklist is recomputed read-only from the trip's conditions over the OWNER's closet, so a viewer sees
+ * the owner's picks + gaps for THIS trip — never a browsable closet or the owner's other trips. Null if
+ * the token matches nothing.
+ */
+export async function getSharedTrip(token: string): Promise<SharedTripView | null> {
+  const trip = await getRepository().getTripByShareToken(token);
+  if (!trip) return null;
+  const inv = await getInventoryResolved(trip.userId);
+  const plan = planPacking(inv, trip.name, trip.conditions);
+  return { name: trip.name, conditions: trip.conditions, plan };
 }
 
 // ---- add-by-name (review-before-save) ----

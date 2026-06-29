@@ -7,11 +7,13 @@ import {
   cloneTripAction,
   deleteTripAction,
   updateTripConditionsAction,
+  shareTripAction,
 } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { TripControls } from "@/components/TripControls";
 import { conditionsSummary } from "@/components/TripResultView";
 import { PackingPlanView } from "@/components/PackingPlanView";
+import { ShareLink } from "@/components/ShareLink";
 import { requireUserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -110,6 +112,29 @@ export default async function TripDetailPage({
       <section className="panel bg-muted/40 p-5 sm:p-6">
         <p className="eyebrow mb-2.5">Trip conditions</p>
         <p className="text-[0.95rem] leading-relaxed text-foreground">{conditionsSummary(conds)}</p>
+      </section>
+
+      {/* ── Share (ADR-0033): a read-only public link to this packing list ── */}
+      <section className="panel p-5 sm:p-6">
+        <p className="eyebrow mb-2.5">Share</p>
+        {trip.shareToken ? (
+          <>
+            <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+              Anyone with this link can view this packing list (read-only — your closet stays private).
+            </p>
+            <ShareLink token={trip.shareToken} />
+          </>
+        ) : (
+          <form action={shareTripAction} className="flex flex-wrap items-center justify-between gap-4">
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Create a read-only link to share this packing list with a friend.
+            </p>
+            <input type="hidden" name="id" value={trip.id} />
+            <Button type="submit" variant="outline" size="sm">
+              Create share link
+            </Button>
+          </form>
+        )}
       </section>
 
       <PackingPlanView plan={plan} />

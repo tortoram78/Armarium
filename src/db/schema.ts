@@ -237,6 +237,9 @@ export const trips = pgTable(
     rawDescription: text("raw_description"),
     conditions: jsonb("conditions").$type<Record<string, unknown>>(),
     resultSnapshot: jsonb("result_snapshot").$type<Record<string, unknown>>(),
+    // Read-only public share token (ADR-0033). Null = not shared. Unguessable; the token IS the
+    // capability — a public /t/[token] page renders the trip's packing list without exposing the closet.
+    shareToken: text("share_token").unique(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

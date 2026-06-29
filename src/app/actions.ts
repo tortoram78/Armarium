@@ -24,6 +24,7 @@ import {
   recordOwnership,
   updateInventory,
   renameItem,
+  enableTripShare,
 } from "@/server/app-service";
 import { OWNERSHIP_STATUS, CONDITION, type InventoryMeta } from "@/core/inventory";
 import { isItemImageObjectPath } from "@/server/item-images";
@@ -179,6 +180,16 @@ export async function updateTripConditionsAction(formData: FormData) {
   await updateTripConditions(id, conditions, userId);
   revalidatePath(`/trips/${id}`);
   revalidatePath("/trips");
+  redirect(`/trips/${id}`);
+}
+
+/** Enable a public read-only share link for a saved trip (ADR-0033), then return to the dossier where the
+ *  link is shown. User-scoped in app-service (only the owner can share); idempotent (stable token). */
+export async function shareTripAction(formData: FormData) {
+  const userId = await requireUserId();
+  const { id } = TripIdInput.parse({ id: formData.get("id") });
+  await enableTripShare(id, userId);
+  revalidatePath(`/trips/${id}`);
   redirect(`/trips/${id}`);
 }
 
