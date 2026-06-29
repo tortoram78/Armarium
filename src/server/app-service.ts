@@ -1,7 +1,7 @@
 // Application service — the thin layer the UI (pages, actions) calls. Ties the repository to the pure
 // core (resolve, group, plan). Pages never import core reasoning directly; they go through here.
 
-import { getRepository, getRepositoryFor, getCacheRepository, getClassifier, getTripParser, getWebSearchEnricher, DEFAULT_USER_ID, type Classifier } from "./services";
+import { getRepository, getRepositoryFor, getCacheRepository, getClassifier, getTripParser, getWebSearchEnricher, getPackingEnricher, DEFAULT_USER_ID, type Classifier } from "./services";
 import { fetchManufacturerHtml, type FetcherDeps } from "./enrich-fetcher";
 import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
@@ -14,7 +14,7 @@ import { normalizeTags, type InventoryMeta, type OwnershipStatus, type Condition
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
 import type { RecommendationResult } from "@/core/recommend";
-import { planPacking, type PackingOpts, type PackingPlan } from "@/core/packing";
+import { planPacking, tripContext, mergeEnrichment, type PackingOpts, type PackingPlan } from "@/core/packing";
 import { deriveFromComposition } from "@/core/materials";
 import {
   resolveBehavioralFacets,
@@ -447,10 +447,21 @@ export async function planPackingFor(
   name: string,
   conditions: TripConditions,
   userId = DEFAULT_USER_ID,
-  opts: PackingOpts = {},
+  opts: PackingOpts & { enrich?: boolean } = {},
 ): Promise<PackingPlan> {
   const inv = await getInventoryResolved(userId);
-  return planPacking(inv, name, conditions, opts);
+  const plan = planPacking(inv, name, conditions, opts);
+  // Layer B (ADR-0027 §B): additive LLM breadth + guide narration over the deterministic plan. OPT-IN
+  // ONLY (a user-triggered "expert suggestions" action) — never on every render, to bound LLM cost. The
+  // keyless enricher is inert (available:false), so the deterministic plan stands alone offline.
+  if (opts.enrich) {
+    const enricher = getPackingEnricher();
+    if (enricher.available) {
+      const enrichment = await enricher.enrich(plan, tripContext(conditions, opts));
+      return mergeEnrichment(plan, enrichment);
+    }
+  }
+  return plan;
 }
 
 // ---- add-by-name (review-before-save) ----

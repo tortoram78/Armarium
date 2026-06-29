@@ -38,8 +38,12 @@ export default async function PlanPreviewPage({
 
   const name = String(searchParams.name ?? "").trim() || "Trip preview";
 
+  // Layer B (ADR-0027) is OPT-IN: only when the user clicks "expert suggestions" (?expert=1) do we make the
+  // LLM call — never automatically on a preview render, to bound cost. Deterministic plan is the default.
+  const expert = searchParams.expert === "1";
+
   // Run the REAL engine (ADR-0027) over the resolved closet — a full packing checklist, persistence dropped.
-  const plan = await planPackingFor(name, conditions, userId);
+  const plan = await planPackingFor(name, conditions, userId, { enrich: expert });
 
   const ownedCount = plan.summary.owned;
   const gapCount = plan.summary.gap;
@@ -49,6 +53,8 @@ export default async function PlanPreviewPage({
   const encoded = encodeConditions(conditions);
   const loginNext = `/plan?conditions=${encoded}`;
   const loginHref = `/login?next=${encodeURIComponent(loginNext)}`;
+  // Same preview, with Layer-B enrichment turned on (user-triggered).
+  const expertHref = `/plan/preview?conditions=${encoded}&name=${encodeURIComponent(name)}&expert=1`;
 
   return (
     <div className="mx-auto max-w-3xl space-y-10">
@@ -105,6 +111,18 @@ export default async function PlanPreviewPage({
         <p className="eyebrow mb-2.5">Trip conditions</p>
         <p className="text-[0.95rem] leading-relaxed text-foreground">{conditionsSummary(conditions)}</p>
       </section>
+
+      {/* Layer-B opt-in: a user-triggered "expert suggestions" pass (one LLM call). Hidden once on. */}
+      {!expert && (
+        <div className="flex justify-end">
+          <Link
+            href={expertHref}
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors hover:bg-secondary"
+          >
+            ✨ Add expert suggestions
+          </Link>
+        </div>
+      )}
 
       {/* The packing checklist body — readonly (item deep-links would bounce a guest to /login). */}
       <PackingPlanView plan={plan} readonly={isGuest} />

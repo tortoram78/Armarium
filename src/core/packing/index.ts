@@ -3,6 +3,12 @@
 // server) call instead of the old capability auditor.
 
 export { planPacking, tripContext, type PackingOpts } from "./engine";
+export {
+  enrichPlanWithLlm,
+  mergeEnrichment,
+  type PackingEnrichDeps,
+  type PackingEnrichment,
+} from "./enrich";
 export { NEED_SPECS } from "./catalog";
 export {
   NEED_CATEGORIES,

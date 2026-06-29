@@ -126,6 +126,9 @@ export interface PackingLine {
   systemBy: PackItemRef[];
   /** Owned gear that MIGHT cover it but has an unknown deciding facet ("verify"). */
   verifyBy: PackItemRef[];
+  /** True when this line was proposed by the additive LLM layer (Layer B), not the deterministic catalog.
+   *  A suggested line is advisory ("consider"), is rendered as such, and NEVER asserts ownership. */
+  suggested?: boolean;
 }
 
 /** A grouped section of the checklist. */
@@ -152,4 +155,6 @@ export interface PackingPlan {
   trip: string;
   sections: PackingSection[];
   summary: PackingSummary;
+  /** Optional guide-voice note from the additive LLM layer (Layer B). Null when not enriched. */
+  narration?: string | null;
 }

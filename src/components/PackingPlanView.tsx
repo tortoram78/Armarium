@@ -27,6 +27,9 @@ function StatusMark({ line }: { line: PackingLine }) {
     return <Badge variant="success" className="shrink-0">In closet</Badge>;
   if (line.status === "verify")
     return <Badge variant="verify" className="shrink-0">Verify</Badge>;
+  // Layer-B suggestions are advisory ("consider"), distinct from the deterministic "Bring" essentials.
+  if (line.suggested)
+    return <Badge variant="subtle" className="shrink-0">Suggested</Badge>;
   return (
     <Badge variant={URGENT[line.severity] ? "high" : "subtle"} className="shrink-0">
       Bring
@@ -102,6 +105,14 @@ export function PackingPlanView({ plan, readonly = false }: { plan: PackingPlan;
 
   return (
     <div className="space-y-10">
+      {/* Guide note — the Layer-B narration (only present when the plan was enriched). */}
+      {plan.narration && (
+        <section className="panel border-l-2 border-l-accent bg-accent/5 p-5">
+          <p className="eyebrow mb-2 text-accent">Guide note</p>
+          <p className="text-[0.95rem] leading-relaxed text-foreground">{plan.narration}</p>
+        </section>
+      )}
+
       {/* Summary strip */}
       <section className="panel flex flex-wrap items-center gap-x-6 gap-y-2 p-5">
         <span className="text-sm text-muted-foreground">
