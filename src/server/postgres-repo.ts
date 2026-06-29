@@ -34,6 +34,8 @@ import {
   itemEvidence,
   collections,
   collectionItems,
+  pendingFacets,
+  userOverrides,
 } from "@/db/schema";
 import type {
   GearRepository,
@@ -1163,5 +1165,35 @@ export const postgresRepository: GearRepository = {
       itemCount: Number(r.itemCount),
       createdAt: r.createdAt.toISOString(),
     }));
+  },
+
+  // ---- account / data deletion ----
+
+  async deleteAllUserData(userId) {
+    const db = getDb();
+    // Permanently wipe EVERY user_id-scoped row this user owns. Every statement carries
+    // `WHERE user_id = $userId` — the SOLE live tenant isolation (the OWNER connection bypasses RLS),
+    // so this can never reach another tenant's rows. Wrapped in a transaction so a partial wipe is never
+    // observed. Child rows of `items` (item_insulation/sleep/shell/carry/footwear, item_treatments,
+    // pending_facets, item_evidence, collection_items) and of `collections` (collection_items) are
+    // removed by the schema's ON DELETE CASCADE FKs when the parent rows go — but we ALSO delete the
+    // independently user_id-scoped tables (trips, collections, pending_facets, user_overrides) explicitly
+    // and safely. Order: delete the user_id-scoped tables, then `items` LAST so its cascade fans out to
+    // every remaining child. pending_facets is deleted explicitly by user_id (it carries one) AND would
+    // also cascade from items where item_id is set — belt and suspenders.
+    await db.transaction(async (tx) => {
+      // Per-user classification cache overrides (the only per-user cache table; the shared llm_draft_cache
+      // has no user_id and is global, so it is intentionally NOT touched).
+      await tx.delete(userOverrides).where(eq(userOverrides.userId, userId));
+      // Trips (and their result snapshots, which live on the trip row).
+      await tx.delete(trips).where(eq(trips.userId, userId));
+      // Novel facet extractions parked for review (user_id-scoped).
+      await tx.delete(pendingFacets).where(eq(pendingFacets.userId, userId));
+      // Collections — cascades collection_items membership rows for the user's collections.
+      await tx.delete(collections).where(eq(collections.userId, userId));
+      // Items LAST — cascades the domain-group rows, item_treatments, item_evidence, any remaining
+      // collection_items (via item FK), and pending_facets referencing those items.
+      await tx.delete(items).where(eq(items.userId, userId));
+    });
   },
 };

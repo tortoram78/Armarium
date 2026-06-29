@@ -250,4 +250,18 @@ export interface GearRepository {
    * to show which collections an item belongs to. Returns [] if the item isn't the user's.
    */
   collectionsForItem(userId: string, itemId: string): Promise<Collection[]>;
+
+  // ---- account / data deletion (TRUST: the user can wipe everything they own) ----
+
+  /**
+   * Permanently delete EVERY user_id-scoped row this user owns — items (and their cascaded child rows:
+   * the domain-group tables, item_treatments, pending_facets, item_evidence, collection_items), trips,
+   * collections (and their membership rows), pending_facets, and the user's per-user classification
+   * cache overrides (user_overrides). User-scoped: ONLY rows where user_id = $userId are touched — the
+   * app-layer WHERE is the SOLE live tenant isolation (the OWNER connection bypasses RLS), so this can
+   * never reach another tenant's data. Irreversible by design — the Account page gates it behind an
+   * explicit client confirm. Does NOT delete the Supabase auth user record (that is handled separately,
+   * deploy-gated on the service-role key). Idempotent: a second call is a harmless no-op.
+   */
+  deleteAllUserData(userId: string): Promise<void>;
 }
