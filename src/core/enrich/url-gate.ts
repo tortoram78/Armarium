@@ -10,17 +10,60 @@
 // its URL cleared this gate. Keep it small and curated; add domains deliberately.
 
 /**
- * Starter manufacturer allowlist — registrable domains of cooperative outdoor manufacturers/retailers
- * that publish schema.org Product / OpenGraph data. THIS IS THE SECURITY BOUNDARY: only hosts that are
- * exactly one of these, or a subdomain of one of these, may be enriched. Extend deliberately.
+ * Conservative default allowlist of reputable outdoor MANUFACTURERS and major RETAILERS.
+ *
+ * IMPORTANT (ADR-0029): the live enrichment paths now run in OPEN MODE (`allowlist: []`) — web search
+ * spans the whole web and any public product URL may be fetched — so this list is NO LONGER the enforced
+ * boundary for enrichment. It remains the safe default for any direct caller of `validateEnrichUrl` /
+ * `fetchManufacturerHtml` that does not opt into open mode (and for the gate's unit tests). SSRF is
+ * defended at fetch time by the server fetcher's private/loopback/reserved-IP block regardless of this
+ * list; honesty for open web search is defended by the citation-to-real-result gate. Extend deliberately.
  */
 export const MANUFACTURER_ALLOWLIST: readonly string[] = [
+  // ── Major outdoor retailers (carry most brands — the long-tail coverage engine) ──
+  "rei.com",
+  "backcountry.com",
+  "moosejaw.com",
+  "publiclands.com",
+  "evo.com",
+  "campsaver.com",
+  "steepandcheap.com",
+  // ── Apparel / shell / insulation makers ──
   "patagonia.com",
   "arcteryx.com",
-  "rei.com",
   "thenorthface.com",
-  "blackdiamondequipment.com",
   "marmot.com",
+  "mountainhardwear.com",
+  "outdoorresearch.com",
+  "rab.equipment",
+  "fjallraven.com",
+  "columbia.com",
+  "hellyhansen.com",
+  "montbell.us",
+  "icebreaker.com",
+  "smartwool.com",
+  "darntough.com",
+  // ── Packs / shelter / sleep ──
+  "osprey.com",
+  "ospreypacks.com",
+  "gregorypacks.com",
+  "deuter.com",
+  "bigagnes.com",
+  "nemoequipment.com",
+  "thermarest.com",
+  "msrgear.com",
+  "seatosummit.com",
+  // ── Footwear ──
+  "salomon.com",
+  "lasportiva.com",
+  "scarpa.com",
+  "merrell.com",
+  "hoka.com",
+  // ── Hardware / climbing / electronics ──
+  "blackdiamondequipment.com",
+  "petzl.com",
+  "garmin.com",
+  "suunto.com",
 ] as const;
 
 export type ValidateEnrichUrlResult =
@@ -114,7 +157,13 @@ export function validateEnrichUrl(
     return { ok: false, reason: "IP-literal hosts are not allowed" };
   }
 
-  if (!hostMatchesAllowlist(host, allowlist)) {
+  // OPEN MODE (ADR-0029): an EMPTY allowlist means "no host restriction" — any shape-valid public https
+  // host is permitted, so enrichment covers ANY brand. This is safe because the HOST allowlist was never
+  // the real SSRF control: the server fetcher (`enrich-fetcher.ts`) still resolves every host to all its
+  // A/AAAA addresses and blocks any private/loopback/link-local/reserved IP (ip-guard), re-validated on
+  // every redirect hop. The allowlist was defense-in-depth, deliberately lifted for coverage. When a
+  // NON-empty allowlist is supplied (the conservative default / tests), it is enforced exactly as before.
+  if (allowlist.length > 0 && !hostMatchesAllowlist(host, allowlist)) {
     return { ok: false, reason: `host not on manufacturer allowlist: ${host}` };
   }
 

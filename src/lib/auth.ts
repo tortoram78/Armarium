@@ -50,6 +50,41 @@ export function isAuthConfigured(): boolean {
 }
 
 /**
+ * True iff the account's email is confirmed. Email/password sign-ups set `email_confirmed_at` ONLY after
+ * the user clicks the confirmation link; OAuth/provider identities arrive pre-confirmed (`confirmed_at`).
+ * An unconfirmed account is NOT granted app access (see getCurrentUserId) — this is the app-layer
+ * enforcement that holds even if Supabase's "Confirm email" toggle is off or drifts (defense-in-depth).
+ */
+export function isEmailVerified(
+  user: { email_confirmed_at?: string | null; confirmed_at?: string | null } | null | undefined,
+): boolean {
+  return Boolean(user && (user.email_confirmed_at || user.confirmed_at));
+}
+
+export interface SessionUser {
+  id: string;
+  email: string | null;
+  emailVerified: boolean;
+}
+
+/**
+ * The raw session identity, UNGATED by email verification — used by the /verify-email surface, which must
+ * read an unconfirmed user's email to resend the confirmation link. Dev/passthrough (auth unconfigured)
+ * returns the fixed dev user, treated as verified. Returns null when configured and there is no session.
+ */
+export async function getSessionUser(): Promise<SessionUser | null> {
+  if (!isAuthConfigured()) {
+    return { id: DEFAULT_USER_ID, email: null, emailVerified: true };
+  }
+  const { createClient } = await import("@/lib/supabase/server");
+  const {
+    data: { user },
+  } = await createClient().auth.getUser();
+  if (!user) return null;
+  return { id: user.id, email: user.email ?? null, emailVerified: isEmailVerified(user) };
+}
+
+/**
  * Returns the authenticated user's UUID, or null if not authenticated.
  * When auth is not configured (dev/in-memory mode) always returns DEFAULT_USER_ID.
  */
@@ -57,14 +92,11 @@ export async function getCurrentUserId(): Promise<string | null> {
   if (!isAuthConfigured()) {
     return DEFAULT_USER_ID;
   }
-  // Dynamic import keeps the supabase client (and next/headers) out of the
-  // module graph when auth is unconfigured, ensuring build/typecheck stay clean.
-  const { createClient } = await import("@/lib/supabase/server");
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user?.id ?? null;
+  // ENFORCE email verification: an unconfirmed account reads as "no user", so requireUserId() /
+  // getUserIdOrGuest() gate it out and middleware funnels it to /verify-email. Defense-in-depth — this
+  // app-layer check holds even if the Supabase "Confirm email" setting is disabled.
+  const u = await getSessionUser();
+  return u && u.emailVerified ? u.id : null;
 }
 
 /**

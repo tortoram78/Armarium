@@ -35,5 +35,6 @@ export function mkResolved(
     multilabel: { ...multilabelDefaults(), ...m },
     groups,
     inventory: DEFAULT_INVENTORY,
+    weightGrams: null,
   };
 }

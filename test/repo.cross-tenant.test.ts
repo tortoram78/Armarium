@@ -364,6 +364,57 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
     expect(await repo.listCollectionItemIds(userA, collA.id)).toContain(itemId);
   });
 
+  // ---- account / data deletion isolation ----
+
+  it("deleteAllUserData(B) does NOT touch A's items, trips, or collections", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+    const { itemId, tripId } = await seedUserA(userA);
+    const collA = await repo.createCollection(userA, "A-collection");
+    await repo.addItemToCollection(userA, collA.id, itemId);
+
+    // B wipes B's OWN data — must be entirely scoped to B and leave every A-owned row intact.
+    await repo.deleteAllUserData(userB);
+
+    expect(await repo.getItem(userA, itemId)).not.toBeNull();
+    expect(await repo.getTrip(userA, tripId)).not.toBeNull();
+    expect((await repo.getItemEvidence(userA, itemId)).length).toBe(A_CLAIMS.length);
+    expect((await repo.listCollections(userA)).some((c) => c.id === collA.id)).toBe(true);
+    expect(await repo.listCollectionItemIds(userA, collA.id)).toContain(itemId);
+
+    // sanity: A wiping A's own data clears EVERYTHING A owns (and only A).
+    await repo.deleteAllUserData(userA);
+    expect(await repo.getItem(userA, itemId)).toBeNull();
+    expect(await repo.getTrip(userA, tripId)).toBeNull();
+    expect(await repo.getItemEvidence(userA, itemId)).toEqual([]);
+    expect(await repo.listTrips(userA)).toEqual([]);
+    expect(await repo.listCollections(userA)).toEqual([]);
+    expect(await repo.listCollectionItemIds(userA, collA.id)).toEqual([]);
+  });
+
+  // ---- shared-trip link isolation (ADR-0033) ----
+
+  it("setTripShareToken(B, A-tripId) is a no-op; the unguessable token is the ONLY capability", async () => {
+    const userA = freshUser();
+    const userB = freshUser();
+    const { tripId } = await seedUserA(userA);
+
+    // B cannot enable sharing on A's trip (setTripShareToken is user-scoped).
+    await repo.setTripShareToken(userB, tripId, "intruder-token");
+    expect((await repo.getTrip(userA, tripId))!.shareToken ?? null).toBeNull();
+    expect(await repo.getTripByShareToken("intruder-token")).toBeNull();
+
+    // A shares ITS OWN trip — now the token (not any userId) resolves it. getTripByShareToken is public
+    // BY DESIGN: the unguessable token is the capability, so a public /t/[token] page can render it.
+    await repo.setTripShareToken(userA, tripId, "real-token-123");
+    expect((await repo.getTripByShareToken("real-token-123"))?.id).toBe(tripId);
+    // B's user-scoped path still can't reach A's trip even once shared.
+    expect(await repo.getTrip(userB, tripId)).toBeNull();
+    // A wrong/empty token resolves nothing.
+    expect(await repo.getTripByShareToken("nope")).toBeNull();
+    expect(await repo.getTripByShareToken("")).toBeNull();
+  });
+
   // ---- coverage tripwire ---------------------------------------------------------------------------
   // EVERY method of the GearRepository port is enumerated above. This list is asserted against the
   // live object's keys so adding a new repo method WITHOUT a cross-tenant assertion here fails the
@@ -403,6 +454,11 @@ describe("cross-tenant guard — user B cannot reach user A's data through any m
       "removeItemFromCollection",   // no-op on non-owned collection id
       "listCollectionItemIds",      // returns [] for non-owned collection
       "collectionsForItem",         // returns [] if item isn't the user's
+      // account / data deletion
+      "deleteAllUserData",          // user-scoped wipe; B's wipe never touches A's rows
+      // shared-trip link (ADR-0033)
+      "setTripShareToken",          // user-scoped: only the owner can enable/clear sharing
+      "getTripByShareToken",        // PUBLIC by design — the unguessable token is the capability, not userId
     ];
     const actual = Object.keys(repo).sort();
     expect([...covered].sort()).toEqual(actual);

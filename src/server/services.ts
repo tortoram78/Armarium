@@ -12,6 +12,9 @@ import { classifyItemClaims } from "@/core/classify/classify-claims";
 import { classifyOfflineSafe } from "@/core/classify/offline";
 import { parseTripConditions, parseConditionsHeuristic } from "@/core/recommend/parse-conditions";
 import { extractViaWebSearch, type WebSearchResult } from "@/core/enrich";
+import { enrichPlanWithLlm, type PackingEnrichment } from "@/core/packing";
+import type { PackingPlan } from "@/core/packing";
+import type { TripContext } from "@/core/packing";
 import type { LlmUsage } from "@/core/obs/log";
 import { logEvent } from "@/lib/logger";
 import { memoryRepository } from "./memory-repo";
@@ -93,7 +96,7 @@ export type ClassifierHandle =
 // The ONE place LLM token usage from a live call is logged. Passed as `onUsage` into the core deps; core
 // only reports the counts (it never imports a console), the console sink lives here in the server logger.
 // The OFFLINE handle never constructs this dep, so the offline path logs no LLM usage (no model call).
-const logLlmUsage = (action: "classify" | "parse" | "search") => (llm: LlmUsage): void =>
+const logLlmUsage = (action: "classify" | "parse" | "search" | "plan") => (llm: LlmUsage): void =>
   logEvent({ level: "info", event: "llm", action, llm });
 
 export function getClassifier(): ClassifierHandle {
@@ -142,7 +145,10 @@ export function getWebSearchEnricher(): WebSearchEnricherHandle {
   if (apiKey) {
     const anthropic = new Anthropic({ apiKey, timeout: 50_000, maxRetries: 1 });
     const onUsage = logLlmUsage("search");
-    return { enrich: (query) => extractViaWebSearch(query, { anthropic, onUsage }), available: true };
+    // OPEN enrichment (ADR-0029): `allowlist: []` lifts the domain hardcap so web search spans the whole
+    // web for ANY brand. Honesty is preserved by the citation gate in core (the cited URL must be one the
+    // search tool actually returned). No SSRF surface here — Claude's server does the fetching, not ours.
+    return { enrich: (query) => extractViaWebSearch(query, { anthropic, onUsage, allowlist: [] }), available: true };
   }
   // Keyless: an inert handle — `available:false` means app-service never invokes `enrich`.
   const empty: WebSearchResult = {
@@ -153,4 +159,27 @@ export function getWebSearchEnricher(): WebSearchEnricherHandle {
     sourceUrl: null,
   };
   return { enrich: async () => empty, available: false };
+}
+
+export interface PackingEnricherHandle {
+  /** Additive LLM breadth + narration over a deterministic plan (Layer B, ADR-0027). */
+  enrich: (plan: PackingPlan, ctx: TripContext) => Promise<PackingEnrichment>;
+  /** True when an ANTHROPIC_API_KEY is present (the layer is live). */
+  available: boolean;
+}
+
+/**
+ * Layer B factory (ADR-0027 §B): live when ANTHROPIC_API_KEY is set, an inert empty handle otherwise (so
+ * the deterministic packing plan stands alone with no env — the hermetic gate is unchanged). The layer is
+ * ADDITIVE and ownership-free by contract; it is invoked OPT-IN (a user-triggered "expert suggestions"
+ * action), never on every render, to bound cost.
+ */
+export function getPackingEnricher(): PackingEnricherHandle {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (apiKey) {
+    const anthropic = new Anthropic({ apiKey, timeout: 40_000, maxRetries: 1 });
+    const onUsage = logLlmUsage("plan");
+    return { enrich: (plan, ctx) => enrichPlanWithLlm(plan, ctx, { anthropic, onUsage }), available: true };
+  }
+  return { enrich: async () => ({ narration: null, extraLines: [] }), available: false };
 }

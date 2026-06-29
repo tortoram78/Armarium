@@ -9,6 +9,7 @@
 
 import type { ItemClassification, UniversalFacets, MultiLabelFacets } from "./classification";
 import { UNKNOWN_SOFT as us, UNKNOWN_HARD as uh } from "./evidence";
+import { recordOnlyClassification } from "./record";
 
 type Conf = "low" | "medium" | "high";
 type SoftSrc = "manufacturer" | "user" | "inferred" | "derived_from_material";
@@ -222,13 +223,68 @@ const marsupial: ItemClassification = {
   applicable_groups: [],
 };
 
+// ---------------------------------------------------------------------------------------------------
+// Starter-kit owned gear (record-only, all-unknown facets — Zod-safe). These spread across the packing
+// engine's NAME-MATCHED need lines (tent, headlamp, filter, pack, sleeping pad, socks, stove, first-aid,
+// trekking poles, sunscreen, sunglasses, etc.) so the sample/guest closet reads as a believable kit and
+// the packing checklist shows many "In closet" lines. Name-matched needs (not capability-gated) are what
+// an all-unknown item can satisfy, so this deliberately does NOT disturb the faceted capability guards.
+// No hand-written facets ⇒ zero enum risk; the same honest all-unknown shape recordOwnership produces.
+// ---------------------------------------------------------------------------------------------------
+
+const STARTER_KIT: { slug: string; name: string }[] = [
+  { slug: "msr-hubba-tent", name: "MSR Hubba Hubba NX 2-Person Tent" },
+  { slug: "thermarest-neoair-pad", name: "Therm-a-Rest NeoAir XLite Sleeping Pad" },
+  { slug: "osprey-atmos-pack", name: "Osprey Atmos AG 65 Backpack" },
+  { slug: "bd-spot-headlamp", name: "Black Diamond Spot 400 Headlamp" },
+  { slug: "sawyer-squeeze-filter", name: "Sawyer Squeeze Water Filter" },
+  { slug: "jetboil-stove", name: "Jetboil Flash Cooking Stove" },
+  { slug: "adventure-first-aid-kit", name: "Adventure Medical Ultralight First-Aid Kit" },
+  { slug: "black-diamond-poles", name: "Black Diamond Trail Trekking Poles" },
+  { slug: "darn-tough-socks", name: "Darn Tough Hiker Micro Crew Socks" },
+  { slug: "smith-sunglasses", name: "Smith Guides Choice Sunglasses" },
+  { slug: "thinksport-sunscreen", name: "Thinksport SPF 50 Sunscreen" },
+];
+
+/**
+ * Build a starter-kit classification: a Zod-safe all-unknown record (recordOnlyClassification) with ONLY
+ * the two shell facets pinned to a confident `none`. Every item above is hard goods / an accessory (tent,
+ * pad, pack, headlamp, filter, stove, first-aid, poles, socks, sunglasses, sunscreen) — definitionally NOT
+ * a worn weather shell, so `waterproofness:none / wind_resistance:none` is an honest inference (same shape
+ * Kelty Galactic uses for its bag). This keeps these items from registering as `blocked_unknown` for the
+ * `weather_shell` capability, so the canonical Marcy gaps stay intact, while every other facet remains the
+ * honest unknown. Only two valid vocabulary values are set via the typed `s()` helper ⇒ zero enum risk.
+ */
+function starterKitClassification(name: string): ItemClassification {
+  const base = recordOnlyClassification(name);
+  return {
+    ...base,
+    universal: {
+      ...base.universal,
+      waterproofness: s("none", "medium", "inferred", "hard goods / accessory — not a worn weather shell"),
+      wind_resistance: s("none", "medium", "inferred", "hard goods / accessory — not a worn weather shell"),
+    },
+  };
+}
+
 export const SEED_CORPUS: SeedEntry[] = [
   { slug: "terre-planing", input: { name: "Patagonia Stretch Terre Planing Hoody", text: "100% recycled polyester, DWR + 40 UPF, not waterproof, fast-drying, watersports origin" }, inInventory: true, classification: terrePlaning },
   { slug: "kelty-galactic-30", input: { name: "Kelty Galactic 30", text: "sleeping bag; down fill, 550 fill power, duck down; '30' rating" }, inInventory: true, classification: keltyGalactic30 },
   { slug: "hemp-henley", input: { name: "Hemp/Cotton Henley", text: "55% hemp / 45% organic cotton, ~7 oz midweight" }, inInventory: true, classification: hempHenley },
+  // NOTE: these three rich Patagonia pieces stay catalog-only (inInventory:false). They are exactly the
+  // items whose ABSENCE produces the canonical Marcy capability gaps (wicking_base / packable_insulation),
+  // asserted by the cross-archetype guard in test/app-service.guest.test.ts — flipping them in would
+  // silently erase those gaps. The believable starter kit below is built from name-matched gear instead,
+  // which is what fills the packing checklist's "In closet" lines without touching the capability guards.
   { slug: "r1-air", input: { name: "Patagonia R1 Air Full-Zip Hoody", text: "~11 oz, very breathable grid fleece, no DWR, $189" }, inInventory: false, classification: r1Air },
   { slug: "synchilla-snap-t", input: { name: "Patagonia Lightweight Synchilla Snap-T Pullover", text: "pile fleece, low breathability, lifestyle-leaning" }, inInventory: false, classification: synchillaSnapT },
   { slug: "marsupial", input: { name: "Patagonia Outdoor Everyday Marsupial", text: "pile fleece, kangaroo pocket, lifestyle-leaning" }, inInventory: false, classification: marsupial },
+  ...STARTER_KIT.map(({ slug, name }) => ({
+    slug,
+    input: { name },
+    inInventory: true,
+    classification: starterKitClassification(name),
+  })),
 ];
 
 export const INVENTORY_SEED = SEED_CORPUS.filter((e) => e.inInventory);

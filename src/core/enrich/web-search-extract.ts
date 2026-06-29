@@ -231,14 +231,17 @@ export async function extractViaWebSearch(
     "```\n\n" +
     "If you cannot find reliable specs, set found to false and all other fields to null/[].";
 
-  // Build the web_search tool definition. allowed_domains restricts results to the allowlist so every
-  // result is a manufacturer/retailer page BY CONSTRUCTION.
-  const webSearchTool = {
+  // Build the web_search tool definition. allowed_domains restricts results to the allowlist; OPEN MODE
+  // (ADR-0029: empty allowlist) OMITS it so the search spans the whole web — universal product coverage
+  // for any brand. The citation gate below still requires the model's source_url to be a URL the search
+  // tool ACTUALLY returned (anti-hallucination ground truth), so a spec is never invented, restricted or
+  // not. (web_search has no SSRF surface — Claude's server fetches, not ours.)
+  const webSearchTool: Record<string, unknown> = {
     type: "web_search_20260209",
     name: "web_search",
     max_uses: 5,
-    allowed_domains: [...allowlist],
   };
+  if (allowlist.length > 0) webSearchTool.allowed_domains = [...allowlist];
 
   try {
     // Initial messages

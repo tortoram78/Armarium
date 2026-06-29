@@ -32,19 +32,16 @@ export const dynamic = "force-dynamic";
 // page 500s ("bricks"). (Vercel Hobby allows up to 60s.)
 export const maxDuration = 60;
 
-// Parallel data fetch for collections (needed for add-to-collection picker on item detail).
-// Guests see no picker (write-gated), so we skip these reads for them.
-
 function titleize(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** A serif section heading with a hairline rule and an optional mono count — the established
  *  closet/plan masthead pattern, reused here for the spec-sheet sections. */
-function SectionHead({ title, count }: { title: string; count?: number }) {
+function SectionHead({ title, count, muted = false }: { title: string; count?: number; muted?: boolean }) {
   return (
     <div className="mb-4 flex items-baseline gap-4">
-      <h2 className="display-md text-foreground">{title}</h2>
+      <h2 className={muted ? "display-md text-muted-foreground" : "display-md text-foreground"}>{title}</h2>
       <span className="h-px flex-1 bg-border" aria-hidden />
       {count !== undefined && (
         <span className="data-mono text-xs tabular-nums text-muted-foreground">{count}</span>
@@ -58,22 +55,23 @@ type EvidenceAny =
   | null
   | undefined;
 
-/** A single spec row: label · value (mono for data) · quiet provenance, or an honest "unknown". */
+/** Is a facet actually known? Unknown is first-class — we simply DON'T render it (absence = unknown),
+ *  rather than fabricating a value OR shouting "verify" at a normal user. */
+const known = (e: EvidenceAny): boolean => !!(e && e.value !== null && e.value !== undefined);
+
+/**
+ * A single spec row — KNOWN values only. Unknown facets render nothing (the caller filters them out
+ * and hides empty sections), so the page reads as a calm sheet of what we actually know, never a wall
+ * of "verify" prompts. Specs are optional enrichment, not a chore.
+ */
 function SpecRow({ e, label }: { e: EvidenceAny; label: string }) {
-  if (!e || e.value === null) {
-    return (
-      <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5 last:border-0">
-        <span className="text-sm text-muted-foreground">{label}</span>
-        <span className="text-sm italic text-accent">Unknown — verify</span>
-      </div>
-    );
-  }
+  if (!known(e)) return null;
+  const ev = e as { value: string | number | boolean; confidence?: string; source?: string; evidence?: string };
   const displayVal =
-    typeof e.value === "boolean" ? (e.value ? "Yes" : "No") : String(e.value).replace(/_/g, " ");
+    typeof ev.value === "boolean" ? (ev.value ? "Yes" : "No") : String(ev.value).replace(/_/g, " ");
   const provenance = [
-    e.confidence && e.confidence !== "unknown" ? `${e.confidence} confidence` : "",
-    e.source && e.source !== "unknown" ? e.source : "",
-    e.evidence ?? "",
+    ev.confidence && ev.confidence !== "unknown" ? `${ev.confidence} confidence` : "",
+    ev.source && ev.source !== "unknown" ? ev.source : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -106,76 +104,91 @@ export default async function ItemDetailPage({
   // If still a draft, send to review
   if (item.draft) redirect(`/items/${params.id}/review`);
 
-  // Sign the item's private photo path (ADR-0018 §D). null when there's no photo, OR storage is
-  // unconfigured (the hermetic build / dev), OR the object is missing — the lead-image block is then
-  // skipped and the spec sheet renders text-first (no broken image).
   const imageUrl = await getSignedItemImageUrl(item.imagePath ?? null);
 
-  // Collections: only needed for authenticated users (picker is hidden for guests).
   const [allCollections, itemCollections] = isGuest
     ? [[], []]
-    : await Promise.all([
-        listCollections(userId),
-        collectionsForItem(params.id, userId),
-      ]);
+    : await Promise.all([listCollections(userId), collectionsForItem(params.id, userId)]);
 
   const resolved = resolveItem(item);
-
-  // Domain gate — gear-specific UI is shown only when the item is classified into the gear domain.
   const isGear = isItemGear(item);
-  // Apparel domain gate — apparel-specific UI is shown only when the item is classified into the apparel domain.
   const isApparel = isItemApparel(item);
-
   const c = item.classification;
 
-  // Only evaluate capabilities for gear items (they have no facets otherwise).
+  // Confirmed capabilities only — what this item CAN do. Unknown/blocked capabilities are not shown as
+  // red "verify" badges; instead a single calm hint invites enrichment (below).
   const capResults = isGear
-    ? CAPABILITY_KEYS.map((cap) => ({
-        cap,
-        label: CAPABILITY_LABELS[cap],
-        result: evaluateCapability(resolved, cap),
-      }))
+    ? CAPABILITY_KEYS.map((cap) => ({ cap, label: CAPABILITY_LABELS[cap], result: evaluateCapability(resolved, cap) }))
     : [];
   const satisfied = capResults.filter((r) => r.result === "satisfies");
-  const verify = capResults.filter((r) => r.result === "blocked_unknown");
-  const verifyCount = verify.length;
+  const blockedCount = capResults.filter((r) => r.result === "blocked_unknown").length;
 
-  // A confident brand · model subhead when those identity facts are known (and not just an echo of the
-  // item name) — gives the spec sheet a premium product-page header.
   const brand = c.identity.brand.value;
   const model = c.identity.model.value;
   const identityLine = [brand, model].filter(Boolean).join(" · ");
   const showIdentityLine = identityLine.length > 0 && identityLine !== item.name;
+  const priceDollars = c.identity.price_cents.value !== null ? c.identity.price_cents.value / 100 : null;
 
-  const priceDollars =
-    c.identity.price_cents.value !== null ? c.identity.price_cents.value / 100 : null;
-
-  // Eyebrow label: "Gear · apparel" when both; "Apparel" when apparel-only; "Gear" when gear-only; "Possession" when neither.
   const eyebrowLabel = isGear && isApparel ? "Gear · apparel" : isGear ? "Gear" : isApparel ? "Apparel" : "Possession";
 
-  // Header meta line differs by domain: gear shows capability count; non-gear shows honest "not yet classified"
-  const metaCapabilityNode = isGear ? (
-    <>
-      <span aria-hidden className="text-muted-foreground/40">·</span>
-      <span>
-        <span className="data-mono text-foreground">{satisfied.length}</span>{" "}
-        {satisfied.length === 1 ? "capability" : "capabilities"}
-      </span>
-      {verifyCount > 0 && (
-        <>
-          <span aria-hidden className="text-muted-foreground/40">·</span>
-          <span className="text-accent">
-            <span className="data-mono">{verifyCount}</span> to verify
-          </span>
-        </>
-      )}
-    </>
-  ) : (
-    <>
-      <span aria-hidden className="text-muted-foreground/40">·</span>
-      <span className="text-muted-foreground italic">Not yet classified</span>
-    </>
-  );
+  // ── Which spec sections actually have KNOWN content (so we never render an empty bordered box) ──
+  const identityKnown = known(c.identity.brand) || known(c.identity.model) || priceDollars !== null || known(c.identity.weight_grams);
+
+  const universalRows: [string, EvidenceAny][] = [
+    ["Waterproofness", c.universal.waterproofness],
+    ["Wind resistance", c.universal.wind_resistance],
+    ["Breathability", c.universal.breathability],
+    ["Moisture management", c.universal.moisture_management],
+    ["Dry speed", c.universal.dry_speed],
+    ["Warmth when wet", c.universal.warmth_when_wet],
+    ["Warmth", c.universal.warmth],
+    ["Packability", c.universal.packability],
+    ["Technical vs lifestyle", c.universal.technical_vs_lifestyle],
+    ["UPF", c.universal.upf],
+  ];
+  const universalKnown = universalRows.filter(([, e]) => known(e));
+
+  const multilabelRows: [string, readonly string[]][] = [
+    ["Layering role", c.multilabel.layering_role],
+    ["Function / purpose", c.multilabel.function_purpose],
+    ["Body zone", c.multilabel.body_zone_covered],
+    ["Activity fit", c.multilabel.activity_fit],
+    ["Conditions fit", c.multilabel.conditions_fit],
+  ];
+  const multilabelKnown = multilabelRows.filter(([, vals]) => vals.length > 0);
+
+  const groupSections = (
+    isGear
+      ? c.applicable_groups.map((gk) => {
+          const grp = c.groups[gk as keyof typeof c.groups];
+          if (!grp) return null;
+          const rows = Object.entries(grp).filter(([, fv]) => known(fv as EvidenceAny));
+          return rows.length > 0 ? { gk, rows } : null;
+        })
+      : []
+  ).filter((g): g is NonNullable<typeof g> => g !== null);
+
+  const ap = c.groups.apparel;
+  const apparelKnown =
+    isApparel &&
+    !!ap &&
+    (ap.garment_role.length > 0 ||
+      known(ap.formality) ||
+      known(ap.fit) ||
+      known(ap.pattern) ||
+      ap.care.length > 0 ||
+      ap.occasion.length > 0);
+
+  const materialsKnown = (isGear || isApparel) && (c.materials.length > 0 || c.treatments.length > 0);
+
+  const hasAnyKnownSpec =
+    satisfied.length > 0 ||
+    identityKnown ||
+    universalKnown.length > 0 ||
+    multilabelKnown.length > 0 ||
+    groupSections.length > 0 ||
+    apparelKnown ||
+    materialsKnown;
 
   return (
     <div className="mx-auto max-w-3xl space-y-12">
@@ -187,27 +200,34 @@ export default async function ItemDetailPage({
         <span aria-hidden>&larr;</span> Closet
       </Link>
 
-      {/* ── Masthead — the spec-sheet header ── */}
+      {/* ── Masthead ── */}
       <header className="space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
           <div className="min-w-0 max-w-2xl">
             <p className="eyebrow mb-3">{eyebrowLabel}</p>
             <h1 className="display-xl text-foreground">{item.name}</h1>
-            {showIdentityLine && (
-              <p className="mt-3 text-[0.975rem] text-muted-foreground">{identityLine}</p>
-            )}
+            {showIdentityLine && <p className="mt-3 text-[0.975rem] text-muted-foreground">{identityLine}</p>}
             <p className="mt-4 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.95rem] text-muted-foreground">
-              <span>
-                Added{" "}
-                <span className="data-mono text-foreground">
-                  {new Date(item.createdAt).toLocaleDateString()}
-                </span>
+              <span className={item.inventory.ownershipStatus === "owned" ? "text-foreground" : "text-muted-foreground"}>
+                {titleize(item.inventory.ownershipStatus)}
               </span>
-              <span aria-hidden className="text-muted-foreground/40">·</span>
-              <span className={item.inInventory ? "text-foreground" : "text-muted-foreground"}>
-                {item.inInventory ? "In inventory" : "Catalog only"}
-              </span>
-              {metaCapabilityNode}
+              {item.inventory.quantity > 1 && (
+                <>
+                  <span aria-hidden className="text-muted-foreground/40">·</span>
+                  <span>
+                    Qty <span className="data-mono text-foreground">{item.inventory.quantity}</span>
+                  </span>
+                </>
+              )}
+              {isGear && satisfied.length > 0 && (
+                <>
+                  <span aria-hidden className="text-muted-foreground/40">·</span>
+                  <span>
+                    <span className="data-mono text-foreground">{satisfied.length}</span>{" "}
+                    {satisfied.length === 1 ? "capability" : "capabilities"}
+                  </span>
+                </>
+              )}
               {priceDollars !== null && (
                 <>
                   <span aria-hidden className="text-muted-foreground/40">·</span>
@@ -217,7 +237,6 @@ export default async function ItemDetailPage({
             </p>
           </div>
 
-          {/* Write affordances — hidden for a guest (their actions are write-gated behind requireUserId). */}
           {!isGuest && (
             <div className="flex shrink-0 gap-2">
               <form action={setInventoryAction}>
@@ -260,19 +279,13 @@ export default async function ItemDetailPage({
         )}
       </header>
 
-      {/* ── Lead photo (display-only — ADR-0018) + upload control. The hero shows only when a signed URL
-            resolved; otherwise the spec sheet is text-first (graceful, no broken image). The uploader is
-            hidden for a guest (its write action is gated) and self-hides when storage is unconfigured. ── */}
+      {/* ── Lead photo (display-only — ADR-0018) + upload control ── */}
       {(imageUrl || !isGuest) && (
         <section className="space-y-4">
           {imageUrl && (
             <div className="overflow-hidden rounded-lg border border-border bg-muted/40">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imageUrl}
-                alt={item.name}
-                className="max-h-[28rem] w-full object-cover"
-              />
+              <img src={imageUrl} alt={item.name} className="max-h-[28rem] w-full object-cover" />
             </div>
           )}
           {!isGuest && (
@@ -287,335 +300,63 @@ export default async function ItemDetailPage({
         </section>
       )}
 
-      {/* ── Capabilities — GEAR ONLY ── */}
-      {isGear && (
-        <section>
-          <SectionHead title="Capabilities" count={satisfied.length} />
-          {satisfied.length > 0 && (
-            <div className="mb-4">
-              <p className="eyebrow mb-2.5">Satisfies</p>
-              <div className="flex flex-wrap gap-1.5">
-                {satisfied.map(({ cap, label }) => (
-                  <Badge key={cap} variant="success">{label}</Badge>
-                ))}
-              </div>
-            </div>
-          )}
-          {verify.length > 0 && (
-            <div>
-              <p className="eyebrow mb-2.5 text-accent">Unknown — verify before relying on</p>
-              <div className="flex flex-wrap gap-1.5">
-                {verify.map(({ cap, label }) => (
-                  <Badge key={cap} variant="verify">{label}</Badge>
-                ))}
-              </div>
-            </div>
-          )}
-          {satisfied.length === 0 && verify.length === 0 && (
-            <p className="text-[0.95rem] leading-relaxed text-muted-foreground">
-              No capabilities confirmed yet — many facets may be unknown. Correct them below to unlock more.
-            </p>
-          )}
-        </section>
-      )}
+      {/* ════════════════════════════════════════════════════════════════════════════════════════
+          YOUR STUFF FIRST — the facts a normal user cares about (ownership, tags, kits). These come
+          before specs, and an item is "complete" with just these. Specs are optional enrichment below.
+          ════════════════════════════════════════════════════════════════════════════════════════ */}
 
-      {/* ── Identity — always shown ── */}
+      {/* ── Inventory — ownership/physical metadata layer (ADR-0021) ── */}
       <section>
-        <SectionHead title="Identity" />
-        <div className="panel px-5 py-1">
-          <SpecRow e={c.identity.brand} label="Brand" />
-          <SpecRow e={c.identity.model} label="Model" />
-          {priceDollars !== null && (
-            <SpecRow
-              e={{ ...c.identity.price_cents, value: `$${priceDollars.toFixed(2)}` }}
-              label="Price"
-            />
-          )}
-          <SpecRow e={c.identity.weight_grams} label="Weight (g)" />
-        </div>
-      </section>
-
-      {/* ── Materials & composition — GEAR or APPAREL (fabric facets matter for both domains) ── */}
-      {(isGear || isApparel) && (c.materials.length > 0 || c.treatments.length > 0) && (
-        <section>
-          <SectionHead
-            title="Material & composition"
-            count={c.materials.length + c.treatments.length || undefined}
-          />
-          {c.materials.length > 0 && (
-            <div className="panel mb-4 px-5 py-1">
-              {c.materials.map((m, i) => (
-                <div
-                  key={i}
-                  className="border-b border-border/60 py-3 text-sm leading-relaxed text-foreground last:border-0"
-                >
-                  <span className="font-medium capitalize">{m.role}</span>
-                  {m.name ? <span className="text-muted-foreground"> — {m.name}</span> : ""}
-                  {m.fiber_components.length > 0 && (
-                    <span className="data-mono text-[0.8125rem] text-muted-foreground">
-                      {" "}
-                      ({m.fiber_components
-                        .map((fc) => `${fc.fiber}${fc.pct != null ? ` ${fc.pct}%` : ""}`)
-                        .join(", ")})
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          {c.treatments.length > 0 && (
-            <div className="panel px-5 py-1">
-              {c.treatments.map((t, i) => (
-                <div
-                  key={i}
-                  className="border-b border-border/60 py-3 text-sm leading-relaxed text-foreground last:border-0"
-                >
-                  <span className="font-medium capitalize">{t.kind.replace(/_/g, " ")}</span>
-                  {t.condition ? (
-                    <span className="text-muted-foreground"> ({t.condition.replace(/_/g, " ")})</span>
-                  ) : (
-                    ""
-                  )}
-                  <span className="text-muted-foreground"> — {t.evidence}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* ── Universal facets — GEAR or APPAREL (warmth/breathability/moisture matter for apparel too) ── */}
-      {(isGear || isApparel) && (
-        <section>
-          <SectionHead title="Universal facets" />
-          <div className="panel px-5 py-1">
-            <SpecRow e={c.universal.waterproofness} label="Waterproofness" />
-            <SpecRow e={c.universal.wind_resistance} label="Wind resistance" />
-            <SpecRow e={c.universal.breathability} label="Breathability" />
-            <SpecRow e={c.universal.moisture_management} label="Moisture management" />
-            <SpecRow e={c.universal.dry_speed} label="Dry speed" />
-            <SpecRow e={c.universal.warmth_when_wet} label="Warmth when wet" />
-            <SpecRow e={c.universal.warmth} label="Warmth" />
-            <SpecRow e={c.universal.packability} label="Packability" />
-            <SpecRow e={c.universal.technical_vs_lifestyle} label="Technical vs lifestyle" />
-            <SpecRow e={c.universal.upf} label="UPF" />
-          </div>
-        </section>
-      )}
-
-      {/* ── Multi-label facets (Function & fit) — GEAR ONLY ── */}
-      {isGear && (
-        <section>
-          <SectionHead title="Function & fit" />
-          <div className="panel space-y-4 p-5">
-            {(
-              [
-                ["Layering role", c.multilabel.layering_role],
-                ["Function / purpose", c.multilabel.function_purpose],
-                ["Body zone", c.multilabel.body_zone_covered],
-                ["Activity fit", c.multilabel.activity_fit],
-                ["Conditions fit", c.multilabel.conditions_fit],
-              ] as [string, readonly string[]][]
-            ).map(([label, vals]) => (
-              <div key={label}>
-                <p className="eyebrow mb-2">{label}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {vals.length === 0 ? (
-                    <span className="text-sm italic text-accent">None — verify</span>
-                  ) : (
-                    vals.map((v) => (
-                      <Badge key={v} variant="subtle">{titleize(v)}</Badge>
-                    ))
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Domain groups — group-specific specs — GEAR ONLY ── */}
-      {isGear && c.applicable_groups.length > 0 && (
-        <section>
-          <SectionHead title="Group-specific specs" />
-          <div className="space-y-6">
-            {c.applicable_groups.map((gk) => {
-              const grp = c.groups[gk as keyof typeof c.groups];
-              if (!grp) return null;
-              return (
-                <div key={gk}>
-                  <p className="eyebrow mb-2">{titleize(gk)}</p>
-                  <div className="panel px-5 py-1">
-                    {Object.entries(grp).map(([fk, fv]) => (
-                      <SpecRow key={fk} e={fv as EvidenceAny} label={titleize(fk)} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* ── Apparel — APPAREL ONLY (ADR-0026 apparel-domain facets) ── */}
-      {isApparel && (
-        <section>
-          <SectionHead title="Apparel" />
-          <div className="panel space-y-4 p-5">
-            {/* Garment role — multilabel chips */}
-            <div>
-              <p className="eyebrow mb-2">Garment role</p>
-              <div className="flex flex-wrap gap-1.5">
-                {(!c.groups.apparel || c.groups.apparel.garment_role.length === 0) ? (
-                  <span className="text-sm italic text-accent">None — verify</span>
-                ) : (
-                  c.groups.apparel.garment_role.map((v) => (
-                    <Badge key={v} variant="subtle">{titleize(v)}</Badge>
-                  ))
-                )}
-              </div>
-            </div>
-            {/* Formality, fit, pattern — Evidence<ordinal/enum> single values */}
-            <div className="border-t border-border/60 pt-4">
-              <SpecRow e={c.groups.apparel?.formality ?? null} label="Formality" />
-              <SpecRow e={c.groups.apparel?.fit ?? null} label="Fit" />
-              <SpecRow e={c.groups.apparel?.pattern ?? null} label="Pattern" />
-            </div>
-            {/* Care — multilabel chips */}
-            <div>
-              <p className="eyebrow mb-2">Care</p>
-              <div className="flex flex-wrap gap-1.5">
-                {(!c.groups.apparel || c.groups.apparel.care.length === 0) ? (
-                  <span className="text-sm italic text-accent">None — verify</span>
-                ) : (
-                  c.groups.apparel.care.map((v) => (
-                    <Badge key={v} variant="subtle">{titleize(v)}</Badge>
-                  ))
-                )}
-              </div>
-            </div>
-            {/* Occasion — multilabel chips */}
-            <div>
-              <p className="eyebrow mb-2">Occasion</p>
-              <div className="flex flex-wrap gap-1.5">
-                {(!c.groups.apparel || c.groups.apparel.occasion.length === 0) ? (
-                  <span className="text-sm italic text-accent">None — verify</span>
-                ) : (
-                  c.groups.apparel.occasion.map((v) => (
-                    <Badge key={v} variant="subtle">{titleize(v)}</Badge>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── Inventory — ownership/physical metadata layer (ADR-0021) — always shown ── */}
-      <section>
-        <SectionHead title="Inventory" />
-
-        {/* Display: show all fields, "—" for nulls honestly (unknown-is-first-class). */}
+        <SectionHead title="Your item" />
         <div className="panel mb-4 px-5 py-1">
-          {/* Status */}
           <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
-            <span className="text-sm text-muted-foreground">Ownership status</span>
-            <span className="data-mono text-[0.8125rem] capitalize text-foreground">
-              {item.inventory.ownershipStatus}
-            </span>
+            <span className="text-sm text-muted-foreground">Status</span>
+            <span className="data-mono text-[0.8125rem] capitalize text-foreground">{item.inventory.ownershipStatus}</span>
           </div>
-          {/* Quantity */}
           <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
             <span className="text-sm text-muted-foreground">Quantity</span>
             <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.quantity}</span>
           </div>
-          {/* Condition */}
-          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
-            <span className="text-sm text-muted-foreground">Condition</span>
-            {item.inventory.condition ? (
-              <span className="data-mono text-[0.8125rem] capitalize text-foreground">
-                {item.inventory.condition.replace(/_/g, " ")}
-              </span>
-            ) : (
-              <span className="text-sm italic text-accent">—</span>
-            )}
-          </div>
-          {/* Acquired date */}
-          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
-            <span className="text-sm text-muted-foreground">Acquired</span>
-            {item.inventory.acquiredAt ? (
-              <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.acquiredAt}</span>
-            ) : (
-              <span className="text-sm italic text-accent">—</span>
-            )}
-          </div>
-          {/* Price paid */}
-          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
-            <span className="text-sm text-muted-foreground">Price paid</span>
-            {item.inventory.pricePaidCents !== null ? (
-              <span className="data-mono text-[0.8125rem] text-foreground">
-                ${(item.inventory.pricePaidCents / 100).toFixed(2)}
-              </span>
-            ) : (
-              <span className="text-sm italic text-accent">—</span>
-            )}
-          </div>
-          {/* Acquired from */}
-          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
-            <span className="text-sm text-muted-foreground">Acquired from</span>
-            {item.inventory.acquiredFrom ? (
-              <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.acquiredFrom}</span>
-            ) : (
-              <span className="text-sm italic text-accent">—</span>
-            )}
-          </div>
-          {/* Storage location */}
-          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
-            <span className="text-sm text-muted-foreground">Storage location</span>
-            {item.inventory.storageLocation ? (
-              <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.storageLocation}</span>
-            ) : (
-              <span className="text-sm italic text-accent">—</span>
-            )}
-          </div>
-          {/* Size */}
-          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
-            <span className="text-sm text-muted-foreground">Size</span>
-            {item.inventory.size ? (
+          {item.inventory.condition && (
+            <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+              <span className="text-sm text-muted-foreground">Condition</span>
+              <span className="data-mono text-[0.8125rem] capitalize text-foreground">{item.inventory.condition.replace(/_/g, " ")}</span>
+            </div>
+          )}
+          {item.inventory.size && (
+            <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+              <span className="text-sm text-muted-foreground">Size</span>
               <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.size}</span>
-            ) : (
-              <span className="text-sm italic text-accent">—</span>
-            )}
-          </div>
-          {/* Color */}
-          <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
-            <span className="text-sm text-muted-foreground">Color</span>
-            {item.inventory.color ? (
+            </div>
+          )}
+          {item.inventory.color && (
+            <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+              <span className="text-sm text-muted-foreground">Color</span>
               <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.color}</span>
-            ) : (
-              <span className="text-sm italic text-accent">—</span>
-            )}
-          </div>
-          {/* Notes */}
-          <div className="flex items-baseline justify-between gap-4 py-2.5">
-            <span className="text-sm text-muted-foreground">Notes</span>
-            {item.inventory.userNotes ? (
-              <span className="max-w-xs text-right text-[0.8125rem] text-foreground">
-                {item.inventory.userNotes}
-              </span>
-            ) : (
-              <span className="text-sm italic text-accent">—</span>
-            )}
-          </div>
+            </div>
+          )}
+          {item.inventory.storageLocation && (
+            <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+              <span className="text-sm text-muted-foreground">Storage</span>
+              <span className="data-mono text-[0.8125rem] text-foreground">{item.inventory.storageLocation}</span>
+            </div>
+          )}
+          {item.inventory.pricePaidCents !== null && (
+            <div className="flex items-baseline justify-between gap-4 border-b border-border/60 py-2.5">
+              <span className="text-sm text-muted-foreground">Price paid</span>
+              <span className="data-mono text-[0.8125rem] text-foreground">${(item.inventory.pricePaidCents / 100).toFixed(2)}</span>
+            </div>
+          )}
+          {item.inventory.userNotes && (
+            <div className="flex items-baseline justify-between gap-4 py-2.5">
+              <span className="text-sm text-muted-foreground">Notes</span>
+              <span className="max-w-xs text-right text-[0.8125rem] text-foreground">{item.inventory.userNotes}</span>
+            </div>
+          )}
         </div>
 
-        {/* Edit affordance — write-gated */}
         {!isGuest ? (
-          <InventoryEditor
-            itemId={item.id}
-            inventory={item.inventory}
-            action={updateInventoryAction}
-          />
+          <InventoryEditor itemId={item.id} inventory={item.inventory} action={updateInventoryAction} />
         ) : (
           <div className="panel flex flex-wrap items-center justify-between gap-3 bg-muted/40 p-5">
             <p className="text-sm text-muted-foreground">Editing inventory requires an account.</p>
@@ -629,38 +370,7 @@ export default async function ItemDetailPage({
         )}
       </section>
 
-      {/* ── Classify affordance — shown when no domain (gear or apparel) has been assigned yet ── */}
-      {item.inventory.domains.length === 0 && (
-        <section>
-          <div className="panel flex flex-wrap items-center justify-between gap-4 bg-muted/30 p-5">
-            <div>
-              <p className="text-sm font-medium text-foreground">Add details and classify</p>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                This item was recorded quickly. Classify it now to unlock capabilities, or add specs and
-                a manufacturer link for richer results.
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              {!isGuest && (
-                <form action={classifyNowAction}>
-                  <input type="hidden" name="id" value={item.id} />
-                  <Button type="submit" size="sm">
-                    Classify now
-                  </Button>
-                </form>
-              )}
-              <Link
-                href={`/items/new?name=${encodeURIComponent(item.name)}`}
-                className="inline-flex items-center rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-secondary"
-              >
-                Add specs / link
-              </Link>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── Tags — free-form user labels (Phase 4). Always shown; editor hidden for guests. ── */}
+      {/* ── Tags ── */}
       <section>
         <SectionHead title="Tags" />
         {searchParams.tagsError && (
@@ -671,16 +381,11 @@ export default async function ItemDetailPage({
         {isGuest && item.inventory.userTags.length === 0 ? (
           <p className="text-[0.95rem] text-muted-foreground italic">No tags.</p>
         ) : (
-          <TagsEditor
-            itemId={item.id}
-            tags={item.inventory.userTags}
-            isGuest={isGuest}
-            action={setItemTagsAction}
-          />
+          <TagsEditor itemId={item.id} tags={item.inventory.userTags} isGuest={isGuest} action={setItemTagsAction} />
         )}
       </section>
 
-      {/* ── Collections (kits) — Phase 4. Picker hidden for guests. ── */}
+      {/* ── Collections (kits) ── */}
       {!isGuest && (
         <section>
           <SectionHead title="Collections" />
@@ -695,28 +400,211 @@ export default async function ItemDetailPage({
         </section>
       )}
 
-      {/* ── Facet editor — GEAR ONLY; correction is a write; hidden for a guest. ── */}
-      {isGear && (
-        <section>
-          <SectionHead title="Correct facets" />
-          {!isGuest ? (
-            <FacetEditor
-              itemId={item.id}
-              classification={c}
-              action={updateFacetsAction}
-              defaultOpen={searchParams.edit === "1"}
-            />
-          ) : (
-            <div className="panel flex flex-wrap items-center justify-between gap-3 bg-muted/40 p-5">
-              <p className="text-sm text-muted-foreground">Correcting facets requires an account.</p>
-              <Link
-                href={`/login?next=${encodeURIComponent(`/items/${item.id}`)}`}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92"
-              >
-                Log in to edit
-              </Link>
+      {/* ════════════════════════════════════════════════════════════════════════════════════════
+          SPECS — optional enrichment. Shown KNOWN-ONLY; unknown facets are simply absent. If nothing is
+          known yet, a calm invitation to auto-fill (no wall of "verify").
+          ════════════════════════════════════════════════════════════════════════════════════════ */}
+
+      {hasAnyKnownSpec && (
+        <section className="space-y-8">
+          <SectionHead title="Specs" muted />
+
+          {/* Capabilities — confirmed only */}
+          {isGear && satisfied.length > 0 && (
+            <div>
+              <p className="eyebrow mb-2.5">What it can do</p>
+              <div className="flex flex-wrap gap-1.5">
+                {satisfied.map(({ cap, label }) => (
+                  <Badge key={cap} variant="success">{label}</Badge>
+                ))}
+              </div>
             </div>
           )}
+
+          {identityKnown && (
+            <div>
+              <p className="eyebrow mb-2.5">Identity</p>
+              <div className="panel px-5 py-1">
+                <SpecRow e={c.identity.brand} label="Brand" />
+                <SpecRow e={c.identity.model} label="Model" />
+                {priceDollars !== null && (
+                  <SpecRow e={{ ...c.identity.price_cents, value: `$${priceDollars.toFixed(2)}` }} label="Price" />
+                )}
+                <SpecRow e={c.identity.weight_grams} label="Weight (g)" />
+              </div>
+            </div>
+          )}
+
+          {materialsKnown && (
+            <div>
+              <p className="eyebrow mb-2.5">Material &amp; composition</p>
+              {c.materials.length > 0 && (
+                <div className="panel mb-4 px-5 py-1">
+                  {c.materials.map((m, i) => (
+                    <div key={i} className="border-b border-border/60 py-3 text-sm leading-relaxed text-foreground last:border-0">
+                      <span className="font-medium capitalize">{m.role}</span>
+                      {m.name ? <span className="text-muted-foreground"> — {m.name}</span> : ""}
+                      {m.fiber_components.length > 0 && (
+                        <span className="data-mono text-[0.8125rem] text-muted-foreground">
+                          {" "}
+                          ({m.fiber_components.map((fc) => `${fc.fiber}${fc.pct != null ? ` ${fc.pct}%` : ""}`).join(", ")})
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {c.treatments.length > 0 && (
+                <div className="panel px-5 py-1">
+                  {c.treatments.map((t, i) => (
+                    <div key={i} className="border-b border-border/60 py-3 text-sm leading-relaxed text-foreground last:border-0">
+                      <span className="font-medium capitalize">{t.kind.replace(/_/g, " ")}</span>
+                      {t.condition ? <span className="text-muted-foreground"> ({t.condition.replace(/_/g, " ")})</span> : ""}
+                      <span className="text-muted-foreground"> — {t.evidence}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {universalKnown.length > 0 && (
+            <div>
+              <p className="eyebrow mb-2.5">Performance</p>
+              <div className="panel px-5 py-1">
+                {universalKnown.map(([label, e]) => (
+                  <SpecRow key={label} e={e} label={label} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isGear && multilabelKnown.length > 0 && (
+            <div>
+              <p className="eyebrow mb-2.5">Function &amp; fit</p>
+              <div className="panel space-y-4 p-5">
+                {multilabelKnown.map(([label, vals]) => (
+                  <div key={label}>
+                    <p className="eyebrow mb-2">{label}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {vals.map((v) => (
+                        <Badge key={v} variant="subtle">{titleize(v)}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {groupSections.length > 0 && (
+            <div className="space-y-6">
+              {groupSections.map(({ gk, rows }) => (
+                <div key={gk}>
+                  <p className="eyebrow mb-2">{titleize(gk)}</p>
+                  <div className="panel px-5 py-1">
+                    {rows.map(([fk, fv]) => (
+                      <SpecRow key={fk} e={fv as EvidenceAny} label={titleize(fk)} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {apparelKnown && ap && (
+            <div>
+              <p className="eyebrow mb-2.5">Apparel</p>
+              <div className="panel space-y-4 p-5">
+                {ap.garment_role.length > 0 && (
+                  <div>
+                    <p className="eyebrow mb-2">Garment role</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {ap.garment_role.map((v) => (
+                        <Badge key={v} variant="subtle">{titleize(v)}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(known(ap.formality) || known(ap.fit) || known(ap.pattern)) && (
+                  <div className="border-t border-border/60 pt-4">
+                    <SpecRow e={ap.formality} label="Formality" />
+                    <SpecRow e={ap.fit} label="Fit" />
+                    <SpecRow e={ap.pattern} label="Pattern" />
+                  </div>
+                )}
+                {ap.care.length > 0 && (
+                  <div>
+                    <p className="eyebrow mb-2">Care</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {ap.care.map((v) => (
+                        <Badge key={v} variant="subtle">{titleize(v)}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {ap.occasion.length > 0 && (
+                  <div>
+                    <p className="eyebrow mb-2">Occasion</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {ap.occasion.map((v) => (
+                        <Badge key={v} variant="subtle">{titleize(v)}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ── Enrich / edit affordance — calm, optional. Auto-fill from the name, or edit by hand. The
+            "verify" framing is gone: missing specs are an opportunity, not an error. ── */}
+      {!isGuest && (
+        <section>
+          <div className="panel flex flex-wrap items-center justify-between gap-4 bg-muted/30 p-5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                {hasAnyKnownSpec ? "Improve this item" : "Add specs"}
+              </p>
+              <p className="mt-0.5 max-w-prose text-sm text-muted-foreground">
+                {hasAnyKnownSpec
+                  ? "Auto-fill missing specs from the product name, or edit any detail by hand. Optional — your item is already in your closet."
+                  : "Your item is saved. Auto-fill its specs from the product name to unlock packing recommendations — or skip it; the closet works fine without them."}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <form action={classifyNowAction}>
+                <input type="hidden" name="id" value={item.id} />
+                <Button type="submit" size="sm">Auto-fill from name</Button>
+              </form>
+              <Link
+                href={`/items/new?name=${encodeURIComponent(item.name)}`}
+                className="inline-flex items-center rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-secondary"
+              >
+                Add a product link
+              </Link>
+            </div>
+          </div>
+          {isGear && blockedCount > 0 && hasAnyKnownSpec && (
+            <p className="mt-2 text-xs text-muted-foreground/80">
+              {blockedCount} more {blockedCount === 1 ? "capability" : "capabilities"} could be confirmed with a few more specs.
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* ── Manual spec editor — GEAR ONLY; tucked at the bottom for power users. Hidden for guests. ── */}
+      {isGear && !isGuest && (
+        <section>
+          <SectionHead title="Edit specs" muted />
+          <FacetEditor
+            itemId={item.id}
+            classification={c}
+            action={updateFacetsAction}
+            defaultOpen={searchParams.edit === "1"}
+          />
         </section>
       )}
     </div>

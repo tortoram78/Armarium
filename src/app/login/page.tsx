@@ -63,6 +63,21 @@ export default function LoginPage({
           >
             Create one
           </Link>
+          <span className="mt-2 block text-xs text-muted-foreground">
+            <Link
+              href="/privacy"
+              className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            >
+              Privacy
+            </Link>
+            {" · "}
+            <Link
+              href="/terms"
+              className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            >
+              Terms
+            </Link>
+          </span>
         </>
       }
     >

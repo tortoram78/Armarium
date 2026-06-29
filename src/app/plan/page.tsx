@@ -46,6 +46,9 @@ export default async function PlanPage({ searchParams }: { searchParams: Record<
     duration: seed.duration,
     exposure: seed.exposure,
     activities: seed.activities.join(", "),
+    // ADR-0027 Phase 2 trip-input extras (live-only; not part of TripConditions, so always blank-seeded).
+    days: "",
+    partySize: "",
   };
 
   return (
@@ -132,10 +135,10 @@ export default async function PlanPage({ searchParams }: { searchParams: Record<
           fields; every field stays editable and the submit still posts to planTripAction. */}
       <section className="panel p-6 sm:p-7">
         <div className="mb-6">
-          <h2 className="display-md text-foreground">Set conditions</h2>
+          <h2 className="display-md text-foreground">Pick a trip type</h2>
           <p className="mt-2 max-w-prose text-sm leading-relaxed text-muted-foreground">
-            Pull a forecast from a location and dates, or configure each parameter directly — either way
-            you can adjust everything before planning.
+            Choose a trip type, add days and party size, and optionally pull a forecast — that&apos;s enough
+            to plan. Every parameter is still tunable under “Adjust details.”
             {isGuest && (
               <span className="text-accent"> Results won&apos;t be saved until you log in.</span>
             )}

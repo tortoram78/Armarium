@@ -1,7 +1,9 @@
 // Application service — the thin layer the UI (pages, actions) calls. Ties the repository to the pure
 // core (resolve, group, plan). Pages never import core reasoning directly; they go through here.
 
-import { getRepository, getRepositoryFor, getCacheRepository, getClassifier, getTripParser, getWebSearchEnricher, DEFAULT_USER_ID, type Classifier } from "./services";
+import { randomBytes } from "node:crypto";
+
+import { getRepository, getRepositoryFor, getCacheRepository, getClassifier, getTripParser, getWebSearchEnricher, getPackingEnricher, DEFAULT_USER_ID, type Classifier } from "./services";
 import { fetchManufacturerHtml, type FetcherDeps } from "./enrich-fetcher";
 import { fetchViaScrapfly, isScrapflyConfigured } from "./scrapfly-fetcher";
 import { normalizeCacheKey } from "@/core/cache";
@@ -14,6 +16,7 @@ import { normalizeTags, type InventoryMeta, type OwnershipStatus, type Condition
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
 import type { RecommendationResult } from "@/core/recommend";
+import { planPacking, tripContext, mergeEnrichment, type PackingOpts, type PackingPlan } from "@/core/packing";
 import { deriveFromComposition } from "@/core/materials";
 import {
   resolveBehavioralFacets,
@@ -28,6 +31,7 @@ import type { LlmClaimsOutput } from "@/core/classify/claims";
 import {
   parseProductHtml,
   toManufacturerEvidence,
+  applyManufacturerOverlay,
   type ExtractedProduct,
   type WebSearchResult,
 } from "@/core/enrich";
@@ -214,6 +218,7 @@ export async function enrichItem(
   id: string,
   userId = DEFAULT_USER_ID,
   deps: ClassifyToDraftDeps = {},
+  opts: { webSearch?: boolean } = {},
 ): Promise<StoredItem | null> {
   const repo = getRepository();
   const existing = await repo.getItem(userId, id);
@@ -248,6 +253,29 @@ export async function enrichItem(
     // and return it, never throw (ADR-0017 §17.3 degrade-to-unknown). The caller renders the unchanged
     // item; the user can retry. A failed enrichment must never 500 ("brick") the page.
     return existing;
+  }
+
+  // AUTHORITATIVE OVERLAY (ADR-0028): pull manufacturer/retailer specs for the NAME via the citation-gated
+  // web-search enricher and overlay them — identity (brand/model/price/weight) + composition WIN over the
+  // classifier's inference (rule #2). This is what makes "Auto-fill from name" return real specs.
+  //
+  // OPT-IN (cost discipline — ADR-0030): the web-search call is EXPENSIVE (an outbound `web_search` loop,
+  // billable, slow). It runs ONLY on the EXPLICIT single-item path (`opts.webSearch`, i.e. the user pressed
+  // "Auto-fill from name") or when a `deps.webSearch` is injected (tests). The AUTOMATIC post-capture /
+  // batch enrichment path does NOT pass it, so a paste-a-list of 200 items does not fire 200 web searches.
+  // Degrade-safe: a failed/empty search keeps the inference-only classification; NEVER throws. (Caveat: the
+  // overlay is applied to the resolved classification, not the persisted claim trail — reads use the
+  // classification jsonb as source of truth; a fuller claims merge is future work.)
+  const wsEnrich = deps.webSearch ?? (opts.webSearch ? getWebSearchEnricher().enrich : null);
+  if (wsEnrich) {
+    try {
+      const ws = await wsEnrich({ name });
+      if (ws.sourceUrl !== null) {
+        classification = applyManufacturerOverlay(classification, toManufacturerEvidence(ws.extracted));
+      }
+    } catch {
+      /* web-search unavailable/failed — keep the inference-only classification (degrade, never throw). */
+    }
   }
 
   // Overlay the resolved classification + provenance onto the existing row. Raw repo.updateClassification
@@ -404,6 +432,77 @@ export async function planPreview(
   return planTrip(inv, name, conditions, description);
 }
 
+/**
+ * The REBUILT engine (ADR-0027): a trip → a quantified, gear-first packing CHECKLIST over the user's
+ * resolved closet. Deterministic and computed at view-time, so it always reflects the CURRENT closet and
+ * needs no persistence change (the saved trip stores only its conditions + the legacy result snapshot).
+ * Guest-aware via `getInventoryResolved` (a guest plans against the seeded sample closet).
+ *
+ * `opts` (ADR-0027 Phase 2) carry the minimal trip-input extras — explicit `days`, `partySize`, and an
+ * `activities` override — straight into the engine. They are LIVE-ONLY: nothing here is persisted, and
+ * the trip schema has no day/party column, so they affect ONLY the immediate plan/preview render. The
+ * durable trip inputs are the structured `conditions` (which DO carry `activities` + `duration`); a saved
+ * trip re-planned from its stored conditions therefore plays back without any explicit day/party override.
+ * Persisting day/party would require a schema change — deliberately out of scope (ADR-0027 Phase 2).
+ */
+export async function planPackingFor(
+  name: string,
+  conditions: TripConditions,
+  userId = DEFAULT_USER_ID,
+  opts: PackingOpts & { enrich?: boolean } = {},
+): Promise<PackingPlan> {
+  const inv = await getInventoryResolved(userId);
+  const plan = planPacking(inv, name, conditions, opts);
+  // Layer B (ADR-0027 §B): additive LLM breadth + guide narration over the deterministic plan. OPT-IN
+  // ONLY (a user-triggered "expert suggestions" action) — never on every render, to bound LLM cost. The
+  // keyless enricher is inert (available:false), so the deterministic plan stands alone offline.
+  if (opts.enrich) {
+    const enricher = getPackingEnricher();
+    if (enricher.available) {
+      const enrichment = await enricher.enrich(plan, tripContext(conditions, opts));
+      return mergeEnrichment(plan, enrichment);
+    }
+  }
+  return plan;
+}
+
+// ---- shared trip link (ADR-0033) — read-only public packing list by unguessable token ----
+
+/**
+ * Enable public sharing for a saved trip — returns its (idempotent) share token. USER-SCOPED via the
+ * repo: only the owner can enable. Re-enabling returns the existing token (stable link). Null if the trip
+ * isn't the user's. The token is 144 bits of base64url randomness — unguessable, the sole capability.
+ */
+export async function enableTripShare(id: string, userId = DEFAULT_USER_ID): Promise<string | null> {
+  const repo = getRepository();
+  const trip = await repo.getTrip(userId, id);
+  if (!trip) return null;
+  if (trip.shareToken) return trip.shareToken;
+  const token = randomBytes(18).toString("base64url");
+  await repo.setTripShareToken(userId, id, token);
+  return token;
+}
+
+export interface SharedTripView {
+  name: string;
+  conditions: TripConditions;
+  plan: PackingPlan;
+}
+
+/**
+ * Resolve a public shared trip by token (NOT user-scoped — the token is the capability). The packing
+ * checklist is recomputed read-only from the trip's conditions over the OWNER's closet, so a viewer sees
+ * the owner's picks + gaps for THIS trip — never a browsable closet or the owner's other trips. Null if
+ * the token matches nothing.
+ */
+export async function getSharedTrip(token: string): Promise<SharedTripView | null> {
+  const trip = await getRepository().getTripByShareToken(token);
+  if (!trip) return null;
+  const inv = await getInventoryResolved(trip.userId);
+  const plan = planPacking(inv, trip.name, trip.conditions);
+  return { name: trip.name, conditions: trip.conditions, plan };
+}
+
 // ---- add-by-name (review-before-save) ----
 
 export type AddMode = "live" | "offline";
@@ -463,6 +562,14 @@ function resolvedComposition(name: string, claims: EvidenceClaim[]): ItemClassif
  *  an API key (the real handle is env-selected by `getClassifier()`). */
 export interface ClassifyToDraftDeps {
   classifier?: ReturnType<typeof getClassifier>;
+  /**
+   * Web-search product enrichment (ADR-0020, extended to the by-name path in ADR-0028). When available,
+   * the by-name enrichment overlays authoritative manufacturer/retailer identity + composition specs on
+   * top of the classifier's behavioral inference (citation-gated in core). Defaults to the env-selected
+   * `getWebSearchEnricher()`; injected in tests. The keyless handle is inert (`available:false`), so the
+   * hermetic gate is unchanged.
+   */
+  webSearch?: (query: { name?: string | null; url?: string | null }) => Promise<WebSearchResult>;
 }
 
 /**
@@ -578,7 +685,11 @@ export async function enrichFromUrlToDraft(
   deps: EnrichDeps = {},
   inInventory = true,
 ): Promise<EnrichResult> {
-  const fetchHtml = deps.fetchHtml ?? ((u: string) => fetchManufacturerHtml(u, deps.fetcherDeps));
+  // OPEN MODE (ADR-0029): `allowlist: []` lifts the domain hardcap so ANY public product URL can be
+  // fetched. SSRF is still fully defended by the fetcher's DNS-resolve-all + private/loopback/reserved-IP
+  // block + per-hop redirect re-validation; the host allowlist was defense-in-depth. A caller-supplied
+  // `fetcherDeps` (tests) still wins.
+  const fetchHtml = deps.fetchHtml ?? ((u: string) => fetchManufacturerHtml(u, { allowlist: [], ...deps.fetcherDeps }));
   const fetchScrapfly = deps.fetchScrapfly ?? ((u: string) => fetchViaScrapfly(u));
 
   // 1. DIRECT fetch first — free + fast. For non-walled brands this is the whole story.

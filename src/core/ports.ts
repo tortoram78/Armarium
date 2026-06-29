@@ -46,6 +46,8 @@ export interface StoredTrip {
   conditions: TripConditions;
   result?: RecommendationResult;
   createdAt: string;
+  /** Public share token (ADR-0033); null/undefined = not shared. */
+  shareToken?: string | null;
 }
 
 export interface AddItemInput {
@@ -214,6 +216,12 @@ export interface GearRepository {
   cloneTrip(userId: string, id: string): Promise<StoredTrip>;
   /** Delete a saved trip (and its result snapshot), user-scoped. No-op if it isn't the user's. */
   deleteTrip(userId: string, id: string): Promise<void>;
+  /** Set (or clear) a trip's public share token. USER-SCOPED — only the owner can enable sharing. */
+  setTripShareToken(userId: string, id: string, token: string | null): Promise<void>;
+  /** Look up a trip by its public share token — NOT user-scoped (the unguessable token IS the capability).
+   *  Returns null if no trip carries the token. The caller renders a read-only view; it never exposes the
+   *  owner's wider closet or other trips. */
+  getTripByShareToken(token: string): Promise<StoredTrip | null>;
 
   // ---- collections: user-curated named sets of items ----
   // Collections are curation/browsing tools; they carry NO behavioral semantics and are NOT facet
@@ -250,4 +258,18 @@ export interface GearRepository {
    * to show which collections an item belongs to. Returns [] if the item isn't the user's.
    */
   collectionsForItem(userId: string, itemId: string): Promise<Collection[]>;
+
+  // ---- account / data deletion (TRUST: the user can wipe everything they own) ----
+
+  /**
+   * Permanently delete EVERY user_id-scoped row this user owns — items (and their cascaded child rows:
+   * the domain-group tables, item_treatments, pending_facets, item_evidence, collection_items), trips,
+   * collections (and their membership rows), pending_facets, and the user's per-user classification
+   * cache overrides (user_overrides). User-scoped: ONLY rows where user_id = $userId are touched — the
+   * app-layer WHERE is the SOLE live tenant isolation (the OWNER connection bypasses RLS), so this can
+   * never reach another tenant's data. Irreversible by design — the Account page gates it behind an
+   * explicit client confirm. Does NOT delete the Supabase auth user record (that is handled separately,
+   * deploy-gated on the service-role key). Idempotent: a second call is a harmless no-op.
+   */
+  deleteAllUserData(userId: string): Promise<void>;
 }

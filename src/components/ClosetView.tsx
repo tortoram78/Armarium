@@ -389,11 +389,6 @@ function ItemCard({
               loading="lazy"
               className="h-full w-full object-cover transition-transform duration-300 ease-crisp group-hover:scale-[1.03]"
             />
-            {item.needsVerify && !item.isRecordOnly && showBadges && (
-              <Badge variant="verify" className="absolute right-2 top-2 bg-card/90 backdrop-blur-sm">
-                needs review
-              </Badge>
-            )}
           </div>
         )}
         <div className="flex flex-1 flex-col gap-3 p-5">
@@ -401,24 +396,17 @@ function ItemCard({
             <h3 className="subhead text-[0.975rem] leading-snug text-foreground transition-colors group-hover:text-primary">
               {item.name}
             </h3>
-            <div className="flex shrink-0 items-center gap-1">
-              {item.needsVerify && !hasImage && !item.isRecordOnly && showBadges && (
-                <Badge variant="verify" className="shrink-0">
-                  needs review
-                </Badge>
-              )}
-              <div
-                onClick={(e) => e.preventDefault()}
-                className="opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-              >
-                <ItemActions
-                  item={item}
-                  isGuest={isGuest}
-                  renameAction={renameAction}
-                  updateAction={updateAction}
-                  deleteAction={deleteAction}
-                />
-              </div>
+            <div
+              onClick={(e) => e.preventDefault()}
+              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+            >
+              <ItemActions
+                item={item}
+                isGuest={isGuest}
+                renameAction={renameAction}
+                updateAction={updateAction}
+                deleteAction={deleteAction}
+              />
             </div>
           </div>
 
@@ -453,8 +441,8 @@ function ItemCard({
                 not yet classified
               </span>
             ) : item.badges.length === 0 ? (
-              <span className="text-xs italic text-muted-foreground/70">
-                no facets yet
+              <span className="text-xs italic text-muted-foreground/60">
+                details pending
               </span>
             ) : (
               item.badges.map((b) => (
@@ -557,9 +545,6 @@ function ItemRow({
             ))
           )}
         </div>
-        {item.needsVerify && !item.isRecordOnly && showBadges && (
-          <Badge variant="verify" className="hidden shrink-0 sm:inline-flex">needs review</Badge>
-        )}
       </Link>
       <div
         onClick={(e) => e.preventDefault()}
@@ -1044,7 +1029,8 @@ export function ClosetView({
   const reduceMotion = useReducedMotion();
   const searchRef = useRef<HTMLInputElement>(null);
   const itemMap = new Map(items.map((it) => [it.id, it]));
-  const verifyCount = items.filter((it) => it.needsVerify && !it.isRecordOnly && it.isGear !== false).length;
+  // needsVerify is kept in the type for backwards-compat but is not surfaced in the UI — unknown
+  // specs are invisible on the card (absence = calm), not flagged as a defect.
   const isAll = activeGroup === "all";
   const hasSearch = searchQ.length > 0;
   const hasActiveFilter = Boolean(activeStatus) || Boolean(activeCondition) || activeSort !== "newest" || Boolean(activeTag);
@@ -1114,16 +1100,24 @@ export function ClosetView({
               <>
                 <span className="data-mono text-foreground">{items.length}</span>{" "}
                 {items.length === 1 ? "piece" : "pieces"} of gear.
-                {verifyCount > 0 && (
-                  <> {verifyCount} {verifyCount === 1 ? "needs" : "need"} a quick review.</>
-                )}
               </>
             )}
           </p>
         </div>
 
-        {/* Masthead actions: add with details + export CSV */}
-        <div className="flex shrink-0 items-center gap-2">
+        {/* Masthead actions: plan a trip (primary) + add with details + export CSV */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Link
+            href="/plan"
+            className={cn(
+              "inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5",
+              "text-sm font-medium text-primary-foreground",
+              "shadow-[0_1px_2px_0_hsl(var(--shadow-soft))]",
+              "transition-colors duration-200 ease-crisp hover:bg-primary/92 active:translate-y-px",
+            )}
+          >
+            Plan a trip
+          </Link>
           {!isGuest && (
             <a
               href="/api/export"
