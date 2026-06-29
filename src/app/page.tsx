@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { searchCloset, isItemGear } from "@/server/app-service";
 import { getSignedItemImageUrls } from "@/server/item-images";
 import { deriveDisplayTags } from "@/core/tags";
@@ -121,6 +122,10 @@ export default async function ClosetPage({
     itemIds: g.itemIds,
   }));
 
+  // Show the value-prop hero for guests, or when the closet is completely empty (no search/filter active).
+  const isEmpty = items.length === 0 && !searchQ && !activeStatus && !activeCondition && !activeTag;
+  const showHero = isGuest || isEmpty;
+
   return (
     <div className="space-y-8">
       {isGuest && <GuestBanner />}
@@ -129,6 +134,35 @@ export default async function ClosetPage({
           {searchParams.error}
         </p>
       )}
+
+      {/* ── First-run / guest hero ── */}
+      {showHero && (
+        <section className="panel px-8 py-12 sm:px-12 sm:py-16 text-center sm:text-left">
+          <p className="eyebrow mb-4">Welcome to Armarium</p>
+          <h2 className="display-xl text-foreground max-w-2xl">
+            The gear closet that tells you what to pack.
+          </h2>
+          <p className="mt-5 max-w-xl text-[1rem] leading-relaxed text-muted-foreground">
+            Log the gear you own, add specs, and Armarium reasons over your closet to build a
+            tailored packing list for any trip — mountains, desert, coast, or jungle.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Link
+              href="/plan"
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-primary/92 active:translate-y-px"
+            >
+              Plan a trip
+            </Link>
+            <Link
+              href="/items/new"
+              className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-6 py-3 text-sm font-medium text-foreground shadow-[0_1px_2px_0_hsl(var(--shadow-soft))] transition-colors duration-200 ease-crisp hover:bg-secondary hover:text-foreground active:translate-y-px"
+            >
+              Add your gear
+            </Link>
+          </div>
+        </section>
+      )}
+
       <ClosetView
         items={itemSummaries}
         groups={groupSummaries}

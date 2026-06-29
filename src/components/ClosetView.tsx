@@ -1105,8 +1105,19 @@ export function ClosetView({
           </p>
         </div>
 
-        {/* Masthead actions: add with details + export CSV */}
-        <div className="flex shrink-0 items-center gap-2">
+        {/* Masthead actions: plan a trip (primary) + add with details + export CSV */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Link
+            href="/plan"
+            className={cn(
+              "inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5",
+              "text-sm font-medium text-primary-foreground",
+              "shadow-[0_1px_2px_0_hsl(var(--shadow-soft))]",
+              "transition-colors duration-200 ease-crisp hover:bg-primary/92 active:translate-y-px",
+            )}
+          >
+            Plan a trip
+          </Link>
           {!isGuest && (
             <a
               href="/api/export"
