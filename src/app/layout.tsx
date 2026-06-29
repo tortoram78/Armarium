@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { NavShell } from "@/components/NavShell";
@@ -43,6 +43,17 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Armarium",
   description: "A faceted gear closet that reasons about what to pack for a trip.",
+};
+
+/* Mobile viewport + browser-chrome color matched to the warm paper (light) / espresso (dark) theme, so
+   the phone status bar / address bar blend into the app instead of a default white/black band. */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f6f3ec" },
+    { media: "(prefers-color-scheme: dark)", color: "#1a1714" },
+  ],
 };
 
 /* ----------------------------------------------------------------
