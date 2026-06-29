@@ -14,7 +14,7 @@ import { normalizeTags, type InventoryMeta, type OwnershipStatus, type Condition
 import { groupCloset, type GroupingKey } from "@/core/closet";
 import { planTrip } from "@/core/recommend/plan";
 import type { RecommendationResult } from "@/core/recommend";
-import { planPacking, type PackingPlan } from "@/core/packing";
+import { planPacking, type PackingOpts, type PackingPlan } from "@/core/packing";
 import { deriveFromComposition } from "@/core/materials";
 import {
   resolveBehavioralFacets,
@@ -435,14 +435,22 @@ export async function planPreview(
  * resolved closet. Deterministic and computed at view-time, so it always reflects the CURRENT closet and
  * needs no persistence change (the saved trip stores only its conditions + the legacy result snapshot).
  * Guest-aware via `getInventoryResolved` (a guest plans against the seeded sample closet).
+ *
+ * `opts` (ADR-0027 Phase 2) carry the minimal trip-input extras — explicit `days`, `partySize`, and an
+ * `activities` override — straight into the engine. They are LIVE-ONLY: nothing here is persisted, and
+ * the trip schema has no day/party column, so they affect ONLY the immediate plan/preview render. The
+ * durable trip inputs are the structured `conditions` (which DO carry `activities` + `duration`); a saved
+ * trip re-planned from its stored conditions therefore plays back without any explicit day/party override.
+ * Persisting day/party would require a schema change — deliberately out of scope (ADR-0027 Phase 2).
  */
 export async function planPackingFor(
   name: string,
   conditions: TripConditions,
   userId = DEFAULT_USER_ID,
+  opts: PackingOpts = {},
 ): Promise<PackingPlan> {
   const inv = await getInventoryResolved(userId);
-  return planPacking(inv, name, conditions);
+  return planPacking(inv, name, conditions, opts);
 }
 
 // ---- add-by-name (review-before-save) ----

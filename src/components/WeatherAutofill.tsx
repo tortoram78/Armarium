@@ -46,7 +46,32 @@ interface FormState {
   duration: TripConditions["duration"];
   exposure: TripConditions["exposure"];
   activities: string;
+  // ── ADR-0027 Phase 2 trip-input extras ──
+  // `days` / `partySize` are LIVE-ONLY (no schema/persistence change): the actions thread them into the
+  // engine's PackingOpts for the immediate plan, while the durable carriers are `activities` + `duration`
+  // (which ride the conditions through the save/redirect). Strings because they are form values.
+  days: string;
+  partySize: string;
 }
+
+// Trip-type quick-select (ADR-0027 Phase 2). Each chip drops a SENSIBLE default `activities` + `duration`
+// into the structured form — exactly the two fields the engine keys its urban/backcountry + overnight logic
+// off. They are starting points: every field below stays editable. NOT hardcoded recommendations — they
+// seed the SAME structured TripConditions any described/manual trip flows through.
+interface TripType {
+  id: string;
+  label: string;
+  activities: string;
+  duration: TripConditions["duration"];
+}
+const TRIP_TYPES: readonly TripType[] = [
+  { id: "day-hike", label: "Day hike", activities: "hiking", duration: "day" },
+  { id: "backpacking", label: "Backpacking", activities: "backpacking, hiking", duration: "multiday" },
+  { id: "alpine", label: "Alpine", activities: "alpine, hiking", duration: "day" },
+  { id: "travel", label: "Travel", activities: "travel, city", duration: "day" },
+  { id: "paddling", label: "Paddling", activities: "paddling", duration: "day" },
+  { id: "camping", label: "Camping", activities: "camping", duration: "overnight" },
+];
 
 interface WeatherAutofillProps {
   /** Existing planTripAction — the form posts here unchanged once conditions are set/edited. */
@@ -81,10 +106,27 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
   const [form, setForm] = useState<FormState>(initial);
   const [where, setWhere] = useState({ location: "", startDate: "", endDate: "" });
   const [note, setNote] = useState<Note>(null);
+  const [tripType, setTripType] = useState<string | null>(null);
+  // Per the v1 audit: LEAD with the friendly trip-type + forecast path; tuck the dense parameter grid behind
+  // an "Adjust details" disclosure so the common case isn't a wall of selects. Opens automatically once a
+  // forecast or trip-type touches the fields (so the user sees what changed).
+  const [showDetails, setShowDetails] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  // Apply a trip-type chip: seed activities + duration (the two fields the engine keys its
+  // urban/backcountry + overnight logic off). Toggling the active chip off clears the selection but leaves
+  // the fields as-is (the user may have edited them since). Every field stays editable below.
+  function applyTripType(t: TripType) {
+    if (tripType === t.id) {
+      setTripType(null);
+      return;
+    }
+    setTripType(t.id);
+    setForm((f) => ({ ...f, activities: t.activities, duration: t.duration }));
   }
 
   function pullForecast() {
@@ -97,6 +139,7 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
       if (result.ok) {
         setForm((f) => applyForecast(f, result.conditions));
         setNote({ kind: "filled", label: result.locationLabel });
+        setShowDetails(true); // reveal the grid so the user sees what the forecast filled
       } else {
         // First-class manual fallback: leave the conditions fields untouched, just say so.
         setNote({ kind: "manual" });
@@ -111,6 +154,64 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
       <div className="space-y-2">
         <Label htmlFor="struct-name">Trip name</Label>
         <Input id="struct-name" name="name" placeholder="Untitled trip" defaultValue={initialName} />
+      </div>
+
+      {/* ── Trip type — the FRIENDLY lead (ADR-0027 Phase 2). One tap seeds activities + duration; ── */}
+      <div className="space-y-2.5">
+        <Label>Trip type</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {TRIP_TYPES.map((t) => {
+            const active = tripType === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => applyTripType(t)}
+                aria-pressed={active}
+                className={
+                  active
+                    ? "rounded-md bg-primary px-3.5 py-1.5 text-[0.8125rem] font-medium text-primary-foreground transition-colors duration-200 ease-crisp"
+                    : "rounded-md border border-border px-3.5 py-1.5 text-[0.8125rem] font-medium text-muted-foreground transition-colors duration-200 ease-crisp hover:bg-secondary hover:text-foreground"
+                }
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          A starting point — sets the activities and trip length. Refine everything under “Adjust details.”
+        </p>
+      </div>
+
+      {/* ── Days & party size — optional live-only sizing (ADR-0027 Phase 2). They scale the engine's ── */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="days">Days (optional)</Label>
+          <Input
+            id="days"
+            name="days"
+            type="number"
+            min={1}
+            placeholder="e.g. 3"
+            value={form.days}
+            onChange={(e) => set("days", e.target.value)}
+            className="data-mono"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="partySize">Party size (optional)</Label>
+          <Input
+            id="partySize"
+            name="partySize"
+            type="number"
+            min={1}
+            placeholder="e.g. 2"
+            value={form.partySize}
+            onChange={(e) => set("partySize", e.target.value)}
+            className="data-mono"
+          />
+        </div>
       </div>
 
       {/* ── Where & when — the forecast block, a quiet recessed sub-section ── */}
@@ -184,6 +285,25 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
         </p>
       </div>
 
+      {/* ── Adjust details — the dense parameter grid, DE-EMPHASIZED behind a disclosure (v1 audit). All
+          fields stay live form inputs even when collapsed (they post regardless), so the structured form
+          is never broken — the disclosure only controls visibility. ── */}
+      <div className="border-t border-border pt-5">
+        <button
+          type="button"
+          onClick={() => setShowDetails((v) => !v)}
+          aria-expanded={showDetails}
+          className="flex w-full items-center justify-between gap-3 text-left"
+        >
+          <span className="subhead text-[0.95rem] text-foreground">Adjust details</span>
+          <span className="text-sm text-muted-foreground">
+            {showDetails ? "Hide −" : "Temperature, precipitation, wind, sun, exertion… +"}
+          </span>
+        </button>
+      </div>
+
+      {/* Kept mounted (hidden, not unmounted) so every field still posts when the form submits collapsed. */}
+      <div className={showDetails ? "space-y-7" : "hidden"}>
       {/* ── Conditions — controlled, prefillable, always editable ── */}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -273,6 +393,8 @@ export function WeatherAutofill({ planAction, weatherAction, initial, initialNam
           onChange={(e) => set("activities", e.target.value)}
         />
       </div>
+      </div>
+      {/* /Adjust details */}
 
       <div className="pt-1">
         <SubmitButton pendingText="Planning…">Plan trip</SubmitButton>

@@ -64,8 +64,26 @@ function pick<T extends readonly string[]>(v: FormDataEntryValue | null, allowed
   return (allowed as readonly string[]).includes(s) ? (s as T[number]) : def;
 }
 
-/** Build a validated `TripConditions` from the structured-form FormData (shared by plan + preview + edit). */
+/** Read a positive-integer form field (Days / party size), or null when absent/invalid. */
+function posIntOrNull(v: FormDataEntryValue | null): number | null {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
+/**
+ * Build a validated `TripConditions` from the structured-form FormData (shared by plan + preview + edit).
+ *
+ * ADR-0027 Phase 2 — DURABLE trip-length carry: when the user gives an explicit `days` count, fold it into
+ * the structured `duration` (the only trip-length carrier the conditions model has, and the one that
+ * survives the save/redirect to the trip dossier + preview). 1 day → "day", 2 → "overnight", 3+ →
+ * "multiday". A blank `days` leaves the explicit (or default) duration select untouched. `activities` is
+ * already a conditions field, so the trip-type quick-select's activities persist here for free.
+ */
 function conditionsFromFormData(formData: FormData): TripConditions {
+  const days = posIntOrNull(formData.get("days"));
+  const durationFromDays = days === null ? null : days >= 3 ? "multiday" : days === 2 ? "overnight" : "day";
   return defaultConditions({
     temp_min_c: numOrNull(formData.get("temp_min_c")),
     temp_max_c: numOrNull(formData.get("temp_max_c")),
@@ -73,13 +91,29 @@ function conditionsFromFormData(formData: FormData): TripConditions {
     wind: pick(formData.get("wind"), WIND, "calm"),
     sun: pick(formData.get("sun"), SUN, "moderate"),
     exertion: pick(formData.get("exertion"), EXERTION, "moderate"),
-    duration: pick(formData.get("duration"), DURATION, "day"),
+    duration: durationFromDays ?? pick(formData.get("duration"), DURATION, "day"),
     exposure: pick(formData.get("exposure"), EXPOSURE, "sheltered"),
     activities: String(formData.get("activities") ?? "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
   });
+}
+
+/**
+ * Read the ADR-0027 Phase 2 trip-input extras into engine `PackingOpts`. These are LIVE-ONLY: there is no
+ * trip-schema column for explicit days/party, so they shape only the immediate plan and are NOT persisted
+ * (a saved trip re-plans from its stored conditions alone). `days` is also folded into `conditions.duration`
+ * by `conditionsFromFormData` so trip length still survives the save; `partySize` has no durable carrier and
+ * is therefore genuinely live-only. `activities` rides the conditions, so it is omitted here.
+ */
+function packingOptsFromFormData(formData: FormData): { days?: number; partySize?: number } {
+  const days = posIntOrNull(formData.get("days"));
+  const partySize = posIntOrNull(formData.get("partySize"));
+  return {
+    ...(days !== null ? { days } : {}),
+    ...(partySize !== null ? { partySize } : {}),
+  };
 }
 
 export async function replanTripAction(formData: FormData) {
@@ -452,6 +486,10 @@ export async function planTripAction(formData: FormData) {
   const userId = await requireUserId();
   const name = String(formData.get("name") ?? "").trim() || "Untitled trip";
   const description = String(formData.get("description") ?? "").trim() || undefined;
+  // The trip-type quick-select's `activities` + the (days-folded) `duration` live in `conditions` and are
+  // persisted by `planAndSave` (durable). Explicit `days`/`partySize` are LIVE-ONLY (no trip-schema column,
+  // ADR-0027 Phase 2): the saved trip dossier re-derives its packing plan from stored conditions alone, so
+  // there is no opts to thread here — `partySize` deliberately does not survive the save.
   const conditions = conditionsFromFormData(formData);
   const trip = await planAndSave(name, conditions, description, userId);
   revalidatePath("/trips");
@@ -472,7 +510,14 @@ export async function planTripAction(formData: FormData) {
 export async function planPreviewAction(formData: FormData) {
   await getUserIdOrGuest();
   const conditions = conditionsFromFormData(formData);
-  redirect(`/plan/preview?conditions=${encodeConditions(conditions)}`);
+  // ADR-0027 Phase 2: the trip-type's activities + the (days-folded) duration ride inside `conditions`, so
+  // they survive into the preview render. `partySize` has no conditions carrier; carry it as a query hint
+  // so the preview can scale consumables for it (read defensively there, defaulting to solo).
+  const opts = packingOptsFromFormData(formData);
+  const params = new URLSearchParams({ conditions: encodeConditions(conditions) });
+  if (opts.partySize) params.set("partySize", String(opts.partySize));
+  if (opts.days) params.set("days", String(opts.days));
+  redirect(`/plan/preview?${params.toString()}`);
 }
 
 // ---- closet-as-database: record-only capture + inventory edit (ADR-0021/0022) ----
