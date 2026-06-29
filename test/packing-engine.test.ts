@@ -137,3 +137,20 @@ describe("packing engine — matches owned gear (closet-aware), gaps the rest", 
     expect(p.summary.gap + p.summary.verify).toBe(p.summary.total);
   });
 });
+
+describe("packing engine — pack weight budget (ADR-0027 Phase 4)", () => {
+  it("totals known weights of DISTINCT owned matched gear; unknown weights contribute nothing", () => {
+    const tent = item("MSR Hubba Hubba Tent");
+    tent.weightGrams = 1700;
+    const pack = item("Osprey Atmos 65 Pack");
+    pack.weightGrams = 2040;
+    const headlamp = item("Black Diamond Headlamp"); // weight unknown → not counted
+    const p = planPacking([tent, pack, headlamp], "x", MULTIDAY_WET, { activities: ["backpacking"] });
+    expect(p.summary.weightGrams).toBe(1700 + 2040);
+  });
+
+  it("weight is null (never fabricated) when no matched owned gear has a known weight", () => {
+    const p = planPacking([item("Some Tent")], "x", MULTIDAY_WET, { activities: ["backpacking"] });
+    expect(p.summary.weightGrams).toBeNull();
+  });
+});

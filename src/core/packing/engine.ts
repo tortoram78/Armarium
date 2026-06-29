@@ -173,14 +173,26 @@ export function planPacking(
     }
   }
 
+  // Pack weight (ADR-0027 §Phase 4): sum the known `weight_grams` of every DISTINCT owned item matched
+  // into the plan (single + system). Null when none of the matched gear has a known weight — honest,
+  // never a fabricated total. (Generic/consumable lines and gaps carry no owned item, so contribute none.)
+  const ownedIds = new Set<string>();
+  for (const l of lines) {
+    for (const r of l.ownedBy) ownedIds.add(r.id);
+    for (const r of l.systemBy) ownedIds.add(r.id);
+  }
+  let weightGrams: number | null = null;
+  for (const id of ownedIds) {
+    const w = byId.get(id)?.weightGrams;
+    if (w !== null && w !== undefined) weightGrams = (weightGrams ?? 0) + w;
+  }
+
   const summary = {
     total: lines.length,
     owned: lines.filter((l) => l.status === "owned").length,
     verify: lines.filter((l) => l.status === "verify").length,
     gap: lines.filter((l) => l.status === "gap").length,
-    // weight_grams lives on identity, which ResolvedItem does not carry — the weight budget is a later
-    // pass (ADR-0027 §Phase 4). Null until then; the type already permits it.
-    weightGrams: null as number | null,
+    weightGrams,
     packCapacityL,
   };
 

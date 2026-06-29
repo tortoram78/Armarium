@@ -129,6 +129,11 @@ export function PackingPlanView({ plan, readonly = false }: { plan: PackingPlan;
         <span className="text-sm text-muted-foreground">
           <span className="data-mono text-foreground">{summary.gap}</span> to bring / get
         </span>
+        {summary.weightGrams !== null && (
+          <span className="text-sm text-muted-foreground">
+            <span className="data-mono text-foreground">{(summary.weightGrams / 1000).toFixed(1)} kg</span> of owned gear
+          </span>
+        )}
         {summary.packCapacityL !== null && (
           <span className="text-sm text-muted-foreground">
             pack <span className="data-mono text-foreground">{summary.packCapacityL}L</span>

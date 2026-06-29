@@ -19,8 +19,19 @@ export interface ResolvedItem {
   groups: FacetGroups;
   /** Ownership / physical metadata from the persistence layer. Never derived from classification. */
   inventory: InventoryMeta;
+  /** The item's known weight in grams (identity hard fact), or null if unknown. Surfaced here so the
+   *  packing engine can total a pack weight without re-reading the full classification (ADR-0027 §Phase 4). */
+  weightGrams: number | null;
 }
 
 export function resolveFromClassification(id: string, c: ItemClassification, inventory: InventoryMeta = DEFAULT_INVENTORY): ResolvedItem {
-  return { id, name: c.name, universal: c.universal, multilabel: c.multilabel, groups: c.groups, inventory };
+  return {
+    id,
+    name: c.name,
+    universal: c.universal,
+    multilabel: c.multilabel,
+    groups: c.groups,
+    inventory,
+    weightGrams: c.identity.weight_grams.value,
+  };
 }
